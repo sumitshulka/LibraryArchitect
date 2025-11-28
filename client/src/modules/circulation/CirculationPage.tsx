@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
-import { mockCirculation, mockBooks, mockUsers } from "@/lib/mock-data";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { useQuery } from "@tanstack/react-query";
+import { circulationApi, booksApi, usersApi } from "@/lib/api";
 import {
   Table,
   TableBody,
@@ -24,6 +25,21 @@ import { Search, QrCode, RefreshCw, AlertCircle, CheckCircle2 } from "lucide-rea
 export default function CirculationPage() {
   const [checkoutIsbn, setCheckoutIsbn] = useState("");
   const [checkoutUserId, setCheckoutUserId] = useState("");
+
+  const { data: circulation = [] } = useQuery({
+    queryKey: ["circulation"],
+    queryFn: () => circulationApi.getAll(),
+  });
+
+  const { data: books = [] } = useQuery({
+    queryKey: ["books"],
+    queryFn: () => booksApi.getAll(),
+  });
+
+  const { data: users = [] } = useQuery({
+    queryKey: ["users"],
+    queryFn: usersApi.getAll,
+  });
 
   return (
     <MainLayout>
@@ -105,9 +121,9 @@ export default function CirculationPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {mockCirculation.map((record) => {
-              const book = mockBooks.find(b => b.id === record.bookId);
-              const user = mockUsers.find(u => u.id === record.userId);
+            {circulation.map((record) => {
+              const book = books.find(b => b.id === record.bookId);
+              const user = users.find(u => u.id === record.userId);
               
               return (
                 <TableRow key={record.id}>
@@ -125,7 +141,7 @@ export default function CirculationPage() {
                     </div>
                   </TableCell>
                   <TableCell className={record.status === 'OVERDUE' ? "text-red-600 font-medium" : ""}>
-                    {record.dueDate}
+                    {new Date(record.dueDate).toLocaleDateString()}
                   </TableCell>
                   <TableCell>
                     <Badge variant="outline" className={`

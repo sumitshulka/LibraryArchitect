@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
-import { mockUsers, User } from "@/lib/mock-data";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useQuery } from "@tanstack/react-query";
+import { usersApi } from "@/lib/api";
+import type { User } from "@shared/schema";
 import {
   Table,
   TableBody,
@@ -26,7 +28,12 @@ import { Plus, Search, MoreHorizontal, Mail, Phone, Shield } from "lucide-react"
 export default function UsersPage() {
   const [searchQuery, setSearchQuery] = useState("");
 
-  const filteredUsers = mockUsers.filter((user) => {
+  const { data: allUsers = [], isLoading } = useQuery({
+    queryKey: ["users"],
+    queryFn: usersApi.getAll,
+  });
+
+  const filteredUsers = allUsers.filter((user) => {
     return (
       user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       user.email.toLowerCase().includes(searchQuery.toLowerCase())
@@ -80,11 +87,17 @@ export default function UsersPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredUsers.map((user) => (
+            {isLoading ? (
+              <TableRow>
+                <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                  Loading...
+                </TableCell>
+              </TableRow>
+            ) : filteredUsers.map((user) => (
               <TableRow key={user.id}>
                 <TableCell>
                   <Avatar className="h-8 w-8">
-                    <AvatarImage src={user.avatar} />
+                    <AvatarImage src={user.avatarUrl || undefined} />
                     <AvatarFallback className="bg-primary/10 text-primary text-xs">
                       {user.name.split(' ').map(n => n[0]).join('')}
                     </AvatarFallback>
@@ -110,7 +123,7 @@ export default function UsersPage() {
                   </div>
                 </TableCell>
                 <TableCell className="hidden md:table-cell text-sm text-muted-foreground">
-                  {user.joinedDate}
+                  {new Date(user.joinedDate).toLocaleDateString()}
                 </TableCell>
                 <TableCell className="text-right">
                   <DropdownMenu>

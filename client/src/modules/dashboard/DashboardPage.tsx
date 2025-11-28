@@ -1,6 +1,5 @@
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { dashboardStats, mockCirculation, mockBooks } from "@/lib/mock-data";
 import { Book, Users, Repeat, AlertCircle, ArrowUpRight, ArrowDownRight } from "lucide-react";
 import { 
   BarChart, 
@@ -12,6 +11,8 @@ import {
   ResponsiveContainer, 
   Legend 
 } from "recharts";
+import { useQuery } from "@tanstack/react-query";
+import { statsApi, circulationApi, booksApi } from "@/lib/api";
 
 function StatCard({ title, value, icon: Icon, trend, trendValue, subtext }: any) {
   return (
@@ -37,6 +38,33 @@ function StatCard({ title, value, icon: Icon, trend, trendValue, subtext }: any)
 }
 
 export default function DashboardPage() {
+  const { data: stats } = useQuery({
+    queryKey: ["dashboard-stats"],
+    queryFn: statsApi.getDashboard,
+  });
+
+  const { data: circulation = [] } = useQuery({
+    queryKey: ["circulation"],
+    queryFn: () => circulationApi.getAll(),
+  });
+
+  const { data: books = [] } = useQuery({
+    queryKey: ["books"],
+    queryFn: () => booksApi.getAll(),
+  });
+
+  const mockTrend = [
+    { name: 'Mon', issues: 45, returns: 30 },
+    { name: 'Tue', issues: 52, returns: 38 },
+    { name: 'Wed', issues: 38, returns: 42 },
+    { name: 'Thu', issues: 65, returns: 55 },
+    { name: 'Fri', issues: 48, returns: 40 },
+    { name: 'Sat', issues: 20, returns: 15 },
+    { name: 'Sun', issues: 10, returns: 8 },
+  ];
+
+  const recentCirculation = circulation.slice(0, 3);
+
   return (
     <MainLayout>
       <div className="flex items-center justify-between">
@@ -46,7 +74,7 @@ export default function DashboardPage() {
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded-md border">
-            Last updated: Today, 10:23 AM
+            Last updated: {new Date().toLocaleTimeString()}
           </span>
         </div>
       </div>
@@ -54,7 +82,7 @@ export default function DashboardPage() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatCard 
           title="Total Catalog" 
-          value={dashboardStats.totalBooks} 
+          value={stats?.totalBooks || 0} 
           icon={Book} 
           trend="up" 
           trendValue="+120" 
@@ -62,7 +90,7 @@ export default function DashboardPage() {
         />
         <StatCard 
           title="Active Loans" 
-          value={dashboardStats.booksIssued} 
+          value={stats?.activeCirculation || 0} 
           icon={Repeat} 
           trend="up" 
           trendValue="+12%" 
@@ -70,7 +98,7 @@ export default function DashboardPage() {
         />
         <StatCard 
           title="Overdue Items" 
-          value={dashboardStats.overdue} 
+          value={stats?.overdueItems || 0} 
           icon={AlertCircle} 
           trend="down" 
           trendValue="-5%" 
@@ -78,7 +106,7 @@ export default function DashboardPage() {
         />
         <StatCard 
           title="Total Patrons" 
-          value={dashboardStats.totalMembers} 
+          value={stats?.activeMembers || 0} 
           icon={Users} 
           trend="up" 
           trendValue="+45" 
@@ -95,7 +123,7 @@ export default function DashboardPage() {
           <CardContent className="pl-2">
             <div className="h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={dashboardStats.circulationTrend}>
+                <BarChart data={mockTrend}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-muted" />
                   <XAxis 
                     dataKey="name" 
@@ -131,10 +159,10 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-8">
-              {mockCirculation.map((record, i) => {
-                const book = mockBooks.find(b => b.id === record.bookId);
+              {recentCirculation.length > 0 ? recentCirculation.map((record) => {
+                const book = books.find(b => b.id === record.bookId);
                 return (
-                  <div key={i} className="flex items-center">
+                  <div key={record.id} className="flex items-center">
                     <div className={`h-9 w-9 rounded-full flex items-center justify-center border ${
                       record.status === 'OVERDUE' ? 'bg-red-100 border-red-200 text-red-600' : 
                       record.status === 'RETURNED' ? 'bg-green-100 border-green-200 text-green-600' : 
@@ -145,17 +173,19 @@ export default function DashboardPage() {
                        <Book className="h-4 w-4" />}
                     </div>
                     <div className="ml-4 space-y-1">
-                      <p className="text-sm font-medium leading-none">{book?.title}</p>
+                      <p className="text-sm font-medium leading-none">{book?.title || 'Unknown Book'}</p>
                       <p className="text-xs text-muted-foreground">
                         {record.status === 'RETURNED' ? 'Returned by' : 'Checked out by'} User #{record.userId}
                       </p>
                     </div>
                     <div className="ml-auto font-medium text-xs text-muted-foreground">
-                      {record.checkoutDate}
+                      {new Date(record.checkoutDate).toLocaleDateString()}
                     </div>
                   </div>
                 )
-              })}
+              }) : (
+                <p className="text-sm text-muted-foreground text-center py-8">No recent activity</p>
+              )}
             </div>
           </CardContent>
         </Card>
