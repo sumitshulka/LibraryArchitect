@@ -1,9 +1,9 @@
 import { useState } from "react";
+import { Link } from "wouter";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { BookDialog } from "@/modules/catalog/BookDialog";
 import { MarcEditor } from "@/modules/catalog/MarcEditor";
 import { Z3950Search } from "@/modules/catalog/Z3950Search";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -23,7 +23,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Search, MoreHorizontal, Filter, Download, Database, FileText } from "lucide-react";
+import { Search, MoreHorizontal, Filter, Download, Database, FileText, Plus } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { booksApi } from "@/lib/api";
 import type { Book } from "@shared/schema";
@@ -87,7 +87,12 @@ export default function CatalogPage() {
               Export
             </Button>
           )}
-          <BookDialog />
+          <Link href="/catalog/new">
+            <Button size="sm" className="gap-2" data-testid="button-add-resource">
+              <Plus className="h-4 w-4" />
+              Add Resource
+            </Button>
+          </Link>
         </div>
       </div>
 

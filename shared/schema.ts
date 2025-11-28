@@ -21,6 +21,14 @@ export const users = pgTable("users", {
   avatarUrl: text("avatar_url"),
 });
 
+export const resourceTypes = pgTable("resource_types", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  description: text("description"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const books = pgTable("books", {
   id: serial("id").primaryKey(),
   isbn: text("isbn").notNull().unique(),
@@ -29,6 +37,7 @@ export const books = pgTable("books", {
   publisher: text("publisher"),
   publishedYear: integer("published_year"),
   category: text("category").notNull(),
+  resourceTypeId: integer("resource_type_id").references(() => resourceTypes.id),
   status: bookStatusEnum("status").notNull().default('AVAILABLE'),
   coverUrl: text("cover_url"),
   shelfLocation: text("shelf_location"),
@@ -75,6 +84,11 @@ export const insertUserSchema = createInsertSchema(users).omit({
   joinedDate: true,
 });
 
+export const insertResourceTypeSchema = createInsertSchema(resourceTypes).omit({
+  id: true,
+  createdAt: true,
+});
+
 export const insertBookSchema = createInsertSchema(books).omit({
   id: true,
   createdAt: true,
@@ -97,6 +111,9 @@ export const insertSystemConfigSchema = createInsertSchema(systemConfig).omit({
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
+
+export type InsertResourceType = z.infer<typeof insertResourceTypeSchema>;
+export type ResourceType = typeof resourceTypes.$inferSelect;
 
 export type InsertBook = z.infer<typeof insertBookSchema>;
 export type Book = typeof books.$inferSelect;

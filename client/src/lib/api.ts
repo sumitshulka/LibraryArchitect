@@ -1,4 +1,4 @@
-import type { Book, User, Circulation, Inventory, SystemConfig } from "@shared/schema";
+import type { Book, User, Circulation, Inventory, SystemConfig, ResourceType } from "@shared/schema";
 
 const API_BASE = "/api";
 
@@ -85,6 +85,81 @@ export const usersApi = {
       body: JSON.stringify(user),
     });
     if (!res.ok) throw new Error("Failed to update user");
+    return res.json();
+  },
+};
+
+// Resource Types API
+export const resourceTypesApi = {
+  getAll: async (): Promise<ResourceType[]> => {
+    const res = await fetch(`${API_BASE}/resource-types`);
+    if (!res.ok) throw new Error("Failed to fetch resource types");
+    return res.json();
+  },
+
+  getActive: async (): Promise<ResourceType[]> => {
+    const res = await fetch(`${API_BASE}/resource-types?active=true`);
+    if (!res.ok) throw new Error("Failed to fetch active resource types");
+    return res.json();
+  },
+
+  getById: async (id: number): Promise<ResourceType> => {
+    const res = await fetch(`${API_BASE}/resource-types/${id}`);
+    if (!res.ok) throw new Error("Failed to fetch resource type");
+    return res.json();
+  },
+
+  create: async (type: Omit<ResourceType, "id" | "createdAt">): Promise<ResourceType> => {
+    const res = await fetch(`${API_BASE}/resource-types`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(type),
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to create resource type");
+    }
+    return res.json();
+  },
+
+  update: async (id: number, type: Partial<ResourceType>): Promise<ResourceType> => {
+    const res = await fetch(`${API_BASE}/resource-types/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(type),
+    });
+    if (!res.ok) throw new Error("Failed to update resource type");
+    return res.json();
+  },
+
+  delete: async (id: number): Promise<void> => {
+    const res = await fetch(`${API_BASE}/resource-types/${id}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new Error("Failed to delete resource type");
+  },
+};
+
+// Z39.50 Search API
+export interface Z3950SearchResult {
+  id: string;
+  title: string;
+  author: string;
+  isbn: string;
+  publisher: string;
+  year: string;
+  source: string;
+  category: string;
+}
+
+export const z3950Api = {
+  search: async (isbn: string, server?: string): Promise<Z3950SearchResult[]> => {
+    const res = await fetch(`${API_BASE}/z3950/search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ isbn, server }),
+    });
+    if (!res.ok) throw new Error("Failed to perform Z39.50 search");
     return res.json();
   },
 };

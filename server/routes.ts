@@ -6,7 +6,8 @@ import {
   insertUserSchema, 
   insertCirculationSchema,
   insertInventorySchema,
-  insertSystemConfigSchema 
+  insertSystemConfigSchema,
+  insertResourceTypeSchema
 } from "@shared/schema";
 import { z } from "zod";
 import { fromZodError } from "zod-validation-error";
@@ -352,6 +353,115 @@ export async function registerRoutes(
       }
       console.error("Error setting config:", error);
       res.status(500).json({ error: "Failed to set configuration" });
+    }
+  });
+
+  // ===== Resource Types API =====
+  app.get("/api/resource-types", async (req, res) => {
+    try {
+      const { active } = req.query;
+      
+      if (active === 'true') {
+        const types = await storage.getActiveResourceTypes();
+        return res.json(types);
+      }
+      
+      const types = await storage.getAllResourceTypes();
+      res.json(types);
+    } catch (error) {
+      console.error("Error fetching resource types:", error);
+      res.status(500).json({ error: "Failed to fetch resource types" });
+    }
+  });
+
+  app.get("/api/resource-types/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const type = await storage.getResourceType(id);
+      
+      if (!type) {
+        return res.status(404).json({ error: "Resource type not found" });
+      }
+      
+      res.json(type);
+    } catch (error) {
+      console.error("Error fetching resource type:", error);
+      res.status(500).json({ error: "Failed to fetch resource type" });
+    }
+  });
+
+  app.post("/api/resource-types", async (req, res) => {
+    try {
+      const validated = insertResourceTypeSchema.parse(req.body);
+      const type = await storage.createResourceType(validated);
+      res.status(201).json(type);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error creating resource type:", error);
+      res.status(500).json({ error: "Failed to create resource type" });
+    }
+  });
+
+  app.patch("/api/resource-types/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const validated = insertResourceTypeSchema.partial().parse(req.body);
+      
+      const type = await storage.updateResourceType(id, validated);
+      
+      if (!type) {
+        return res.status(404).json({ error: "Resource type not found" });
+      }
+      
+      res.json(type);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error updating resource type:", error);
+      res.status(500).json({ error: "Failed to update resource type" });
+    }
+  });
+
+  app.delete("/api/resource-types/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await storage.deleteResourceType(id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting resource type:", error);
+      res.status(500).json({ error: "Failed to delete resource type" });
+    }
+  });
+
+  // ===== Z39.50 Search API =====
+  app.post("/api/z3950/search", async (req, res) => {
+    try {
+      const { isbn, server } = req.body;
+      
+      // Simulate Z39.50 search - in production this would connect to actual Z39.50 servers
+      // For now, we return mock data based on ISBN
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      const mockResults = [
+        { 
+          id: '1', 
+          title: 'Sample Book Title', 
+          author: 'Author Name', 
+          isbn: isbn || '978-0000000000', 
+          publisher: 'Sample Publisher', 
+          year: '2024', 
+          source: server || 'Library of Congress',
+          category: 'Computer Science'
+        },
+      ];
+      
+      res.json(mockResults);
+    } catch (error) {
+      console.error("Error performing Z39.50 search:", error);
+      res.status(500).json({ error: "Failed to perform Z39.50 search" });
     }
   });
 

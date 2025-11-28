@@ -9,11 +9,14 @@ import {
   type InsertInventory,
   type SystemConfig,
   type InsertSystemConfig,
+  type ResourceType,
+  type InsertResourceType,
   users,
   books,
   circulation,
   inventory,
-  systemConfig
+  systemConfig,
+  resourceTypes
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, or, like, desc, asc } from "drizzle-orm";
@@ -26,6 +29,14 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: number, user: Partial<InsertUser>): Promise<User | undefined>;
   getAllUsers(): Promise<User[]>;
+  
+  // Resource Types
+  getResourceType(id: number): Promise<ResourceType | undefined>;
+  createResourceType(type: InsertResourceType): Promise<ResourceType>;
+  updateResourceType(id: number, type: Partial<InsertResourceType>): Promise<ResourceType | undefined>;
+  getAllResourceTypes(): Promise<ResourceType[]>;
+  getActiveResourceTypes(): Promise<ResourceType[]>;
+  deleteResourceType(id: number): Promise<boolean>;
   
   // Books
   getBook(id: number): Promise<Book | undefined>;
@@ -87,6 +98,37 @@ export class DBStorage implements IStorage {
     return await db.select().from(users).orderBy(asc(users.name));
   }
 
+  // Resource Types
+  async getResourceType(id: number): Promise<ResourceType | undefined> {
+    const [type] = await db.select().from(resourceTypes).where(eq(resourceTypes.id, id));
+    return type;
+  }
+
+  async createResourceType(insertType: InsertResourceType): Promise<ResourceType> {
+    const [type] = await db.insert(resourceTypes).values(insertType).returning();
+    return type;
+  }
+
+  async updateResourceType(id: number, updateData: Partial<InsertResourceType>): Promise<ResourceType | undefined> {
+    const [type] = await db.update(resourceTypes).set(updateData).where(eq(resourceTypes.id, id)).returning();
+    return type;
+  }
+
+  async getAllResourceTypes(): Promise<ResourceType[]> {
+    return await db.select().from(resourceTypes).orderBy(asc(resourceTypes.name));
+  }
+
+  async getActiveResourceTypes(): Promise<ResourceType[]> {
+    return await db.select().from(resourceTypes)
+      .where(eq(resourceTypes.isActive, true))
+      .orderBy(asc(resourceTypes.name));
+  }
+
+  async deleteResourceType(id: number): Promise<boolean> {
+    await db.delete(resourceTypes).where(eq(resourceTypes.id, id));
+    return true;
+  }
+
   // Books
   async getBook(id: number): Promise<Book | undefined> {
     const [book] = await db.select().from(books).where(eq(books.id, id));
@@ -124,7 +166,7 @@ export class DBStorage implements IStorage {
   }
 
   async deleteBook(id: number): Promise<boolean> {
-    const result = await db.delete(books).where(eq(books.id, id));
+    await db.delete(books).where(eq(books.id, id));
     return true;
   }
 
