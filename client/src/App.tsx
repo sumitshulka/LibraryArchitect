@@ -1,4 +1,4 @@
-import { Switch, Route } from "wouter";
+import { Switch, Route, Router as WouterRouter } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -12,7 +12,7 @@ import InventoryPage from "@/modules/inventory/InventoryPage";
 import ReportsPage from "@/modules/reports/ReportsPage";
 import SettingsPage from "@/modules/settings/SettingsPage";
 
-function Router() {
+function AppRouter() {
   return (
     <Switch>
       <Route path="/" component={DashboardPage} />
@@ -32,7 +32,9 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <Toaster />
-        <Router />
+        <WouterRouter>
+          <AppRouter />
+        </WouterRouter>
       </TooltipProvider>
     </QueryClientProvider>
   );
