@@ -11,6 +11,8 @@ import {
   type InsertSystemConfig,
   type ResourceType,
   type InsertResourceType,
+  type Category,
+  type InsertCategory,
   type ErpIntegration,
   type InsertErpIntegration,
   type ErpWhitelist,
@@ -31,6 +33,7 @@ import {
   inventory,
   systemConfig,
   resourceTypes,
+  categories,
   erpIntegrations,
   erpIntegrationWhitelist,
   orgUnits,
@@ -58,6 +61,14 @@ export interface IStorage {
   getAllResourceTypes(): Promise<ResourceType[]>;
   getActiveResourceTypes(): Promise<ResourceType[]>;
   deleteResourceType(id: number): Promise<boolean>;
+  
+  // Categories
+  getCategory(id: number): Promise<Category | undefined>;
+  createCategory(category: InsertCategory): Promise<Category>;
+  updateCategory(id: number, category: Partial<InsertCategory>): Promise<Category | undefined>;
+  getAllCategories(): Promise<Category[]>;
+  getActiveCategories(): Promise<Category[]>;
+  deleteCategory(id: number): Promise<boolean>;
   
   // Books
   getBook(id: number): Promise<Book | undefined>;
@@ -296,6 +307,37 @@ export class DBStorage implements IStorage {
 
   async deleteResourceType(id: number): Promise<boolean> {
     await db.delete(resourceTypes).where(eq(resourceTypes.id, id));
+    return true;
+  }
+
+  // Categories
+  async getCategory(id: number): Promise<Category | undefined> {
+    const [category] = await db.select().from(categories).where(eq(categories.id, id));
+    return category;
+  }
+
+  async createCategory(insertCategory: InsertCategory): Promise<Category> {
+    const [category] = await db.insert(categories).values(insertCategory).returning();
+    return category;
+  }
+
+  async updateCategory(id: number, updateData: Partial<InsertCategory>): Promise<Category | undefined> {
+    const [category] = await db.update(categories).set(updateData).where(eq(categories.id, id)).returning();
+    return category;
+  }
+
+  async getAllCategories(): Promise<Category[]> {
+    return await db.select().from(categories).orderBy(asc(categories.name));
+  }
+
+  async getActiveCategories(): Promise<Category[]> {
+    return await db.select().from(categories)
+      .where(eq(categories.isActive, true))
+      .orderBy(asc(categories.name));
+  }
+
+  async deleteCategory(id: number): Promise<boolean> {
+    await db.delete(categories).where(eq(categories.id, id));
     return true;
   }
 
