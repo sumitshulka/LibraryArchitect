@@ -12,6 +12,8 @@ export const erpConnectionModeEnum = pgEnum('erp_connection_mode', ['HOST', 'CLI
 export const orgUnitTypeEnum = pgEnum('org_unit_type', ['UNIVERSITY', 'CAMPUS', 'COLLEGE', 'DEPARTMENT']);
 export const copyStatusEnum = pgEnum('copy_status', ['AVAILABLE', 'CHECKED_OUT', 'LOST', 'DAMAGED', 'IN_TRANSIT', 'RESERVED']);
 export const transferStatusEnum = pgEnum('transfer_status', ['PENDING', 'APPROVED', 'IN_TRANSIT', 'COMPLETED', 'CANCELLED']);
+export const bookFormatEnum = pgEnum('book_format', ['PHYSICAL', 'EBOOK', 'AUDIOBOOK']);
+export const fineStatusEnum = pgEnum('fine_status', ['OUTSTANDING', 'PAID', 'WAIVED']);
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -42,6 +44,7 @@ export const books = pgTable("books", {
   publishedYear: integer("published_year"),
   category: text("category").notNull(),
   resourceTypeId: integer("resource_type_id").references(() => resourceTypes.id),
+  format: bookFormatEnum("format").notNull().default('PHYSICAL'),
   status: bookStatusEnum("status").notNull().default('AVAILABLE'),
   coverUrl: text("cover_url"),
   shelfLocation: text("shelf_location"),
@@ -52,12 +55,15 @@ export const books = pgTable("books", {
 export const circulation = pgTable("circulation", {
   id: serial("id").primaryKey(),
   bookId: integer("book_id").notNull().references(() => books.id),
+  bookCopyId: integer("book_copy_id").references(() => bookCopies.id),
+  libraryId: integer("library_id").references(() => libraries.id),
   userId: integer("user_id").notNull().references(() => users.id),
   checkoutDate: timestamp("checkout_date").notNull().defaultNow(),
   dueDate: timestamp("due_date").notNull(),
   returnDate: timestamp("return_date"),
   status: circulationStatusEnum("status").notNull().default('ACTIVE'),
   fineAmount: integer("fine_amount").default(0),
+  fineStatus: fineStatusEnum("fine_status").default('OUTSTANDING'),
   renewalCount: integer("renewal_count").default(0),
 });
 

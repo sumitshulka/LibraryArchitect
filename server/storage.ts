@@ -149,6 +149,40 @@ export interface IStorage {
   deleteLibraryMembership(id: number): Promise<boolean>;
   getMembershipsByUser(userId: number): Promise<LibraryMembership[]>;
   getMembershipsByLibrary(libraryId: number): Promise<LibraryMembership[]>;
+  
+  // Library Dashboard
+  getLibraryDashboard(libraryId: number): Promise<LibraryDashboardStats>;
+}
+
+export interface LibraryDashboardStats {
+  libraryId: number;
+  libraryName: string;
+  libraryCode: string;
+  orgUnitName: string | null;
+  
+  totalCopies: number;
+  physicalBooks: number;
+  ebooks: number;
+  audiobooks: number;
+  
+  availableCopies: number;
+  checkedOutCopies: number;
+  lostCopies: number;
+  damagedCopies: number;
+  inTransitCopies: number;
+  reservedCopies: number;
+  
+  activeCirculations: number;
+  overdueItems: number;
+  
+  totalFinesOutstanding: number;
+  totalFinesPaid: number;
+  totalFinesWaived: number;
+  
+  pendingTransfersIn: number;
+  pendingTransfersOut: number;
+  
+  totalMembers: number;
 }
 
 export class DBStorage implements IStorage {
@@ -630,6 +664,133 @@ export class DBStorage implements IStorage {
   async getMembershipsByLibrary(libraryId: number): Promise<LibraryMembership[]> {
     return await db.select().from(libraryMemberships)
       .where(eq(libraryMemberships.libraryId, libraryId));
+  }
+
+  // Library Dashboard
+  async getLibraryDashboard(libraryId: number): Promise<LibraryDashboardStats> {
+    const library = await this.getLibrary(libraryId);
+    if (!library) {
+      throw new Error(`Library with id ${libraryId} not found`);
+    }
+
+    let orgUnitName: string | null = null;
+    if (library.orgUnitId) {
+      const orgUnit = await this.getOrgUnit(library.orgUnitId);
+      orgUnitName = orgUnit?.name || null;
+    }
+
+    const copies = await db.select().from(bookCopies)
+      .where(eq(bookCopies.libraryId, libraryId));
+    
+    const bookIds = [...new Set(copies.map(c => c.bookId))];
+    const booksList = bookIds.length > 0 
+      ? await db.select().from(books).where(sql`${books.id} IN (${sql.join(bookIds.map(id => sql`${id}`), sql`, `)})`)
+      : [];
+    
+    const bookFormatMap = new Map(booksList.map(b => [b.id, b.format]));
+    
+    let physicalBooks = 0;
+    let ebooks = 0;
+    let audiobooks = 0;
+    let availableCopies = 0;
+    let checkedOutCopies = 0;
+    let lostCopies = 0;
+    let damagedCopies = 0;
+    let inTransitCopies = 0;
+    let reservedCopies = 0;
+
+    for (const copy of copies) {
+      const format = bookFormatMap.get(copy.bookId) || 'PHYSICAL';
+      if (format === 'PHYSICAL') physicalBooks++;
+      else if (format === 'EBOOK') ebooks++;
+      else if (format === 'AUDIOBOOK') audiobooks++;
+
+      switch (copy.status) {
+        case 'AVAILABLE': availableCopies++; break;
+        case 'CHECKED_OUT': checkedOutCopies++; break;
+        case 'LOST': lostCopies++; break;
+        case 'DAMAGED': damagedCopies++; break;
+        case 'IN_TRANSIT': inTransitCopies++; break;
+        case 'RESERVED': reservedCopies++; break;
+      }
+    }
+
+    const circulationRecords = await db.select().from(circulation)
+      .where(eq(circulation.libraryId, libraryId));
+    
+    const now = new Date();
+    let activeCirculations = 0;
+    let overdueItems = 0;
+    let totalFinesOutstanding = 0;
+    let totalFinesPaid = 0;
+    let totalFinesWaived = 0;
+
+    for (const circ of circulationRecords) {
+      if (circ.status === 'ACTIVE' || circ.status === 'OVERDUE') {
+        activeCirculations++;
+        if (circ.dueDate < now && !circ.returnDate) {
+          overdueItems++;
+        }
+      }
+      
+      const amount = circ.fineAmount || 0;
+      if (circ.fineStatus === 'OUTSTANDING' || !circ.fineStatus) {
+        totalFinesOutstanding += amount;
+      } else if (circ.fineStatus === 'PAID') {
+        totalFinesPaid += amount;
+      } else if (circ.fineStatus === 'WAIVED') {
+        totalFinesWaived += amount;
+      }
+    }
+
+    const transfersIn = await db.select().from(bookTransfers)
+      .where(and(
+        eq(bookTransfers.destinationLibraryId, libraryId),
+        eq(bookTransfers.status, 'PENDING')
+      ));
+    
+    const transfersOut = await db.select().from(bookTransfers)
+      .where(and(
+        eq(bookTransfers.sourceLibraryId, libraryId),
+        eq(bookTransfers.status, 'PENDING')
+      ));
+
+    const memberships = await db.select().from(libraryMemberships)
+      .where(and(
+        eq(libraryMemberships.libraryId, libraryId),
+        eq(libraryMemberships.isActive, true)
+      ));
+
+    return {
+      libraryId,
+      libraryName: library.name,
+      libraryCode: library.code,
+      orgUnitName,
+      
+      totalCopies: copies.length,
+      physicalBooks,
+      ebooks,
+      audiobooks,
+      
+      availableCopies,
+      checkedOutCopies,
+      lostCopies,
+      damagedCopies,
+      inTransitCopies,
+      reservedCopies,
+      
+      activeCirculations,
+      overdueItems,
+      
+      totalFinesOutstanding,
+      totalFinesPaid,
+      totalFinesWaived,
+      
+      pendingTransfersIn: transfersIn.length,
+      pendingTransfersOut: transfersOut.length,
+      
+      totalMembers: memberships.length,
+    };
   }
 }
 
