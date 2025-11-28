@@ -962,6 +962,9 @@ export async function registerRoutes(
   app.get("/api/libraries/:id/dashboard", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id) || id <= 0) {
+        return res.status(400).json({ error: "Invalid library ID" });
+      }
       const dashboard = await storage.getLibraryDashboard(id);
       res.json(dashboard);
     } catch (error) {

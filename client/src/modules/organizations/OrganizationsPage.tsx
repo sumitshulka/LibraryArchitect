@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "wouter";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -38,7 +39,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { 
   Building2, Plus, Pencil, Trash2, 
-  ChevronRight, ChevronDown, Building, School, GraduationCap, Library
+  ChevronRight, ChevronDown, Building, School, GraduationCap, Library, LayoutDashboard
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { orgUnitsApi, librariesApi } from "@/lib/api";
@@ -476,6 +477,17 @@ function OrgTreeNode({
                 )}
               </div>
               <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                <Link href={`/organizations/libraries/${lib.id}`}>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="h-6 w-6"
+                    title="View Dashboard"
+                    data-testid={`button-dashboard-lib-${lib.id}`}
+                  >
+                    <LayoutDashboard className="h-3 w-3 text-blue-500" />
+                  </Button>
+                </Link>
                 <Button 
                   variant="ghost" 
                   size="icon" 
@@ -758,6 +770,16 @@ export default function OrganizationsPage() {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-right">
+                          <Link href={`/organizations/libraries/${lib.id}`}>
+                            <Button 
+                              variant="ghost" 
+                              size="icon"
+                              title="View Dashboard"
+                              data-testid={`button-table-dashboard-lib-${lib.id}`}
+                            >
+                              <LayoutDashboard className="h-4 w-4 text-blue-500" />
+                            </Button>
+                          </Link>
                           <Button 
                             variant="ghost" 
                             size="icon"
