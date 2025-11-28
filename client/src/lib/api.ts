@@ -530,7 +530,47 @@ export const librariesApi = {
       throw new Error(error.error || "Failed to delete library");
     }
   },
+
+  getDashboard: async (id: number): Promise<LibraryDashboardStats> => {
+    const res = await fetch(`${API_BASE}/libraries/${id}/dashboard`);
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to fetch library dashboard");
+    }
+    return res.json();
+  },
 };
+
+export interface LibraryDashboardStats {
+  libraryId: number;
+  libraryName: string;
+  libraryCode: string;
+  orgUnitName: string | null;
+  
+  totalCopies: number;
+  physicalBooks: number;
+  ebooks: number;
+  audiobooks: number;
+  
+  availableCopies: number;
+  checkedOutCopies: number;
+  lostCopies: number;
+  damagedCopies: number;
+  inTransitCopies: number;
+  reservedCopies: number;
+  
+  activeCirculations: number;
+  overdueItems: number;
+  
+  totalFinesOutstanding: number;
+  totalFinesPaid: number;
+  totalFinesWaived: number;
+  
+  pendingTransfersIn: number;
+  pendingTransfersOut: number;
+  
+  totalMembers: number;
+}
 
 // Book Copies API
 export const bookCopiesApi = {

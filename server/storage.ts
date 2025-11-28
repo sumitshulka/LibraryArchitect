@@ -682,12 +682,16 @@ export class DBStorage implements IStorage {
     const copies = await db.select().from(bookCopies)
       .where(eq(bookCopies.libraryId, libraryId));
     
-    const bookIds = [...new Set(copies.map(c => c.bookId))];
+    const bookIdSet = new Set<number>();
+    copies.forEach(c => bookIdSet.add(c.bookId));
+    const bookIds = Array.from(bookIdSet);
+    
     const booksList = bookIds.length > 0 
       ? await db.select().from(books).where(sql`${books.id} IN (${sql.join(bookIds.map(id => sql`${id}`), sql`, `)})`)
       : [];
     
-    const bookFormatMap = new Map(booksList.map(b => [b.id, b.format]));
+    const bookFormatMap = new Map<number, string>();
+    booksList.forEach(b => bookFormatMap.set(b.id, b.format));
     
     let physicalBooks = 0;
     let ebooks = 0;

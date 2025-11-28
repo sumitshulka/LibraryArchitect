@@ -959,6 +959,20 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/libraries/:id/dashboard", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const dashboard = await storage.getLibraryDashboard(id);
+      res.json(dashboard);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("not found")) {
+        return res.status(404).json({ error: error.message });
+      }
+      console.error("Error fetching library dashboard:", error);
+      res.status(500).json({ error: "Failed to fetch library dashboard" });
+    }
+  });
+
   app.post("/api/libraries", async (req, res) => {
     try {
       const validated = insertLibrarySchema.parse(req.body);
