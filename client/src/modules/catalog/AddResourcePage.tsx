@@ -28,7 +28,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Search, Globe, Download, Loader2, Save, Settings } from "lucide-react";
+import { ArrowLeft, Search, Globe, Download, Loader2, Save, Settings, AlertCircle, Info } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { booksApi, resourceTypesApi, z3950Api, type Z3950SearchResult } from "@/lib/api";
 import { toast } from "sonner";
@@ -43,6 +44,21 @@ export default function AddResourcePage() {
   const [selectedServer, setSelectedServer] = useState("loc");
   const [z3950Results, setZ3950Results] = useState<Z3950SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [searchPerformed, setSearchPerformed] = useState(false);
+  const [isbnError, setIsbnError] = useState<string | null>(null);
+
+  const validateIsbn = (value: string): string | null => {
+    const cleanIsbn = value.replace(/[-\s]/g, '');
+    if (cleanIsbn.length === 0) return null;
+    if (cleanIsbn.length < 10) return "ISBN must be at least 10 characters";
+    if (cleanIsbn.length !== 10 && cleanIsbn.length !== 13) {
+      return "ISBN must be exactly 10 or 13 digits (excluding hyphens)";
+    }
+    if (!/^\d+$/.test(cleanIsbn.slice(0, -1))) {
+      return "ISBN should contain only digits (last character can be X for ISBN-10)";
+    }
+    return null;
+  };
   
   const [formData, setFormData] = useState({
     isbn: "",
@@ -79,24 +95,40 @@ export default function AddResourcePage() {
   const handleIsbnChange = (value: string) => {
     setIsbn(value);
     setFormData({ ...formData, isbn: value });
+    setSearchPerformed(false);
+    setZ3950Results([]);
     
-    if (value.length >= 10) {
+    const error = validateIsbn(value);
+    setIsbnError(error);
+    
+    if (value.replace(/[-\s]/g, '').length >= 10 && !error) {
       setShowZ3950Search(true);
     } else {
       setShowZ3950Search(false);
-      setZ3950Results([]);
     }
   };
 
   const handleZ3950Search = async () => {
     if (!isbn) return;
     
+    const error = validateIsbn(isbn);
+    if (error) {
+      setIsbnError(error);
+      return;
+    }
+    
     setIsSearching(true);
+    setSearchPerformed(false);
     try {
       const results = await z3950Api.search(isbn, selectedServer);
       setZ3950Results(results);
+      setSearchPerformed(true);
+      if (results.length === 0) {
+        toast.info("No results found in external catalogs. You can enter the details manually.");
+      }
     } catch (error) {
       toast.error("Failed to search external catalogs");
+      setSearchPerformed(true);
     } finally {
       setIsSearching(false);
     }
@@ -163,16 +195,22 @@ export default function AddResourcePage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex gap-4">
-              <div className="flex-1">
+              <div className="flex-1 space-y-2">
                 <Label htmlFor="isbn">ISBN *</Label>
                 <Input
                   id="isbn"
                   placeholder="Enter ISBN (e.g., 978-0132350884)"
                   value={isbn}
                   onChange={(e) => handleIsbnChange(e.target.value)}
-                  className="font-mono"
+                  className={`font-mono ${isbnError ? 'border-red-500' : ''}`}
                   data-testid="input-isbn"
                 />
+                {isbnError && (
+                  <p className="text-sm text-red-500 flex items-center gap-1">
+                    <AlertCircle className="h-3 w-3" />
+                    {isbnError}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -226,7 +264,7 @@ export default function AddResourcePage() {
                   </Button>
                 </div>
 
-                {z3950Results.length > 0 && (
+                {z3950Results.length > 0 ? (
                   <div className="border rounded-md">
                     <Table>
                       <TableHeader>
@@ -274,7 +312,21 @@ export default function AddResourcePage() {
                       </TableBody>
                     </Table>
                   </div>
-                )}
+                ) : searchPerformed && !isSearching ? (
+                  <Alert className="bg-amber-50 border-amber-200">
+                    <Info className="h-4 w-4 text-amber-600" />
+                    <AlertDescription className="text-amber-800">
+                      <p className="font-medium">No results found for ISBN: {isbn}</p>
+                      <p className="text-sm mt-1">
+                        This ISBN was not found in Open Library or Google Books catalogs. 
+                        This can happen with regional publishers or newer publications.
+                      </p>
+                      <p className="text-sm mt-2">
+                        You can still add this resource by entering the details manually below.
+                      </p>
+                    </AlertDescription>
+                  </Alert>
+                ) : null}
               </div>
             )}
           </CardContent>
