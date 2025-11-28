@@ -39,7 +39,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { 
   Building2, Plus, Pencil, Trash2, 
-  ChevronRight, ChevronDown, Building, School, GraduationCap, Library, LayoutDashboard
+  ChevronRight, ChevronDown, Building, School, GraduationCap, Library, LayoutDashboard, BookOpen
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { orgUnitsApi, librariesApi } from "@/lib/api";
@@ -845,6 +845,16 @@ export default function OrganizationsPage() {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-right">
+                          <Link href={`/organizations/libraries/${lib.id}/resources`}>
+                            <Button 
+                              variant="ghost" 
+                              size="icon"
+                              title="View Resources"
+                              data-testid={`button-table-resources-lib-${lib.id}`}
+                            >
+                              <BookOpen className="h-4 w-4 text-green-600" />
+                            </Button>
+                          </Link>
                           <Link href={`/organizations/libraries/${lib.id}`}>
                             <Button 
                               variant="ghost" 
