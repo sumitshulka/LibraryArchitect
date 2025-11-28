@@ -84,7 +84,8 @@ export async function registerRoutes(
 
   app.post("/api/books", async (req, res) => {
     try {
-      const validated = insertBookSchema.parse(req.body);
+      const { quantity, ...bookData } = req.body;
+      const validated = insertBookSchema.parse(bookData);
       
       // Check for duplicate ISBN
       const existing = await storage.getBookByIsbn(validated.isbn);
@@ -93,7 +94,14 @@ export async function registerRoutes(
       }
       
       const book = await storage.createBook(validated);
-      res.status(201).json(book);
+      
+      // Create unallocated copies if quantity is specified
+      const copyCount = Math.min(Math.max(1, parseInt(quantity) || 1), 1000);
+      if (copyCount > 0) {
+        await storage.createBookCopies(book.id, copyCount, validated.shelfLocation || undefined);
+      }
+      
+      res.status(201).json({ ...book, copiesCreated: copyCount });
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: fromZodError(error).toString() });

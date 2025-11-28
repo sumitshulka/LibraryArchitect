@@ -40,7 +40,7 @@ import {
   libraryMemberships
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, or, like, desc, asc, sql } from "drizzle-orm";
+import { eq, and, or, like, desc, asc, sql, isNull } from "drizzle-orm";
 
 export interface IStorage {
   // Users
@@ -128,10 +128,12 @@ export interface IStorage {
   getBookCopy(id: number): Promise<BookCopy | undefined>;
   getBookCopyByBarcode(barcode: string): Promise<BookCopy | undefined>;
   createBookCopy(bookCopy: InsertBookCopy): Promise<BookCopy>;
+  createBookCopies(bookId: number, quantity: number, shelfLocation?: string): Promise<BookCopy[]>;
   updateBookCopy(id: number, bookCopy: Partial<InsertBookCopy>): Promise<BookCopy | undefined>;
   deleteBookCopy(id: number): Promise<boolean>;
   getBookCopiesByBook(bookId: number): Promise<BookCopy[]>;
   getBookCopiesByLibrary(libraryId: number): Promise<BookCopy[]>;
+  getUnallocatedCopies(): Promise<BookCopy[]>;
   getAvailableCopiesByLibrary(libraryId: number): Promise<BookCopy[]>;
   
   // Book Transfers
@@ -561,6 +563,26 @@ export class DBStorage implements IStorage {
     return bookCopy;
   }
 
+  async createBookCopies(bookId: number, quantity: number, shelfLocation?: string): Promise<BookCopy[]> {
+    const copies: BookCopy[] = [];
+    const timestamp = Date.now();
+    
+    for (let i = 0; i < quantity; i++) {
+      const barcode = `BC-${bookId}-${timestamp}-${String(i + 1).padStart(4, '0')}`;
+      const [bookCopy] = await db.insert(bookCopies).values({
+        bookId,
+        libraryId: null,
+        barcode,
+        shelfLocation: shelfLocation || null,
+        status: 'AVAILABLE',
+        condition: 'GOOD',
+      }).returning();
+      copies.push(bookCopy);
+    }
+    
+    return copies;
+  }
+
   async updateBookCopy(id: number, updateData: Partial<InsertBookCopy>): Promise<BookCopy | undefined> {
     const [bookCopy] = await db.update(bookCopies)
       .set({ ...updateData, updatedAt: new Date() })
@@ -583,6 +605,12 @@ export class DBStorage implements IStorage {
   async getBookCopiesByLibrary(libraryId: number): Promise<BookCopy[]> {
     return await db.select().from(bookCopies)
       .where(eq(bookCopies.libraryId, libraryId))
+      .orderBy(asc(bookCopies.barcode));
+  }
+
+  async getUnallocatedCopies(): Promise<BookCopy[]> {
+    return await db.select().from(bookCopies)
+      .where(isNull(bookCopies.libraryId))
       .orderBy(asc(bookCopies.barcode));
   }
 
