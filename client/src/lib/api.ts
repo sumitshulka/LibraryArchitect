@@ -539,7 +539,59 @@ export const librariesApi = {
     }
     return res.json();
   },
+
+  getResources: async (id: number, params?: {
+    query?: string;
+    format?: string;
+    category?: string;
+    status?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<LibraryResourcesResponse> => {
+    const searchParams = new URLSearchParams();
+    if (params?.query) searchParams.set('query', params.query);
+    if (params?.format) searchParams.set('format', params.format);
+    if (params?.category) searchParams.set('category', params.category);
+    if (params?.status) searchParams.set('status', params.status);
+    if (params?.limit) searchParams.set('limit', params.limit.toString());
+    if (params?.offset) searchParams.set('offset', params.offset.toString());
+    
+    const queryString = searchParams.toString();
+    const url = `${API_BASE}/libraries/${id}/resources${queryString ? '?' + queryString : ''}`;
+    
+    const res = await fetch(url);
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to fetch library resources");
+    }
+    return res.json();
+  },
 };
+
+export interface LibraryResourceStats {
+  bookId: number;
+  isbn: string;
+  title: string;
+  author: string;
+  publisher: string | null;
+  publishedYear: number | null;
+  category: string;
+  format: string;
+  coverUrl: string | null;
+  totalCopies: number;
+  available: number;
+  checkedOut: number;
+  reserved: number;
+  damaged: number;
+  lost: number;
+  inTransit: number;
+}
+
+export interface LibraryResourcesResponse {
+  resources: LibraryResourceStats[];
+  total: number;
+  categories: string[];
+}
 
 export interface LibraryDashboardStats {
   libraryId: number;

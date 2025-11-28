@@ -984,6 +984,32 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/libraries/:id/resources", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id) || id <= 0) {
+        return res.status(400).json({ error: "Invalid library ID" });
+      }
+      
+      const { query, format, category, status, limit, offset } = req.query;
+      
+      const result = await storage.getLibraryResources({
+        libraryId: id,
+        query: query as string | undefined,
+        format: format as string | undefined,
+        category: category as string | undefined,
+        status: status as string | undefined,
+        limit: limit ? parseInt(limit as string) : undefined,
+        offset: offset ? parseInt(offset as string) : undefined,
+      });
+      
+      res.json(result);
+    } catch (error) {
+      console.error("Error fetching library resources:", error);
+      res.status(500).json({ error: "Failed to fetch library resources" });
+    }
+  });
+
   app.post("/api/libraries", async (req, res) => {
     try {
       const validated = insertLibrarySchema.parse(req.body);
@@ -1114,9 +1140,11 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Book not found" });
       }
       
-      const library = await storage.getLibrary(validated.libraryId);
-      if (!library) {
-        return res.status(400).json({ error: "Library not found" });
+      if (validated.libraryId) {
+        const library = await storage.getLibrary(validated.libraryId);
+        if (!library) {
+          return res.status(400).json({ error: "Library not found" });
+        }
       }
       
       const copy = await storage.createBookCopy(validated);

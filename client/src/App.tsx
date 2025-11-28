@@ -14,6 +14,7 @@ import CirculationPage from "@/modules/circulation/CirculationPage";
 import InventoryPage from "@/modules/inventory/InventoryPage";
 import OrganizationsPage from "@/modules/organizations/OrganizationsPage";
 import { LibraryDashboardPage } from "@/modules/organizations/LibraryDashboardPage";
+import { LibraryResourcesPage } from "@/modules/organizations/LibraryResourcesPage";
 import ReportsPage from "@/modules/reports/ReportsPage";
 import SettingsPage from "@/modules/settings/SettingsPage";
 
@@ -29,6 +30,7 @@ function AppRouter() {
       <Route path="/inventory" component={InventoryPage} />
       <Route path="/organizations" component={OrganizationsPage} />
       <Route path="/organizations/libraries/:libraryId" component={LibraryDashboardPage} />
+      <Route path="/organizations/libraries/:libraryId/resources" component={LibraryResourcesPage} />
       <Route path="/reports" component={ReportsPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route component={NotFound} />

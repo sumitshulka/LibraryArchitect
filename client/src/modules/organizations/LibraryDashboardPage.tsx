@@ -99,25 +99,33 @@ export function LibraryDashboardPage() {
   return (
     <MainLayout>
       <div className="flex-1 space-y-6 p-8 overflow-auto">
-        <div className="flex items-center gap-4">
-          <Link href="/organizations">
-            <Button variant="ghost" size="icon" data-testid="button-back">
-              <ArrowLeft className="h-5 w-5" />
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Link href="/organizations">
+              <Button variant="ghost" size="icon" data-testid="button-back">
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
+            </Link>
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight" data-testid="text-library-name">
+                {dashboard?.libraryName || "Library Dashboard"}
+              </h1>
+              {dashboard && (
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <Badge variant="outline">{dashboard.libraryCode}</Badge>
+                  {dashboard.orgUnitName && (
+                    <span className="text-sm">{dashboard.orgUnitName}</span>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+          <Link href={`/organizations/libraries/${libraryId}/resources`}>
+            <Button data-testid="button-view-resources">
+              <Book className="h-4 w-4 mr-2" />
+              View Resources
             </Button>
           </Link>
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight" data-testid="text-library-name">
-              {dashboard?.libraryName || "Library Dashboard"}
-            </h1>
-            {dashboard && (
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Badge variant="outline">{dashboard.libraryCode}</Badge>
-                {dashboard.orgUnitName && (
-                  <span className="text-sm">{dashboard.orgUnitName}</span>
-                )}
-              </div>
-            )}
-          </div>
         </div>
 
         {isLoading && (

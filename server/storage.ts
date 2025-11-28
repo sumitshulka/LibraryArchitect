@@ -156,6 +156,9 @@ export interface IStorage {
   
   // Library Dashboard
   getLibraryDashboard(libraryId: number): Promise<LibraryDashboardStats>;
+  
+  // Library Resources
+  getLibraryResources(params: LibraryResourcesSearchParams): Promise<{ resources: LibraryResourceStats[]; total: number; categories: string[] }>;
 }
 
 export interface LibraryDashboardStats {
@@ -203,6 +206,35 @@ export interface UnallocatedCopyInfo {
     status: string;
     createdAt: Date;
   }[];
+}
+
+export interface LibraryResourceStats {
+  bookId: number;
+  isbn: string;
+  title: string;
+  author: string;
+  publisher: string | null;
+  publishedYear: number | null;
+  category: string;
+  format: string;
+  coverUrl: string | null;
+  totalCopies: number;
+  available: number;
+  checkedOut: number;
+  reserved: number;
+  damaged: number;
+  lost: number;
+  inTransit: number;
+}
+
+export interface LibraryResourcesSearchParams {
+  libraryId: number;
+  query?: string;
+  format?: string;
+  category?: string;
+  status?: string;
+  limit?: number;
+  offset?: number;
 }
 
 export class DBStorage implements IStorage {
@@ -929,6 +961,107 @@ export class DBStorage implements IStorage {
       
       totalMembers: memberships.length,
     };
+  }
+
+  async getLibraryResources(params: LibraryResourcesSearchParams): Promise<{ resources: LibraryResourceStats[]; total: number; categories: string[] }> {
+    const { libraryId, query, format, category, status, limit = 50, offset = 0 } = params;
+    
+    const copies = await db.select().from(bookCopies)
+      .where(eq(bookCopies.libraryId, libraryId));
+    
+    if (copies.length === 0) {
+      return { resources: [], total: 0, categories: [] };
+    }
+    
+    const copyStatsByBook = new Map<number, { available: number; checkedOut: number; reserved: number; damaged: number; lost: number; inTransit: number; total: number }>();
+    
+    for (const copy of copies) {
+      if (!copyStatsByBook.has(copy.bookId)) {
+        copyStatsByBook.set(copy.bookId, { available: 0, checkedOut: 0, reserved: 0, damaged: 0, lost: 0, inTransit: 0, total: 0 });
+      }
+      const stats = copyStatsByBook.get(copy.bookId)!;
+      stats.total++;
+      switch (copy.status) {
+        case 'AVAILABLE': stats.available++; break;
+        case 'CHECKED_OUT': stats.checkedOut++; break;
+        case 'RESERVED': stats.reserved++; break;
+        case 'DAMAGED': stats.damaged++; break;
+        case 'LOST': stats.lost++; break;
+        case 'IN_TRANSIT': stats.inTransit++; break;
+      }
+    }
+    
+    const bookIds = Array.from(copyStatsByBook.keys());
+    
+    const booksList = await db.select().from(books)
+      .where(sql`${books.id} IN (${sql.join(bookIds.map(id => sql`${id}`), sql`, `)})`);
+    
+    const allCategories = [...new Set(booksList.map(b => b.category))].sort();
+    
+    let filteredBooks = booksList;
+    
+    if (query) {
+      const lowerQuery = query.toLowerCase();
+      filteredBooks = filteredBooks.filter(b => 
+        b.title.toLowerCase().includes(lowerQuery) ||
+        b.author.toLowerCase().includes(lowerQuery) ||
+        b.isbn.toLowerCase().includes(lowerQuery) ||
+        (b.publisher && b.publisher.toLowerCase().includes(lowerQuery))
+      );
+    }
+    
+    if (format) {
+      filteredBooks = filteredBooks.filter(b => b.format === format);
+    }
+    
+    if (category) {
+      filteredBooks = filteredBooks.filter(b => b.category === category);
+    }
+    
+    if (status) {
+      filteredBooks = filteredBooks.filter(b => {
+        const stats = copyStatsByBook.get(b.id);
+        if (!stats) return false;
+        switch (status) {
+          case 'AVAILABLE': return stats.available > 0;
+          case 'CHECKED_OUT': return stats.checkedOut > 0;
+          case 'RESERVED': return stats.reserved > 0;
+          case 'DAMAGED': return stats.damaged > 0;
+          case 'LOST': return stats.lost > 0;
+          case 'IN_TRANSIT': return stats.inTransit > 0;
+          case 'ALL_ISSUED': return stats.available === 0 && stats.total > 0;
+          default: return true;
+        }
+      });
+    }
+    
+    const total = filteredBooks.length;
+    
+    const paginatedBooks = filteredBooks.slice(offset, offset + limit);
+    
+    const resources: LibraryResourceStats[] = paginatedBooks.map(book => {
+      const stats = copyStatsByBook.get(book.id)!;
+      return {
+        bookId: book.id,
+        isbn: book.isbn,
+        title: book.title,
+        author: book.author,
+        publisher: book.publisher,
+        publishedYear: book.publishedYear,
+        category: book.category,
+        format: book.format,
+        coverUrl: book.coverUrl,
+        totalCopies: stats.total,
+        available: stats.available,
+        checkedOut: stats.checkedOut,
+        reserved: stats.reserved,
+        damaged: stats.damaged,
+        lost: stats.lost,
+        inTransit: stats.inTransit,
+      };
+    });
+    
+    return { resources, total, categories: allCategories };
   }
 }
 
