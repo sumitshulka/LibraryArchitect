@@ -48,9 +48,9 @@ import {
   Key, RefreshCw, Shield, Copy, Eye, EyeOff, AlertTriangle, CheckCircle2, Link2
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { resourceTypesApi, erpIntegrationsApi, type ErpIntegrationPublic, type ErpCredentials } from "@/lib/api";
+import { resourceTypesApi, categoriesApi, erpIntegrationsApi, type ErpIntegrationPublic, type ErpCredentials } from "@/lib/api";
 import { toast } from "sonner";
-import type { ResourceType, ErpWhitelist } from "@shared/schema";
+import type { ResourceType, Category, ErpWhitelist } from "@shared/schema";
 
 function ResourceTypeDialog({ 
   resourceType, 
@@ -154,6 +154,115 @@ function ResourceTypeDialog({
           Cancel
         </Button>
         <Button type="submit" disabled={isPending} data-testid="button-save-type">
+          {isPending ? "Saving..." : "Save"}
+        </Button>
+      </DialogFooter>
+    </form>
+  );
+}
+
+function CategoryDialog({ 
+  category, 
+  onClose 
+}: { 
+  category?: Category; 
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [name, setName] = useState(category?.name || "");
+  const [description, setDescription] = useState(category?.description || "");
+  const [isActive, setIsActive] = useState(category?.isActive ?? true);
+
+  const createMutation = useMutation({
+    mutationFn: (data: { name: string; description: string | null; isActive: boolean }) => 
+      categoriesApi.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["categories"] });
+      queryClient.invalidateQueries({ queryKey: ["categories", "active"] });
+      toast.success("Category created");
+      onClose();
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: (data: { name: string; description: string | null; isActive: boolean }) => 
+      categoriesApi.update(category!.id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["categories"] });
+      queryClient.invalidateQueries({ queryKey: ["categories", "active"] });
+      toast.success("Category updated");
+      onClose();
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) {
+      toast.error("Name is required");
+      return;
+    }
+
+    const data = { name, description: description || null, isActive };
+    
+    if (category) {
+      updateMutation.mutate(data);
+    } else {
+      createMutation.mutate(data);
+    }
+  };
+
+  const isPending = createMutation.isPending || updateMutation.isPending;
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <DialogHeader>
+        <DialogTitle>{category ? "Edit" : "Add"} Category</DialogTitle>
+        <DialogDescription>
+          Categories help organize your library materials (e.g., Fiction, Non-Fiction, Science).
+        </DialogDescription>
+      </DialogHeader>
+      <div className="grid gap-4 py-4">
+        <div className="grid gap-2">
+          <Label htmlFor="cat-name">Name *</Label>
+          <Input
+            id="cat-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g., Fiction"
+            data-testid="input-category-name"
+          />
+        </div>
+        <div className="grid gap-2">
+          <Label htmlFor="cat-description">Description</Label>
+          <Input
+            id="cat-description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Optional description"
+            data-testid="input-category-description"
+          />
+        </div>
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <Label>Active</Label>
+            <p className="text-xs text-muted-foreground">
+              Active categories can be selected when adding resources
+            </p>
+          </div>
+          <Switch checked={isActive} onCheckedChange={setIsActive} data-testid="switch-category-active" />
+        </div>
+      </div>
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={isPending} data-testid="button-save-category">
           {isPending ? "Saving..." : "Save"}
         </Button>
       </DialogFooter>
@@ -885,12 +994,23 @@ function ErpIntegrationsTab() {
 
 export default function SettingsPage() {
   const queryClient = useQueryClient();
+  
+  // Resource Types state
   const [editingType, setEditingType] = useState<ResourceType | undefined>();
   const [dialogOpen, setDialogOpen] = useState(false);
+
+  // Categories state
+  const [editingCategory, setEditingCategory] = useState<Category | undefined>();
+  const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
 
   const { data: resourceTypes = [], isLoading } = useQuery({
     queryKey: ["resource-types"],
     queryFn: resourceTypesApi.getAll,
+  });
+
+  const { data: categories = [], isLoading: isCategoriesLoading } = useQuery({
+    queryKey: ["categories"],
+    queryFn: categoriesApi.getAll,
   });
 
   const deleteMutation = useMutation({
@@ -899,6 +1019,18 @@ export default function SettingsPage() {
       queryClient.invalidateQueries({ queryKey: ["resource-types"] });
       queryClient.invalidateQueries({ queryKey: ["resource-types", "active"] });
       toast.success("Resource type deleted");
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+
+  const deleteCategoryMutation = useMutation({
+    mutationFn: categoriesApi.delete,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["categories"] });
+      queryClient.invalidateQueries({ queryKey: ["categories", "active"] });
+      toast.success("Category deleted");
     },
     onError: (error: Error) => {
       toast.error(error.message);
@@ -924,6 +1056,28 @@ export default function SettingsPage() {
   const handleDialogClose = () => {
     setDialogOpen(false);
     setEditingType(undefined);
+  };
+
+  // Category handlers
+  const handleEditCategory = (category: Category) => {
+    setEditingCategory(category);
+    setCategoryDialogOpen(true);
+  };
+
+  const handleAddCategory = () => {
+    setEditingCategory(undefined);
+    setCategoryDialogOpen(true);
+  };
+
+  const handleDeleteCategory = (id: number) => {
+    if (confirm("Are you sure you want to delete this category?")) {
+      deleteCategoryMutation.mutate(id);
+    }
+  };
+
+  const handleCategoryDialogClose = () => {
+    setCategoryDialogOpen(false);
+    setEditingCategory(undefined);
   };
 
   return (
@@ -1092,6 +1246,91 @@ export default function SettingsPage() {
                                 size="icon"
                                 onClick={() => handleDelete(type.id)}
                                 data-testid={`button-delete-${type.id}`}
+                              >
+                                <Trash2 className="h-4 w-4 text-red-500" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle>Categories</CardTitle>
+                      <CardDescription>
+                        Organize resources by subject or genre (e.g., Fiction, Science, History).
+                      </CardDescription>
+                    </div>
+                    <Dialog open={categoryDialogOpen} onOpenChange={setCategoryDialogOpen}>
+                      <DialogTrigger asChild>
+                        <Button size="sm" className="gap-2" onClick={handleAddCategory} data-testid="button-add-category">
+                          <Plus className="h-4 w-4" />
+                          Add Category
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent>
+                        <CategoryDialog 
+                          category={editingCategory} 
+                          onClose={handleCategoryDialogClose} 
+                        />
+                      </DialogContent>
+                    </Dialog>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {isCategoriesLoading ? (
+                    <div className="text-center py-8 text-muted-foreground">Loading...</div>
+                  ) : categories.length === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground border rounded-lg border-dashed">
+                      <BookOpen className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                      <p>No categories configured yet.</p>
+                      <p className="text-sm">Add categories to organize your library resources.</p>
+                    </div>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Description</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {categories.map((cat) => (
+                          <TableRow key={cat.id} data-testid={`row-category-${cat.id}`}>
+                            <TableCell className="font-medium">{cat.name}</TableCell>
+                            <TableCell className="text-muted-foreground">
+                              {cat.description || "-"}
+                            </TableCell>
+                            <TableCell>
+                              <Badge 
+                                variant={cat.isActive ? "default" : "secondary"}
+                                className={cat.isActive ? "bg-green-100 text-green-800" : ""}
+                              >
+                                {cat.isActive ? "Active" : "Inactive"}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Button 
+                                variant="ghost" 
+                                size="icon"
+                                onClick={() => handleEditCategory(cat)}
+                                data-testid={`button-edit-category-${cat.id}`}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button 
+                                variant="ghost" 
+                                size="icon"
+                                onClick={() => handleDeleteCategory(cat.id)}
+                                data-testid={`button-delete-category-${cat.id}`}
                               >
                                 <Trash2 className="h-4 w-4 text-red-500" />
                               </Button>

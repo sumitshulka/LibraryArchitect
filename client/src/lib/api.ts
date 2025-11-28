@@ -1,4 +1,4 @@
-import type { Book, User, Circulation, Inventory, SystemConfig, ResourceType, ErpIntegration, ErpWhitelist, OrgUnit, Library, BookCopy, BookTransfer, LibraryMembership } from "@shared/schema";
+import type { Book, User, Circulation, Inventory, SystemConfig, ResourceType, Category, ErpIntegration, ErpWhitelist, OrgUnit, Library, BookCopy, BookTransfer, LibraryMembership } from "@shared/schema";
 
 const API_BASE = "/api";
 
@@ -137,6 +137,57 @@ export const resourceTypesApi = {
       method: "DELETE",
     });
     if (!res.ok) throw new Error("Failed to delete resource type");
+  },
+};
+
+// Categories API
+export const categoriesApi = {
+  getAll: async (): Promise<Category[]> => {
+    const res = await fetch(`${API_BASE}/categories`);
+    if (!res.ok) throw new Error("Failed to fetch categories");
+    return res.json();
+  },
+
+  getActive: async (): Promise<Category[]> => {
+    const res = await fetch(`${API_BASE}/categories?active=true`);
+    if (!res.ok) throw new Error("Failed to fetch active categories");
+    return res.json();
+  },
+
+  getById: async (id: number): Promise<Category> => {
+    const res = await fetch(`${API_BASE}/categories/${id}`);
+    if (!res.ok) throw new Error("Failed to fetch category");
+    return res.json();
+  },
+
+  create: async (category: Omit<Category, "id" | "createdAt">): Promise<Category> => {
+    const res = await fetch(`${API_BASE}/categories`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(category),
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to create category");
+    }
+    return res.json();
+  },
+
+  update: async (id: number, category: Partial<Category>): Promise<Category> => {
+    const res = await fetch(`${API_BASE}/categories/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(category),
+    });
+    if (!res.ok) throw new Error("Failed to update category");
+    return res.json();
+  },
+
+  delete: async (id: number): Promise<void> => {
+    const res = await fetch(`${API_BASE}/categories/${id}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new Error("Failed to delete category");
   },
 };
 
