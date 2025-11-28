@@ -31,7 +31,7 @@ import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, Search, Globe, Download, Loader2, Save, Settings, AlertCircle, Info } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { booksApi, resourceTypesApi, z3950Api, type Z3950SearchResult } from "@/lib/api";
+import { booksApi, resourceTypesApi, categoriesApi, z3950Api, type Z3950SearchResult } from "@/lib/api";
 import { toast } from "sonner";
 import { Link } from "wouter";
 
@@ -78,6 +78,11 @@ export default function AddResourcePage() {
   const { data: resourceTypes = [], isLoading: loadingTypes } = useQuery({
     queryKey: ["resource-types", "active"],
     queryFn: resourceTypesApi.getActive,
+  });
+
+  const { data: categories = [], isLoading: loadingCategories } = useQuery({
+    queryKey: ["categories", "active"],
+    queryFn: categoriesApi.getActive,
   });
 
   const createMutation = useMutation({
@@ -372,26 +377,31 @@ export default function AddResourcePage() {
 
               <div className="space-y-2">
                 <Label htmlFor="category">Category *</Label>
-                <Select 
-                  value={formData.category} 
-                  onValueChange={(value) => setFormData({ ...formData, category: value })}
-                >
-                  <SelectTrigger data-testid="select-category">
-                    <SelectValue placeholder="Select category" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Computer Science">Computer Science</SelectItem>
-                    <SelectItem value="Fiction">Fiction</SelectItem>
-                    <SelectItem value="History">History</SelectItem>
-                    <SelectItem value="Science">Science</SelectItem>
-                    <SelectItem value="Mathematics">Mathematics</SelectItem>
-                    <SelectItem value="Engineering">Engineering</SelectItem>
-                    <SelectItem value="Medicine">Medicine</SelectItem>
-                    <SelectItem value="Law">Law</SelectItem>
-                    <SelectItem value="Business">Business</SelectItem>
-                    <SelectItem value="Arts">Arts</SelectItem>
-                  </SelectContent>
-                </Select>
+                {categories.length === 0 && !loadingCategories ? (
+                  <div className="p-3 border rounded-md bg-muted/50 text-sm text-muted-foreground">
+                    <p>No categories configured.</p>
+                    <Link href="/settings" className="text-primary hover:underline inline-flex items-center gap-1 mt-1">
+                      <Settings className="h-3 w-3" />
+                      Configure in Settings
+                    </Link>
+                  </div>
+                ) : (
+                  <Select 
+                    value={formData.category} 
+                    onValueChange={(value) => setFormData({ ...formData, category: value })}
+                  >
+                    <SelectTrigger data-testid="select-category">
+                      <SelectValue placeholder="Select category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {categories.map((cat) => (
+                        <SelectItem key={cat.id} value={cat.name}>
+                          {cat.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
             </div>
 
