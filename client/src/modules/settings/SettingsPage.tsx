@@ -44,7 +44,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { 
-  Save, Building2, Lock, Globe, Mail, Database, BookOpen, Plus, Pencil, Trash2, 
+  Building2, Lock, Globe, Mail, Database, BookOpen, Plus, Pencil, Trash2, 
   Key, RefreshCw, Shield, Copy, Eye, EyeOff, AlertTriangle, CheckCircle2, Link2
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -928,17 +928,11 @@ export default function SettingsPage() {
 
   return (
     <MainLayout>
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground" data-testid="text-settings-title">
-            System Settings
-          </h1>
-          <p className="text-muted-foreground mt-1">Configure library rules, integrations, and preferences.</p>
-        </div>
-        <Button className="gap-2" data-testid="button-save-settings">
-          <Save className="h-4 w-4" />
-          Save Changes
-        </Button>
+      <div className="mb-6">
+        <h1 className="text-3xl font-bold tracking-tight text-foreground" data-testid="text-settings-title">
+          System Settings
+        </h1>
+        <p className="text-muted-foreground mt-1">Configure library rules, integrations, and preferences.</p>
       </div>
 
       <Tabs defaultValue="general" className="w-full">
