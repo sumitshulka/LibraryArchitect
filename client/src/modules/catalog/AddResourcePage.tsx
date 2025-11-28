@@ -56,6 +56,7 @@ export default function AddResourcePage() {
     status: "AVAILABLE" as const,
     coverUrl: null as string | null,
     marcRecord: null as string | null,
+    quantity: 1,
   });
 
   const { data: resourceTypes = [], isLoading: loadingTypes } = useQuery({
@@ -393,15 +394,34 @@ export default function AddResourcePage() {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="shelfLocation">Shelf Location</Label>
-              <Input
-                id="shelfLocation"
-                placeholder="e.g., A-12-3"
-                value={formData.shelfLocation}
-                onChange={(e) => setFormData({ ...formData, shelfLocation: e.target.value })}
-                data-testid="input-shelf"
-              />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <Label htmlFor="shelfLocation">Shelf Location</Label>
+                <Input
+                  id="shelfLocation"
+                  placeholder="e.g., A-12-3"
+                  value={formData.shelfLocation}
+                  onChange={(e) => setFormData({ ...formData, shelfLocation: e.target.value })}
+                  data-testid="input-shelf"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="quantity">Quantity (Copies) *</Label>
+                <Input
+                  id="quantity"
+                  type="number"
+                  min="1"
+                  max="1000"
+                  placeholder="Number of copies to add"
+                  value={formData.quantity}
+                  onChange={(e) => setFormData({ ...formData, quantity: Math.max(1, parseInt(e.target.value) || 1) })}
+                  data-testid="input-quantity"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Copies will be created as unallocated and can be assigned to libraries later.
+                </p>
+              </div>
             </div>
           </CardContent>
         </Card>

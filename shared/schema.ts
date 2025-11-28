@@ -158,7 +158,7 @@ export const libraries = pgTable("libraries", {
 export const bookCopies = pgTable("book_copies", {
   id: serial("id").primaryKey(),
   bookId: integer("book_id").notNull().references(() => books.id),
-  libraryId: integer("library_id").notNull().references(() => libraries.id),
+  libraryId: integer("library_id").references(() => libraries.id),
   barcode: text("barcode").notNull().unique(),
   callNumber: text("call_number"),
   shelfLocation: text("shelf_location"),
