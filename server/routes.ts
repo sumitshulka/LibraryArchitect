@@ -465,7 +465,7 @@ export async function registerRoutes(
   // ===== Z39.50 / ISBN Search API =====
   app.post("/api/z3950/search", async (req, res) => {
     try {
-      const { isbn, server } = req.body;
+      const { isbn } = req.body;
       
       if (!isbn) {
         return res.status(400).json({ error: "ISBN is required" });
@@ -478,9 +478,8 @@ export async function registerRoutes(
       
       // Try Open Library API first (free, no API key required)
       try {
-        const openLibResponse = await fetch(
-          `https://openlibrary.org/api/books?bibkeys=ISBN:${cleanIsbn}&format=json&jscmd=data`
-        );
+        const openLibUrl = `https://openlibrary.org/api/books?bibkeys=ISBN:${cleanIsbn}&format=json&jscmd=data`;
+        const openLibResponse = await fetch(openLibUrl);
         
         if (openLibResponse.ok) {
           const openLibData = await openLibResponse.json();
