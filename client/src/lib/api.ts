@@ -1,4 +1,4 @@
-import type { Book, User, Circulation, Inventory, SystemConfig, ResourceType, ErpIntegration, ErpWhitelist } from "@shared/schema";
+import type { Book, User, Circulation, Inventory, SystemConfig, ResourceType, ErpIntegration, ErpWhitelist, OrgUnit, Library, BookCopy, BookTransfer, LibraryMembership } from "@shared/schema";
 
 const API_BASE = "/api";
 
@@ -401,6 +401,300 @@ export const erpIntegrationsApi = {
     if (!res.ok) {
       const error = await res.json();
       throw new Error(error.error || "Failed to delete whitelist entry");
+    }
+  },
+};
+
+// Organizational Units API
+export const orgUnitsApi = {
+  getAll: async (): Promise<OrgUnit[]> => {
+    const res = await fetch(`${API_BASE}/org-units`);
+    if (!res.ok) throw new Error("Failed to fetch organizational units");
+    return res.json();
+  },
+
+  getByParent: async (parentId: number | null): Promise<OrgUnit[]> => {
+    const param = parentId === null ? 'null' : parentId.toString();
+    const res = await fetch(`${API_BASE}/org-units?parentId=${param}`);
+    if (!res.ok) throw new Error("Failed to fetch organizational units");
+    return res.json();
+  },
+
+  getByType: async (type: string): Promise<OrgUnit[]> => {
+    const res = await fetch(`${API_BASE}/org-units?type=${encodeURIComponent(type)}`);
+    if (!res.ok) throw new Error("Failed to fetch organizational units");
+    return res.json();
+  },
+
+  getById: async (id: number): Promise<OrgUnit> => {
+    const res = await fetch(`${API_BASE}/org-units/${id}`);
+    if (!res.ok) throw new Error("Failed to fetch organizational unit");
+    return res.json();
+  },
+
+  create: async (data: Omit<OrgUnit, "id" | "createdAt" | "updatedAt">): Promise<OrgUnit> => {
+    const res = await fetch(`${API_BASE}/org-units`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to create organizational unit");
+    }
+    return res.json();
+  },
+
+  update: async (id: number, data: Partial<Omit<OrgUnit, "id" | "createdAt" | "updatedAt">>): Promise<OrgUnit> => {
+    const res = await fetch(`${API_BASE}/org-units/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to update organizational unit");
+    }
+    return res.json();
+  },
+
+  delete: async (id: number): Promise<void> => {
+    const res = await fetch(`${API_BASE}/org-units/${id}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to delete organizational unit");
+    }
+  },
+};
+
+// Libraries API
+export const librariesApi = {
+  getAll: async (): Promise<Library[]> => {
+    const res = await fetch(`${API_BASE}/libraries`);
+    if (!res.ok) throw new Error("Failed to fetch libraries");
+    return res.json();
+  },
+
+  getActive: async (): Promise<Library[]> => {
+    const res = await fetch(`${API_BASE}/libraries?active=true`);
+    if (!res.ok) throw new Error("Failed to fetch active libraries");
+    return res.json();
+  },
+
+  getByOrgUnit: async (orgUnitId: number): Promise<Library[]> => {
+    const res = await fetch(`${API_BASE}/libraries?orgUnitId=${orgUnitId}`);
+    if (!res.ok) throw new Error("Failed to fetch libraries");
+    return res.json();
+  },
+
+  getById: async (id: number): Promise<Library> => {
+    const res = await fetch(`${API_BASE}/libraries/${id}`);
+    if (!res.ok) throw new Error("Failed to fetch library");
+    return res.json();
+  },
+
+  create: async (data: Omit<Library, "id" | "createdAt" | "updatedAt">): Promise<Library> => {
+    const res = await fetch(`${API_BASE}/libraries`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to create library");
+    }
+    return res.json();
+  },
+
+  update: async (id: number, data: Partial<Omit<Library, "id" | "createdAt" | "updatedAt">>): Promise<Library> => {
+    const res = await fetch(`${API_BASE}/libraries/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to update library");
+    }
+    return res.json();
+  },
+
+  delete: async (id: number): Promise<void> => {
+    const res = await fetch(`${API_BASE}/libraries/${id}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to delete library");
+    }
+  },
+};
+
+// Book Copies API
+export const bookCopiesApi = {
+  getByBook: async (bookId: number): Promise<BookCopy[]> => {
+    const res = await fetch(`${API_BASE}/book-copies?bookId=${bookId}`);
+    if (!res.ok) throw new Error("Failed to fetch book copies");
+    return res.json();
+  },
+
+  getByLibrary: async (libraryId: number): Promise<BookCopy[]> => {
+    const res = await fetch(`${API_BASE}/book-copies?libraryId=${libraryId}`);
+    if (!res.ok) throw new Error("Failed to fetch book copies");
+    return res.json();
+  },
+
+  getById: async (id: number): Promise<BookCopy> => {
+    const res = await fetch(`${API_BASE}/book-copies/${id}`);
+    if (!res.ok) throw new Error("Failed to fetch book copy");
+    return res.json();
+  },
+
+  getByBarcode: async (barcode: string): Promise<BookCopy> => {
+    const res = await fetch(`${API_BASE}/book-copies/barcode/${encodeURIComponent(barcode)}`);
+    if (!res.ok) throw new Error("Failed to fetch book copy");
+    return res.json();
+  },
+
+  create: async (data: Omit<BookCopy, "id" | "createdAt" | "updatedAt">): Promise<BookCopy> => {
+    const res = await fetch(`${API_BASE}/book-copies`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to create book copy");
+    }
+    return res.json();
+  },
+
+  update: async (id: number, data: Partial<Omit<BookCopy, "id" | "createdAt" | "updatedAt">>): Promise<BookCopy> => {
+    const res = await fetch(`${API_BASE}/book-copies/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to update book copy");
+    }
+    return res.json();
+  },
+
+  delete: async (id: number): Promise<void> => {
+    const res = await fetch(`${API_BASE}/book-copies/${id}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to delete book copy");
+    }
+  },
+};
+
+// Book Transfers API
+export const bookTransfersApi = {
+  getPending: async (): Promise<BookTransfer[]> => {
+    const res = await fetch(`${API_BASE}/book-transfers?status=PENDING`);
+    if (!res.ok) throw new Error("Failed to fetch pending transfers");
+    return res.json();
+  },
+
+  getBySourceLibrary: async (libraryId: number): Promise<BookTransfer[]> => {
+    const res = await fetch(`${API_BASE}/book-transfers?sourceLibraryId=${libraryId}`);
+    if (!res.ok) throw new Error("Failed to fetch book transfers");
+    return res.json();
+  },
+
+  getByDestinationLibrary: async (libraryId: number): Promise<BookTransfer[]> => {
+    const res = await fetch(`${API_BASE}/book-transfers?destinationLibraryId=${libraryId}`);
+    if (!res.ok) throw new Error("Failed to fetch book transfers");
+    return res.json();
+  },
+
+  getById: async (id: number): Promise<BookTransfer> => {
+    const res = await fetch(`${API_BASE}/book-transfers/${id}`);
+    if (!res.ok) throw new Error("Failed to fetch book transfer");
+    return res.json();
+  },
+
+  create: async (data: Omit<BookTransfer, "id" | "requestDate" | "approvalDate" | "completionDate">): Promise<BookTransfer> => {
+    const res = await fetch(`${API_BASE}/book-transfers`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to create book transfer");
+    }
+    return res.json();
+  },
+
+  updateStatus: async (id: number, data: { status: string; approvedBy?: number; notes?: string }): Promise<BookTransfer> => {
+    const res = await fetch(`${API_BASE}/book-transfers/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to update book transfer");
+    }
+    return res.json();
+  },
+};
+
+// Library Memberships API
+export const libraryMembershipsApi = {
+  getByUser: async (userId: number): Promise<LibraryMembership[]> => {
+    const res = await fetch(`${API_BASE}/library-memberships?userId=${userId}`);
+    if (!res.ok) throw new Error("Failed to fetch library memberships");
+    return res.json();
+  },
+
+  getByLibrary: async (libraryId: number): Promise<LibraryMembership[]> => {
+    const res = await fetch(`${API_BASE}/library-memberships?libraryId=${libraryId}`);
+    if (!res.ok) throw new Error("Failed to fetch library memberships");
+    return res.json();
+  },
+
+  create: async (data: Omit<LibraryMembership, "id" | "joinedAt">): Promise<LibraryMembership> => {
+    const res = await fetch(`${API_BASE}/library-memberships`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to create library membership");
+    }
+    return res.json();
+  },
+
+  update: async (id: number, data: Partial<Omit<LibraryMembership, "id" | "joinedAt">>): Promise<LibraryMembership> => {
+    const res = await fetch(`${API_BASE}/library-memberships/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to update library membership");
+    }
+    return res.json();
+  },
+
+  delete: async (id: number): Promise<void> => {
+    const res = await fetch(`${API_BASE}/library-memberships/${id}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to delete library membership");
     }
   },
 };

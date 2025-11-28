@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, serial, timestamp, integer, boolean, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, serial, timestamp, integer, boolean, pgEnum, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -9,6 +9,9 @@ export const bookStatusEnum = pgEnum('book_status', ['AVAILABLE', 'CHECKED_OUT',
 export const circulationStatusEnum = pgEnum('circulation_status', ['ACTIVE', 'RETURNED', 'OVERDUE', 'LOST']);
 export const authModeEnum = pgEnum('auth_mode', ['LOCAL', 'ERP', 'HYBRID']);
 export const erpConnectionModeEnum = pgEnum('erp_connection_mode', ['HOST', 'CLIENT', 'BIDIRECTIONAL']);
+export const orgUnitTypeEnum = pgEnum('org_unit_type', ['UNIVERSITY', 'CAMPUS', 'COLLEGE', 'DEPARTMENT']);
+export const copyStatusEnum = pgEnum('copy_status', ['AVAILABLE', 'CHECKED_OUT', 'LOST', 'DAMAGED', 'IN_TRANSIT', 'RESERVED']);
+export const transferStatusEnum = pgEnum('transfer_status', ['PENDING', 'APPROVED', 'IN_TRANSIT', 'COMPLETED', 'CANCELLED']);
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -105,6 +108,91 @@ export const erpIntegrationWhitelist = pgTable("erp_integration_whitelist", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// ===== Multi-Library Hierarchical Structure =====
+
+export const orgUnits = pgTable("org_units", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  code: text("code").notNull().unique(),
+  type: orgUnitTypeEnum("type").notNull(),
+  parentId: integer("parent_id"),
+  description: text("description"),
+  address: text("address"),
+  contactEmail: text("contact_email"),
+  contactPhone: text("contact_phone"),
+  isActive: boolean("is_active").notNull().default(true),
+  sortOrder: integer("sort_order").default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const libraries = pgTable("libraries", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  code: text("code").notNull().unique(),
+  orgUnitId: integer("org_unit_id").references(() => orgUnits.id),
+  address: text("address"),
+  contactEmail: text("contact_email"),
+  contactPhone: text("contact_phone"),
+  openingHours: text("opening_hours"),
+  isActive: boolean("is_active").notNull().default(true),
+  isMainLibrary: boolean("is_main_library").notNull().default(false),
+  policies: jsonb("policies").$type<{
+    loanPeriodDays?: number;
+    maxBooksPerUser?: number;
+    renewalLimit?: number;
+    finePerDay?: number;
+    reservationDays?: number;
+    allowInterLibraryLoan?: boolean;
+  }>(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const bookCopies = pgTable("book_copies", {
+  id: serial("id").primaryKey(),
+  bookId: integer("book_id").notNull().references(() => books.id),
+  libraryId: integer("library_id").notNull().references(() => libraries.id),
+  barcode: text("barcode").notNull().unique(),
+  callNumber: text("call_number"),
+  shelfLocation: text("shelf_location"),
+  status: copyStatusEnum("status").notNull().default('AVAILABLE'),
+  condition: text("condition").default('GOOD'),
+  acquisitionDate: timestamp("acquisition_date"),
+  acquisitionSource: text("acquisition_source"),
+  price: integer("price"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const bookTransfers = pgTable("book_transfers", {
+  id: serial("id").primaryKey(),
+  bookCopyId: integer("book_copy_id").notNull().references(() => bookCopies.id),
+  sourceLibraryId: integer("source_library_id").notNull().references(() => libraries.id),
+  destinationLibraryId: integer("destination_library_id").notNull().references(() => libraries.id),
+  status: transferStatusEnum("status").notNull().default('PENDING'),
+  requestedBy: integer("requested_by").references(() => users.id),
+  approvedBy: integer("approved_by").references(() => users.id),
+  requestDate: timestamp("request_date").notNull().defaultNow(),
+  approvalDate: timestamp("approval_date"),
+  completionDate: timestamp("completion_date"),
+  reason: text("reason"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const libraryMemberships = pgTable("library_memberships", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  libraryId: integer("library_id").notNull().references(() => libraries.id),
+  role: text("role").notNull().default('MEMBER'),
+  isPrimaryLibrary: boolean("is_primary_library").notNull().default(false),
+  joinedAt: timestamp("joined_at").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at"),
+  isActive: boolean("is_active").notNull().default(true),
+});
+
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
   joinedDate: true,
@@ -147,6 +235,35 @@ export const insertErpWhitelistSchema = createInsertSchema(erpIntegrationWhiteli
   createdAt: true,
 });
 
+export const insertOrgUnitSchema = createInsertSchema(orgUnits).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertLibrarySchema = createInsertSchema(libraries).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertBookCopySchema = createInsertSchema(bookCopies).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertBookTransferSchema = createInsertSchema(bookTransfers).omit({
+  id: true,
+  requestDate: true,
+  createdAt: true,
+});
+
+export const insertLibraryMembershipSchema = createInsertSchema(libraryMemberships).omit({
+  id: true,
+  joinedAt: true,
+});
+
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 
@@ -170,3 +287,18 @@ export type ErpIntegration = typeof erpIntegrations.$inferSelect;
 
 export type InsertErpWhitelist = z.infer<typeof insertErpWhitelistSchema>;
 export type ErpWhitelist = typeof erpIntegrationWhitelist.$inferSelect;
+
+export type InsertOrgUnit = z.infer<typeof insertOrgUnitSchema>;
+export type OrgUnit = typeof orgUnits.$inferSelect;
+
+export type InsertLibrary = z.infer<typeof insertLibrarySchema>;
+export type Library = typeof libraries.$inferSelect;
+
+export type InsertBookCopy = z.infer<typeof insertBookCopySchema>;
+export type BookCopy = typeof bookCopies.$inferSelect;
+
+export type InsertBookTransfer = z.infer<typeof insertBookTransferSchema>;
+export type BookTransfer = typeof bookTransfers.$inferSelect;
+
+export type InsertLibraryMembership = z.infer<typeof insertLibraryMembershipSchema>;
+export type LibraryMembership = typeof libraryMemberships.$inferSelect;

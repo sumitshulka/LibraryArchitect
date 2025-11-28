@@ -15,6 +15,16 @@ import {
   type InsertErpIntegration,
   type ErpWhitelist,
   type InsertErpWhitelist,
+  type OrgUnit,
+  type InsertOrgUnit,
+  type Library,
+  type InsertLibrary,
+  type BookCopy,
+  type InsertBookCopy,
+  type BookTransfer,
+  type InsertBookTransfer,
+  type LibraryMembership,
+  type InsertLibraryMembership,
   users,
   books,
   circulation,
@@ -22,7 +32,12 @@ import {
   systemConfig,
   resourceTypes,
   erpIntegrations,
-  erpIntegrationWhitelist
+  erpIntegrationWhitelist,
+  orgUnits,
+  libraries,
+  bookCopies,
+  bookTransfers,
+  libraryMemberships
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, or, like, desc, asc, sql } from "drizzle-orm";
@@ -88,6 +103,52 @@ export interface IStorage {
   updateErpWhitelist(id: number, whitelist: Partial<InsertErpWhitelist>): Promise<ErpWhitelist | undefined>;
   deleteErpWhitelist(id: number): Promise<boolean>;
   countWhitelistByIntegration(integrationId: number): Promise<number>;
+  
+  // Organizational Units
+  getOrgUnit(id: number): Promise<OrgUnit | undefined>;
+  getOrgUnitByCode(code: string): Promise<OrgUnit | undefined>;
+  createOrgUnit(orgUnit: InsertOrgUnit): Promise<OrgUnit>;
+  updateOrgUnit(id: number, orgUnit: Partial<InsertOrgUnit>): Promise<OrgUnit | undefined>;
+  deleteOrgUnit(id: number): Promise<boolean>;
+  getAllOrgUnits(): Promise<OrgUnit[]>;
+  getOrgUnitsByParent(parentId: number | null): Promise<OrgUnit[]>;
+  getOrgUnitsByType(type: string): Promise<OrgUnit[]>;
+  
+  // Libraries
+  getLibrary(id: number): Promise<Library | undefined>;
+  getLibraryByCode(code: string): Promise<Library | undefined>;
+  createLibrary(library: InsertLibrary): Promise<Library>;
+  updateLibrary(id: number, library: Partial<InsertLibrary>): Promise<Library | undefined>;
+  deleteLibrary(id: number): Promise<boolean>;
+  getAllLibraries(): Promise<Library[]>;
+  getLibrariesByOrgUnit(orgUnitId: number): Promise<Library[]>;
+  getActiveLibraries(): Promise<Library[]>;
+  
+  // Book Copies
+  getBookCopy(id: number): Promise<BookCopy | undefined>;
+  getBookCopyByBarcode(barcode: string): Promise<BookCopy | undefined>;
+  createBookCopy(bookCopy: InsertBookCopy): Promise<BookCopy>;
+  updateBookCopy(id: number, bookCopy: Partial<InsertBookCopy>): Promise<BookCopy | undefined>;
+  deleteBookCopy(id: number): Promise<boolean>;
+  getBookCopiesByBook(bookId: number): Promise<BookCopy[]>;
+  getBookCopiesByLibrary(libraryId: number): Promise<BookCopy[]>;
+  getAvailableCopiesByLibrary(libraryId: number): Promise<BookCopy[]>;
+  
+  // Book Transfers
+  getBookTransfer(id: number): Promise<BookTransfer | undefined>;
+  createBookTransfer(transfer: InsertBookTransfer): Promise<BookTransfer>;
+  updateBookTransfer(id: number, transfer: Partial<InsertBookTransfer>): Promise<BookTransfer | undefined>;
+  getTransfersBySourceLibrary(libraryId: number): Promise<BookTransfer[]>;
+  getTransfersByDestinationLibrary(libraryId: number): Promise<BookTransfer[]>;
+  getPendingTransfers(): Promise<BookTransfer[]>;
+  
+  // Library Memberships
+  getLibraryMembership(id: number): Promise<LibraryMembership | undefined>;
+  createLibraryMembership(membership: InsertLibraryMembership): Promise<LibraryMembership>;
+  updateLibraryMembership(id: number, membership: Partial<InsertLibraryMembership>): Promise<LibraryMembership | undefined>;
+  deleteLibraryMembership(id: number): Promise<boolean>;
+  getMembershipsByUser(userId: number): Promise<LibraryMembership[]>;
+  getMembershipsByLibrary(libraryId: number): Promise<LibraryMembership[]>;
 }
 
 export class DBStorage implements IStorage {
@@ -353,6 +414,222 @@ export class DBStorage implements IStorage {
       .from(erpIntegrationWhitelist)
       .where(eq(erpIntegrationWhitelist.integrationId, integrationId));
     return Number(result[0]?.count || 0);
+  }
+
+  // Organizational Units
+  async getOrgUnit(id: number): Promise<OrgUnit | undefined> {
+    const [orgUnit] = await db.select().from(orgUnits).where(eq(orgUnits.id, id));
+    return orgUnit;
+  }
+
+  async getOrgUnitByCode(code: string): Promise<OrgUnit | undefined> {
+    const [orgUnit] = await db.select().from(orgUnits).where(eq(orgUnits.code, code));
+    return orgUnit;
+  }
+
+  async createOrgUnit(insertOrgUnit: InsertOrgUnit): Promise<OrgUnit> {
+    const [orgUnit] = await db.insert(orgUnits).values(insertOrgUnit).returning();
+    return orgUnit;
+  }
+
+  async updateOrgUnit(id: number, updateData: Partial<InsertOrgUnit>): Promise<OrgUnit | undefined> {
+    const [orgUnit] = await db.update(orgUnits)
+      .set({ ...updateData, updatedAt: new Date() })
+      .where(eq(orgUnits.id, id))
+      .returning();
+    return orgUnit;
+  }
+
+  async deleteOrgUnit(id: number): Promise<boolean> {
+    await db.delete(orgUnits).where(eq(orgUnits.id, id));
+    return true;
+  }
+
+  async getAllOrgUnits(): Promise<OrgUnit[]> {
+    return await db.select().from(orgUnits).orderBy(asc(orgUnits.sortOrder), asc(orgUnits.name));
+  }
+
+  async getOrgUnitsByParent(parentId: number | null): Promise<OrgUnit[]> {
+    if (parentId === null) {
+      return await db.select().from(orgUnits)
+        .where(sql`${orgUnits.parentId} IS NULL`)
+        .orderBy(asc(orgUnits.sortOrder), asc(orgUnits.name));
+    }
+    return await db.select().from(orgUnits)
+      .where(eq(orgUnits.parentId, parentId))
+      .orderBy(asc(orgUnits.sortOrder), asc(orgUnits.name));
+  }
+
+  async getOrgUnitsByType(type: string): Promise<OrgUnit[]> {
+    return await db.select().from(orgUnits)
+      .where(sql`${orgUnits.type} = ${type}`)
+      .orderBy(asc(orgUnits.name));
+  }
+
+  // Libraries
+  async getLibrary(id: number): Promise<Library | undefined> {
+    const [library] = await db.select().from(libraries).where(eq(libraries.id, id));
+    return library;
+  }
+
+  async getLibraryByCode(code: string): Promise<Library | undefined> {
+    const [library] = await db.select().from(libraries).where(eq(libraries.code, code));
+    return library;
+  }
+
+  async createLibrary(insertLibrary: InsertLibrary): Promise<Library> {
+    const [library] = await db.insert(libraries).values(insertLibrary).returning();
+    return library;
+  }
+
+  async updateLibrary(id: number, updateData: Partial<InsertLibrary>): Promise<Library | undefined> {
+    const [library] = await db.update(libraries)
+      .set({ ...updateData, updatedAt: new Date() })
+      .where(eq(libraries.id, id))
+      .returning();
+    return library;
+  }
+
+  async deleteLibrary(id: number): Promise<boolean> {
+    await db.delete(libraries).where(eq(libraries.id, id));
+    return true;
+  }
+
+  async getAllLibraries(): Promise<Library[]> {
+    return await db.select().from(libraries).orderBy(asc(libraries.name));
+  }
+
+  async getLibrariesByOrgUnit(orgUnitId: number): Promise<Library[]> {
+    return await db.select().from(libraries)
+      .where(eq(libraries.orgUnitId, orgUnitId))
+      .orderBy(asc(libraries.name));
+  }
+
+  async getActiveLibraries(): Promise<Library[]> {
+    return await db.select().from(libraries)
+      .where(eq(libraries.isActive, true))
+      .orderBy(asc(libraries.name));
+  }
+
+  // Book Copies
+  async getBookCopy(id: number): Promise<BookCopy | undefined> {
+    const [bookCopy] = await db.select().from(bookCopies).where(eq(bookCopies.id, id));
+    return bookCopy;
+  }
+
+  async getBookCopyByBarcode(barcode: string): Promise<BookCopy | undefined> {
+    const [bookCopy] = await db.select().from(bookCopies).where(eq(bookCopies.barcode, barcode));
+    return bookCopy;
+  }
+
+  async createBookCopy(insertBookCopy: InsertBookCopy): Promise<BookCopy> {
+    const [bookCopy] = await db.insert(bookCopies).values(insertBookCopy).returning();
+    return bookCopy;
+  }
+
+  async updateBookCopy(id: number, updateData: Partial<InsertBookCopy>): Promise<BookCopy | undefined> {
+    const [bookCopy] = await db.update(bookCopies)
+      .set({ ...updateData, updatedAt: new Date() })
+      .where(eq(bookCopies.id, id))
+      .returning();
+    return bookCopy;
+  }
+
+  async deleteBookCopy(id: number): Promise<boolean> {
+    await db.delete(bookCopies).where(eq(bookCopies.id, id));
+    return true;
+  }
+
+  async getBookCopiesByBook(bookId: number): Promise<BookCopy[]> {
+    return await db.select().from(bookCopies)
+      .where(eq(bookCopies.bookId, bookId))
+      .orderBy(asc(bookCopies.barcode));
+  }
+
+  async getBookCopiesByLibrary(libraryId: number): Promise<BookCopy[]> {
+    return await db.select().from(bookCopies)
+      .where(eq(bookCopies.libraryId, libraryId))
+      .orderBy(asc(bookCopies.barcode));
+  }
+
+  async getAvailableCopiesByLibrary(libraryId: number): Promise<BookCopy[]> {
+    return await db.select().from(bookCopies)
+      .where(and(
+        eq(bookCopies.libraryId, libraryId),
+        eq(bookCopies.status, 'AVAILABLE')
+      ))
+      .orderBy(asc(bookCopies.barcode));
+  }
+
+  // Book Transfers
+  async getBookTransfer(id: number): Promise<BookTransfer | undefined> {
+    const [transfer] = await db.select().from(bookTransfers).where(eq(bookTransfers.id, id));
+    return transfer;
+  }
+
+  async createBookTransfer(insertTransfer: InsertBookTransfer): Promise<BookTransfer> {
+    const [transfer] = await db.insert(bookTransfers).values(insertTransfer).returning();
+    return transfer;
+  }
+
+  async updateBookTransfer(id: number, updateData: Partial<InsertBookTransfer>): Promise<BookTransfer | undefined> {
+    const [transfer] = await db.update(bookTransfers)
+      .set(updateData)
+      .where(eq(bookTransfers.id, id))
+      .returning();
+    return transfer;
+  }
+
+  async getTransfersBySourceLibrary(libraryId: number): Promise<BookTransfer[]> {
+    return await db.select().from(bookTransfers)
+      .where(eq(bookTransfers.sourceLibraryId, libraryId))
+      .orderBy(desc(bookTransfers.requestDate));
+  }
+
+  async getTransfersByDestinationLibrary(libraryId: number): Promise<BookTransfer[]> {
+    return await db.select().from(bookTransfers)
+      .where(eq(bookTransfers.destinationLibraryId, libraryId))
+      .orderBy(desc(bookTransfers.requestDate));
+  }
+
+  async getPendingTransfers(): Promise<BookTransfer[]> {
+    return await db.select().from(bookTransfers)
+      .where(eq(bookTransfers.status, 'PENDING'))
+      .orderBy(desc(bookTransfers.requestDate));
+  }
+
+  // Library Memberships
+  async getLibraryMembership(id: number): Promise<LibraryMembership | undefined> {
+    const [membership] = await db.select().from(libraryMemberships).where(eq(libraryMemberships.id, id));
+    return membership;
+  }
+
+  async createLibraryMembership(insertMembership: InsertLibraryMembership): Promise<LibraryMembership> {
+    const [membership] = await db.insert(libraryMemberships).values(insertMembership).returning();
+    return membership;
+  }
+
+  async updateLibraryMembership(id: number, updateData: Partial<InsertLibraryMembership>): Promise<LibraryMembership | undefined> {
+    const [membership] = await db.update(libraryMemberships)
+      .set(updateData)
+      .where(eq(libraryMemberships.id, id))
+      .returning();
+    return membership;
+  }
+
+  async deleteLibraryMembership(id: number): Promise<boolean> {
+    await db.delete(libraryMemberships).where(eq(libraryMemberships.id, id));
+    return true;
+  }
+
+  async getMembershipsByUser(userId: number): Promise<LibraryMembership[]> {
+    return await db.select().from(libraryMemberships)
+      .where(eq(libraryMemberships.userId, userId));
+  }
+
+  async getMembershipsByLibrary(libraryId: number): Promise<LibraryMembership[]> {
+    return await db.select().from(libraryMemberships)
+      .where(eq(libraryMemberships.libraryId, libraryId));
   }
 }
 

@@ -9,7 +9,12 @@ import {
   insertSystemConfigSchema,
   insertResourceTypeSchema,
   insertErpIntegrationSchema,
-  insertErpWhitelistSchema
+  insertErpWhitelistSchema,
+  insertOrgUnitSchema,
+  insertLibrarySchema,
+  insertBookCopySchema,
+  insertBookTransferSchema,
+  insertLibraryMembershipSchema
 } from "@shared/schema";
 import { z } from "zod";
 import { fromZodError } from "zod-validation-error";
@@ -804,6 +809,546 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error deleting whitelist entry:", error);
       res.status(500).json({ error: "Failed to delete whitelist entry" });
+    }
+  });
+
+  // ===== Organizational Units API =====
+  app.get("/api/org-units", async (req, res) => {
+    try {
+      const { parentId, type } = req.query;
+      
+      if (type && typeof type === 'string') {
+        const units = await storage.getOrgUnitsByType(type);
+        return res.json(units);
+      }
+      
+      if (parentId !== undefined) {
+        const pid = parentId === 'null' ? null : parseInt(parentId as string);
+        const units = await storage.getOrgUnitsByParent(pid);
+        return res.json(units);
+      }
+      
+      const units = await storage.getAllOrgUnits();
+      res.json(units);
+    } catch (error) {
+      console.error("Error fetching org units:", error);
+      res.status(500).json({ error: "Failed to fetch organizational units" });
+    }
+  });
+
+  app.get("/api/org-units/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const unit = await storage.getOrgUnit(id);
+      
+      if (!unit) {
+        return res.status(404).json({ error: "Organizational unit not found" });
+      }
+      
+      res.json(unit);
+    } catch (error) {
+      console.error("Error fetching org unit:", error);
+      res.status(500).json({ error: "Failed to fetch organizational unit" });
+    }
+  });
+
+  app.post("/api/org-units", async (req, res) => {
+    try {
+      const validated = insertOrgUnitSchema.parse(req.body);
+      
+      const existing = await storage.getOrgUnitByCode(validated.code);
+      if (existing) {
+        return res.status(400).json({ error: "An organizational unit with this code already exists" });
+      }
+      
+      const unit = await storage.createOrgUnit(validated);
+      res.status(201).json(unit);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error creating org unit:", error);
+      res.status(500).json({ error: "Failed to create organizational unit" });
+    }
+  });
+
+  app.patch("/api/org-units/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const validated = insertOrgUnitSchema.partial().parse(req.body);
+      
+      const unit = await storage.updateOrgUnit(id, validated);
+      
+      if (!unit) {
+        return res.status(404).json({ error: "Organizational unit not found" });
+      }
+      
+      res.json(unit);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error updating org unit:", error);
+      res.status(500).json({ error: "Failed to update organizational unit" });
+    }
+  });
+
+  app.delete("/api/org-units/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const unit = await storage.getOrgUnit(id);
+      
+      if (!unit) {
+        return res.status(404).json({ error: "Organizational unit not found" });
+      }
+      
+      const children = await storage.getOrgUnitsByParent(id);
+      if (children.length > 0) {
+        return res.status(400).json({ error: "Cannot delete organizational unit with child units" });
+      }
+      
+      const libs = await storage.getLibrariesByOrgUnit(id);
+      if (libs.length > 0) {
+        return res.status(400).json({ error: "Cannot delete organizational unit with associated libraries" });
+      }
+      
+      await storage.deleteOrgUnit(id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting org unit:", error);
+      res.status(500).json({ error: "Failed to delete organizational unit" });
+    }
+  });
+
+  // ===== Libraries API =====
+  app.get("/api/libraries", async (req, res) => {
+    try {
+      const { orgUnitId, active } = req.query;
+      
+      if (active === 'true') {
+        const libs = await storage.getActiveLibraries();
+        return res.json(libs);
+      }
+      
+      if (orgUnitId) {
+        const libs = await storage.getLibrariesByOrgUnit(parseInt(orgUnitId as string));
+        return res.json(libs);
+      }
+      
+      const libs = await storage.getAllLibraries();
+      res.json(libs);
+    } catch (error) {
+      console.error("Error fetching libraries:", error);
+      res.status(500).json({ error: "Failed to fetch libraries" });
+    }
+  });
+
+  app.get("/api/libraries/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const library = await storage.getLibrary(id);
+      
+      if (!library) {
+        return res.status(404).json({ error: "Library not found" });
+      }
+      
+      res.json(library);
+    } catch (error) {
+      console.error("Error fetching library:", error);
+      res.status(500).json({ error: "Failed to fetch library" });
+    }
+  });
+
+  app.post("/api/libraries", async (req, res) => {
+    try {
+      const validated = insertLibrarySchema.parse(req.body);
+      
+      const existing = await storage.getLibraryByCode(validated.code);
+      if (existing) {
+        return res.status(400).json({ error: "A library with this code already exists" });
+      }
+      
+      const library = await storage.createLibrary(validated);
+      res.status(201).json(library);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error creating library:", error);
+      res.status(500).json({ error: "Failed to create library" });
+    }
+  });
+
+  app.patch("/api/libraries/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const validated = insertLibrarySchema.partial().parse(req.body);
+      
+      const library = await storage.updateLibrary(id, validated);
+      
+      if (!library) {
+        return res.status(404).json({ error: "Library not found" });
+      }
+      
+      res.json(library);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error updating library:", error);
+      res.status(500).json({ error: "Failed to update library" });
+    }
+  });
+
+  app.delete("/api/libraries/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const library = await storage.getLibrary(id);
+      
+      if (!library) {
+        return res.status(404).json({ error: "Library not found" });
+      }
+      
+      const copies = await storage.getBookCopiesByLibrary(id);
+      if (copies.length > 0) {
+        return res.status(400).json({ error: "Cannot delete library with book copies. Transfer or remove copies first." });
+      }
+      
+      await storage.deleteLibrary(id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting library:", error);
+      res.status(500).json({ error: "Failed to delete library" });
+    }
+  });
+
+  // ===== Book Copies API =====
+  app.get("/api/book-copies", async (req, res) => {
+    try {
+      const { bookId, libraryId } = req.query;
+      
+      if (bookId) {
+        const copies = await storage.getBookCopiesByBook(parseInt(bookId as string));
+        return res.json(copies);
+      }
+      
+      if (libraryId) {
+        const copies = await storage.getBookCopiesByLibrary(parseInt(libraryId as string));
+        return res.json(copies);
+      }
+      
+      res.status(400).json({ error: "Either bookId or libraryId is required" });
+    } catch (error) {
+      console.error("Error fetching book copies:", error);
+      res.status(500).json({ error: "Failed to fetch book copies" });
+    }
+  });
+
+  app.get("/api/book-copies/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const copy = await storage.getBookCopy(id);
+      
+      if (!copy) {
+        return res.status(404).json({ error: "Book copy not found" });
+      }
+      
+      res.json(copy);
+    } catch (error) {
+      console.error("Error fetching book copy:", error);
+      res.status(500).json({ error: "Failed to fetch book copy" });
+    }
+  });
+
+  app.get("/api/book-copies/barcode/:barcode", async (req, res) => {
+    try {
+      const copy = await storage.getBookCopyByBarcode(req.params.barcode);
+      
+      if (!copy) {
+        return res.status(404).json({ error: "Book copy not found" });
+      }
+      
+      res.json(copy);
+    } catch (error) {
+      console.error("Error fetching book copy by barcode:", error);
+      res.status(500).json({ error: "Failed to fetch book copy" });
+    }
+  });
+
+  app.post("/api/book-copies", async (req, res) => {
+    try {
+      const validated = insertBookCopySchema.parse(req.body);
+      
+      const existingBarcode = await storage.getBookCopyByBarcode(validated.barcode);
+      if (existingBarcode) {
+        return res.status(400).json({ error: "A book copy with this barcode already exists" });
+      }
+      
+      const book = await storage.getBook(validated.bookId);
+      if (!book) {
+        return res.status(400).json({ error: "Book not found" });
+      }
+      
+      const library = await storage.getLibrary(validated.libraryId);
+      if (!library) {
+        return res.status(400).json({ error: "Library not found" });
+      }
+      
+      const copy = await storage.createBookCopy(validated);
+      res.status(201).json(copy);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error creating book copy:", error);
+      res.status(500).json({ error: "Failed to create book copy" });
+    }
+  });
+
+  app.patch("/api/book-copies/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const validated = insertBookCopySchema.partial().parse(req.body);
+      
+      const copy = await storage.updateBookCopy(id, validated);
+      
+      if (!copy) {
+        return res.status(404).json({ error: "Book copy not found" });
+      }
+      
+      res.json(copy);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error updating book copy:", error);
+      res.status(500).json({ error: "Failed to update book copy" });
+    }
+  });
+
+  app.delete("/api/book-copies/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const copy = await storage.getBookCopy(id);
+      
+      if (!copy) {
+        return res.status(404).json({ error: "Book copy not found" });
+      }
+      
+      if (copy.status === 'CHECKED_OUT') {
+        return res.status(400).json({ error: "Cannot delete a checked out book copy" });
+      }
+      
+      await storage.deleteBookCopy(id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting book copy:", error);
+      res.status(500).json({ error: "Failed to delete book copy" });
+    }
+  });
+
+  // ===== Book Transfers API =====
+  app.get("/api/book-transfers", async (req, res) => {
+    try {
+      const { sourceLibraryId, destinationLibraryId, status } = req.query;
+      
+      if (status === 'PENDING') {
+        const transfers = await storage.getPendingTransfers();
+        return res.json(transfers);
+      }
+      
+      if (sourceLibraryId) {
+        const transfers = await storage.getTransfersBySourceLibrary(parseInt(sourceLibraryId as string));
+        return res.json(transfers);
+      }
+      
+      if (destinationLibraryId) {
+        const transfers = await storage.getTransfersByDestinationLibrary(parseInt(destinationLibraryId as string));
+        return res.json(transfers);
+      }
+      
+      const pending = await storage.getPendingTransfers();
+      res.json(pending);
+    } catch (error) {
+      console.error("Error fetching book transfers:", error);
+      res.status(500).json({ error: "Failed to fetch book transfers" });
+    }
+  });
+
+  app.get("/api/book-transfers/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const transfer = await storage.getBookTransfer(id);
+      
+      if (!transfer) {
+        return res.status(404).json({ error: "Book transfer not found" });
+      }
+      
+      res.json(transfer);
+    } catch (error) {
+      console.error("Error fetching book transfer:", error);
+      res.status(500).json({ error: "Failed to fetch book transfer" });
+    }
+  });
+
+  app.post("/api/book-transfers", async (req, res) => {
+    try {
+      const validated = insertBookTransferSchema.parse(req.body);
+      
+      const copy = await storage.getBookCopy(validated.bookCopyId);
+      if (!copy) {
+        return res.status(400).json({ error: "Book copy not found" });
+      }
+      
+      if (copy.status === 'CHECKED_OUT') {
+        return res.status(400).json({ error: "Cannot transfer a checked out book" });
+      }
+      
+      if (copy.libraryId !== validated.sourceLibraryId) {
+        return res.status(400).json({ error: "Book copy is not at the source library" });
+      }
+      
+      if (validated.sourceLibraryId === validated.destinationLibraryId) {
+        return res.status(400).json({ error: "Source and destination libraries must be different" });
+      }
+      
+      await storage.updateBookCopy(copy.id, { status: 'IN_TRANSIT' });
+      
+      const transfer = await storage.createBookTransfer(validated);
+      res.status(201).json(transfer);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error creating book transfer:", error);
+      res.status(500).json({ error: "Failed to create book transfer" });
+    }
+  });
+
+  app.patch("/api/book-transfers/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { status, approvedBy, notes } = req.body;
+      
+      const transfer = await storage.getBookTransfer(id);
+      if (!transfer) {
+        return res.status(404).json({ error: "Book transfer not found" });
+      }
+      
+      const updateData: any = {};
+      
+      if (status === 'APPROVED' && transfer.status === 'PENDING') {
+        updateData.status = 'APPROVED';
+        updateData.approvalDate = new Date();
+        if (approvedBy) updateData.approvedBy = approvedBy;
+      } else if (status === 'IN_TRANSIT' && transfer.status === 'APPROVED') {
+        updateData.status = 'IN_TRANSIT';
+      } else if (status === 'COMPLETED' && (transfer.status === 'IN_TRANSIT' || transfer.status === 'APPROVED')) {
+        updateData.status = 'COMPLETED';
+        updateData.completionDate = new Date();
+        
+        await storage.updateBookCopy(transfer.bookCopyId, { 
+          libraryId: transfer.destinationLibraryId,
+          status: 'AVAILABLE'
+        });
+      } else if (status === 'CANCELLED' && transfer.status === 'PENDING') {
+        updateData.status = 'CANCELLED';
+        
+        await storage.updateBookCopy(transfer.bookCopyId, { status: 'AVAILABLE' });
+      }
+      
+      if (notes) updateData.notes = notes;
+      
+      const updated = await storage.updateBookTransfer(id, updateData);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating book transfer:", error);
+      res.status(500).json({ error: "Failed to update book transfer" });
+    }
+  });
+
+  // ===== Library Memberships API =====
+  app.get("/api/library-memberships", async (req, res) => {
+    try {
+      const { userId, libraryId } = req.query;
+      
+      if (userId) {
+        const memberships = await storage.getMembershipsByUser(parseInt(userId as string));
+        return res.json(memberships);
+      }
+      
+      if (libraryId) {
+        const memberships = await storage.getMembershipsByLibrary(parseInt(libraryId as string));
+        return res.json(memberships);
+      }
+      
+      res.status(400).json({ error: "Either userId or libraryId is required" });
+    } catch (error) {
+      console.error("Error fetching library memberships:", error);
+      res.status(500).json({ error: "Failed to fetch library memberships" });
+    }
+  });
+
+  app.post("/api/library-memberships", async (req, res) => {
+    try {
+      const validated = insertLibraryMembershipSchema.parse(req.body);
+      
+      const user = await storage.getUser(validated.userId);
+      if (!user) {
+        return res.status(400).json({ error: "User not found" });
+      }
+      
+      const library = await storage.getLibrary(validated.libraryId);
+      if (!library) {
+        return res.status(400).json({ error: "Library not found" });
+      }
+      
+      const membership = await storage.createLibraryMembership(validated);
+      res.status(201).json(membership);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error creating library membership:", error);
+      res.status(500).json({ error: "Failed to create library membership" });
+    }
+  });
+
+  app.patch("/api/library-memberships/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const validated = insertLibraryMembershipSchema.partial().parse(req.body);
+      
+      const membership = await storage.updateLibraryMembership(id, validated);
+      
+      if (!membership) {
+        return res.status(404).json({ error: "Library membership not found" });
+      }
+      
+      res.json(membership);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error updating library membership:", error);
+      res.status(500).json({ error: "Failed to update library membership" });
+    }
+  });
+
+  app.delete("/api/library-memberships/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const membership = await storage.getLibraryMembership(id);
+      
+      if (!membership) {
+        return res.status(404).json({ error: "Library membership not found" });
+      }
+      
+      await storage.deleteLibraryMembership(id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting library membership:", error);
+      res.status(500).json({ error: "Failed to delete library membership" });
     }
   });
 
