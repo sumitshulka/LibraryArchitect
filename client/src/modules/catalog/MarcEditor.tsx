@@ -17,7 +17,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Save, Plus, Trash2, Code, FileText } from "lucide-react";
+import { Save, Plus, Trash2, Code, FileText, FileCode } from "lucide-react";
 
 interface MarcField {
   id: string;
@@ -62,6 +62,37 @@ export function MarcEditor() {
     setFields(fields.map(f => f.id === id ? { ...f, [key]: value } : f));
   };
 
+  // Simple function to generate MARCXML from current fields
+  const generateMarcXml = () => {
+    const controlFields = fields.filter(f => parseInt(f.tag) < 10);
+    const dataFields = fields.filter(f => parseInt(f.tag) >= 10);
+
+    let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+    xml += `<record xmlns="http://www.loc.gov/MARC21/slim">\n`;
+    xml += `  <leader>01234nam a2200345 i 4500</leader>\n`;
+    
+    controlFields.forEach(field => {
+      xml += `  <controlfield tag="${field.tag}">${field.content}</controlfield>\n`;
+    });
+
+    dataFields.forEach(field => {
+      xml += `  <datafield tag="${field.tag}" ind1="${field.ind1 || ' '}" ind2="${field.ind2 || ' '}">\n`;
+      
+      // Quick hack to parse subfields (assuming $a format)
+      const parts = field.content.split('$').filter(p => p.length > 0);
+      parts.forEach(part => {
+        const code = part.charAt(0);
+        const data = part.substring(1).trim();
+        xml += `    <subfield code="${code}">${data}</subfield>\n`;
+      });
+      
+      xml += `  </datafield>\n`;
+    });
+
+    xml += `</record>`;
+    return xml;
+  };
+
   return (
     <Card className="w-full border-none shadow-none">
       <CardHeader className="px-0 pt-0">
@@ -92,6 +123,10 @@ export function MarcEditor() {
             <TabsTrigger value="raw" className="gap-2">
               <Code className="h-4 w-4" />
               Raw MARC
+            </TabsTrigger>
+            <TabsTrigger value="xml" className="gap-2">
+              <FileCode className="h-4 w-4" />
+              MARCXML
             </TabsTrigger>
           </TabsList>
           
@@ -161,6 +196,14 @@ export function MarcEditor() {
             <div className="p-4 bg-muted rounded-md font-mono text-sm whitespace-pre-wrap border">
               LDR  01234nam a2200345 i 4500<br/>
               {fields.map(f => `${f.tag} ${f.ind1 || ' '}${f.ind2 || ' '} ${f.content}`).join('\n')}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="xml">
+            <div className="relative">
+              <div className="p-4 bg-muted rounded-md font-mono text-xs whitespace-pre-wrap border overflow-x-auto text-blue-800 dark:text-blue-300">
+                {generateMarcXml()}
+              </div>
             </div>
           </TabsContent>
         </Tabs>
