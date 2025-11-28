@@ -160,6 +160,7 @@ export const bookCopies = pgTable("book_copies", {
   bookId: integer("book_id").notNull().references(() => books.id),
   libraryId: integer("library_id").references(() => libraries.id),
   barcode: text("barcode").notNull().unique(),
+  internalSSN: text("internal_ssn").unique(),
   callNumber: text("call_number"),
   shelfLocation: text("shelf_location"),
   status: copyStatusEnum("status").notNull().default('AVAILABLE'),
@@ -168,6 +169,7 @@ export const bookCopies = pgTable("book_copies", {
   acquisitionSource: text("acquisition_source"),
   price: integer("price"),
   notes: text("notes"),
+  allocatedAt: timestamp("allocated_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
