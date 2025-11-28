@@ -8,6 +8,7 @@ export const userStatusEnum = pgEnum('user_status', ['ACTIVE', 'INACTIVE', 'SUSP
 export const bookStatusEnum = pgEnum('book_status', ['AVAILABLE', 'CHECKED_OUT', 'LOST', 'MAINTENANCE', 'RESERVED']);
 export const circulationStatusEnum = pgEnum('circulation_status', ['ACTIVE', 'RETURNED', 'OVERDUE', 'LOST']);
 export const authModeEnum = pgEnum('auth_mode', ['LOCAL', 'ERP', 'HYBRID']);
+export const erpConnectionModeEnum = pgEnum('erp_connection_mode', ['HOST', 'CLIENT', 'BIDIRECTIONAL']);
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -79,6 +80,31 @@ export const systemConfig = pgTable("system_config", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+export const erpIntegrations = pgTable("erp_integrations", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  erpType: text("erp_type").notNull(),
+  connectionMode: erpConnectionModeEnum("connection_mode").notNull().default('BIDIRECTIONAL'),
+  isActive: boolean("is_active").notNull().default(true),
+  appId: text("app_id").notNull().unique(),
+  secretHash: text("secret_hash").notNull(),
+  secretSalt: text("secret_salt").notNull(),
+  secretLastRotatedAt: timestamp("secret_last_rotated_at").notNull().defaultNow(),
+  outboundBaseUrl: text("outbound_base_url"),
+  description: text("description"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const erpIntegrationWhitelist = pgTable("erp_integration_whitelist", {
+  id: serial("id").primaryKey(),
+  integrationId: integer("integration_id").notNull().references(() => erpIntegrations.id, { onDelete: 'cascade' }),
+  urlPattern: text("url_pattern").notNull(),
+  description: text("description"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
   joinedDate: true,
@@ -109,6 +135,18 @@ export const insertSystemConfigSchema = createInsertSchema(systemConfig).omit({
   updatedAt: true,
 });
 
+export const insertErpIntegrationSchema = createInsertSchema(erpIntegrations).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  secretLastRotatedAt: true,
+});
+
+export const insertErpWhitelistSchema = createInsertSchema(erpIntegrationWhitelist).omit({
+  id: true,
+  createdAt: true,
+});
+
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 
@@ -126,3 +164,9 @@ export type Inventory = typeof inventory.$inferSelect;
 
 export type InsertSystemConfig = z.infer<typeof insertSystemConfigSchema>;
 export type SystemConfig = typeof systemConfig.$inferSelect;
+
+export type InsertErpIntegration = z.infer<typeof insertErpIntegrationSchema>;
+export type ErpIntegration = typeof erpIntegrations.$inferSelect;
+
+export type InsertErpWhitelist = z.infer<typeof insertErpWhitelistSchema>;
+export type ErpWhitelist = typeof erpIntegrationWhitelist.$inferSelect;

@@ -1,4 +1,4 @@
-import type { Book, User, Circulation, Inventory, SystemConfig, ResourceType } from "@shared/schema";
+import type { Book, User, Circulation, Inventory, SystemConfig, ResourceType, ErpIntegration, ErpWhitelist } from "@shared/schema";
 
 const API_BASE = "/api";
 
@@ -262,5 +262,145 @@ export const statsApi = {
     const res = await fetch(`${API_BASE}/stats/dashboard`);
     if (!res.ok) throw new Error("Failed to fetch dashboard statistics");
     return res.json();
+  },
+};
+
+// ERP Integration types (without sensitive fields)
+export type ErpIntegrationPublic = Omit<ErpIntegration, "secretHash" | "secretSalt">;
+
+export interface ErpCredentials {
+  appId: string;
+  secretKey: string;
+  note: string;
+  rotatedAt?: string;
+}
+
+export interface ErpIntegrationWithCredentials extends ErpIntegrationPublic {
+  credentials: ErpCredentials;
+}
+
+// ERP Integration API
+export const erpIntegrationsApi = {
+  getAll: async (): Promise<ErpIntegrationPublic[]> => {
+    const res = await fetch(`${API_BASE}/erp-integrations`);
+    if (!res.ok) throw new Error("Failed to fetch ERP integrations");
+    return res.json();
+  },
+
+  getById: async (id: number): Promise<ErpIntegrationPublic> => {
+    const res = await fetch(`${API_BASE}/erp-integrations/${id}`);
+    if (!res.ok) throw new Error("Failed to fetch ERP integration");
+    return res.json();
+  },
+
+  create: async (data: {
+    name: string;
+    erpType: string;
+    connectionMode?: "HOST" | "CLIENT" | "BIDIRECTIONAL";
+    outboundBaseUrl?: string | null;
+    description?: string | null;
+    isActive?: boolean;
+  }): Promise<ErpIntegrationWithCredentials> => {
+    const res = await fetch(`${API_BASE}/erp-integrations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to create ERP integration");
+    }
+    return res.json();
+  },
+
+  update: async (id: number, data: Partial<{
+    name: string;
+    erpType: string;
+    connectionMode: "HOST" | "CLIENT" | "BIDIRECTIONAL";
+    outboundBaseUrl: string | null;
+    description: string | null;
+    isActive: boolean;
+  }>): Promise<ErpIntegrationPublic> => {
+    const res = await fetch(`${API_BASE}/erp-integrations/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to update ERP integration");
+    }
+    return res.json();
+  },
+
+  delete: async (id: number): Promise<void> => {
+    const res = await fetch(`${API_BASE}/erp-integrations/${id}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to delete ERP integration");
+    }
+  },
+
+  rotateSecret: async (id: number): Promise<{ message: string; credentials: ErpCredentials }> => {
+    const res = await fetch(`${API_BASE}/erp-integrations/${id}/rotate-secret`, {
+      method: "POST",
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to rotate secret");
+    }
+    return res.json();
+  },
+
+  getWhitelist: async (integrationId: number): Promise<ErpWhitelist[]> => {
+    const res = await fetch(`${API_BASE}/erp-integrations/${integrationId}/whitelist`);
+    if (!res.ok) throw new Error("Failed to fetch whitelist");
+    return res.json();
+  },
+
+  addWhitelist: async (integrationId: number, data: {
+    urlPattern: string;
+    description?: string | null;
+    isActive?: boolean;
+  }): Promise<ErpWhitelist> => {
+    const res = await fetch(`${API_BASE}/erp-integrations/${integrationId}/whitelist`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to add whitelist entry");
+    }
+    return res.json();
+  },
+
+  updateWhitelist: async (integrationId: number, id: number, data: Partial<{
+    urlPattern: string;
+    description: string | null;
+    isActive: boolean;
+  }>): Promise<ErpWhitelist> => {
+    const res = await fetch(`${API_BASE}/erp-integrations/${integrationId}/whitelist/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to update whitelist entry");
+    }
+    return res.json();
+  },
+
+  deleteWhitelist: async (integrationId: number, id: number): Promise<void> => {
+    const res = await fetch(`${API_BASE}/erp-integrations/${integrationId}/whitelist/${id}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to delete whitelist entry");
+    }
   },
 };

@@ -11,15 +11,21 @@ import {
   type InsertSystemConfig,
   type ResourceType,
   type InsertResourceType,
+  type ErpIntegration,
+  type InsertErpIntegration,
+  type ErpWhitelist,
+  type InsertErpWhitelist,
   users,
   books,
   circulation,
   inventory,
   systemConfig,
-  resourceTypes
+  resourceTypes,
+  erpIntegrations,
+  erpIntegrationWhitelist
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, or, like, desc, asc } from "drizzle-orm";
+import { eq, and, or, like, desc, asc, sql } from "drizzle-orm";
 
 export interface IStorage {
   // Users
@@ -65,6 +71,23 @@ export interface IStorage {
   getSystemConfig(key: string): Promise<SystemConfig | undefined>;
   setSystemConfig(config: InsertSystemConfig): Promise<SystemConfig>;
   getAllSystemConfig(): Promise<SystemConfig[]>;
+  
+  // ERP Integrations
+  getErpIntegration(id: number): Promise<ErpIntegration | undefined>;
+  getErpIntegrationByAppId(appId: string): Promise<ErpIntegration | undefined>;
+  createErpIntegration(integration: InsertErpIntegration): Promise<ErpIntegration>;
+  updateErpIntegration(id: number, integration: Partial<InsertErpIntegration>): Promise<ErpIntegration | undefined>;
+  deleteErpIntegration(id: number): Promise<boolean>;
+  getAllErpIntegrations(): Promise<ErpIntegration[]>;
+  rotateErpSecret(id: number, newSecretHash: string, newSecretSalt: string): Promise<ErpIntegration | undefined>;
+  
+  // ERP Whitelist
+  getErpWhitelist(id: number): Promise<ErpWhitelist | undefined>;
+  getWhitelistByIntegration(integrationId: number): Promise<ErpWhitelist[]>;
+  createErpWhitelist(whitelist: InsertErpWhitelist): Promise<ErpWhitelist>;
+  updateErpWhitelist(id: number, whitelist: Partial<InsertErpWhitelist>): Promise<ErpWhitelist | undefined>;
+  deleteErpWhitelist(id: number): Promise<boolean>;
+  countWhitelistByIntegration(integrationId: number): Promise<number>;
 }
 
 export class DBStorage implements IStorage {
@@ -247,6 +270,89 @@ export class DBStorage implements IStorage {
 
   async getAllSystemConfig(): Promise<SystemConfig[]> {
     return await db.select().from(systemConfig).orderBy(asc(systemConfig.category));
+  }
+
+  // ERP Integrations
+  async getErpIntegration(id: number): Promise<ErpIntegration | undefined> {
+    const [integration] = await db.select().from(erpIntegrations).where(eq(erpIntegrations.id, id));
+    return integration;
+  }
+
+  async getErpIntegrationByAppId(appId: string): Promise<ErpIntegration | undefined> {
+    const [integration] = await db.select().from(erpIntegrations).where(eq(erpIntegrations.appId, appId));
+    return integration;
+  }
+
+  async createErpIntegration(insertIntegration: InsertErpIntegration): Promise<ErpIntegration> {
+    const [integration] = await db.insert(erpIntegrations).values(insertIntegration).returning();
+    return integration;
+  }
+
+  async updateErpIntegration(id: number, updateData: Partial<InsertErpIntegration>): Promise<ErpIntegration | undefined> {
+    const [integration] = await db.update(erpIntegrations)
+      .set({ ...updateData, updatedAt: new Date() })
+      .where(eq(erpIntegrations.id, id))
+      .returning();
+    return integration;
+  }
+
+  async deleteErpIntegration(id: number): Promise<boolean> {
+    await db.delete(erpIntegrations).where(eq(erpIntegrations.id, id));
+    return true;
+  }
+
+  async getAllErpIntegrations(): Promise<ErpIntegration[]> {
+    return await db.select().from(erpIntegrations).orderBy(desc(erpIntegrations.createdAt));
+  }
+
+  async rotateErpSecret(id: number, newSecretHash: string, newSecretSalt: string): Promise<ErpIntegration | undefined> {
+    const [integration] = await db.update(erpIntegrations)
+      .set({ 
+        secretHash: newSecretHash, 
+        secretSalt: newSecretSalt, 
+        secretLastRotatedAt: new Date(),
+        updatedAt: new Date()
+      })
+      .where(eq(erpIntegrations.id, id))
+      .returning();
+    return integration;
+  }
+
+  // ERP Whitelist
+  async getErpWhitelist(id: number): Promise<ErpWhitelist | undefined> {
+    const [whitelist] = await db.select().from(erpIntegrationWhitelist).where(eq(erpIntegrationWhitelist.id, id));
+    return whitelist;
+  }
+
+  async getWhitelistByIntegration(integrationId: number): Promise<ErpWhitelist[]> {
+    return await db.select().from(erpIntegrationWhitelist)
+      .where(eq(erpIntegrationWhitelist.integrationId, integrationId))
+      .orderBy(asc(erpIntegrationWhitelist.createdAt));
+  }
+
+  async createErpWhitelist(insertWhitelist: InsertErpWhitelist): Promise<ErpWhitelist> {
+    const [whitelist] = await db.insert(erpIntegrationWhitelist).values(insertWhitelist).returning();
+    return whitelist;
+  }
+
+  async updateErpWhitelist(id: number, updateData: Partial<InsertErpWhitelist>): Promise<ErpWhitelist | undefined> {
+    const [whitelist] = await db.update(erpIntegrationWhitelist)
+      .set(updateData)
+      .where(eq(erpIntegrationWhitelist.id, id))
+      .returning();
+    return whitelist;
+  }
+
+  async deleteErpWhitelist(id: number): Promise<boolean> {
+    await db.delete(erpIntegrationWhitelist).where(eq(erpIntegrationWhitelist.id, id));
+    return true;
+  }
+
+  async countWhitelistByIntegration(integrationId: number): Promise<number> {
+    const result = await db.select({ count: sql<number>`count(*)` })
+      .from(erpIntegrationWhitelist)
+      .where(eq(erpIntegrationWhitelist.integrationId, integrationId));
+    return Number(result[0]?.count || 0);
   }
 }
 

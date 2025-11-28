@@ -7,10 +7,36 @@ import {
   insertCirculationSchema,
   insertInventorySchema,
   insertSystemConfigSchema,
-  insertResourceTypeSchema
+  insertResourceTypeSchema,
+  insertErpIntegrationSchema,
+  insertErpWhitelistSchema
 } from "@shared/schema";
 import { z } from "zod";
 import { fromZodError } from "zod-validation-error";
+import crypto from "crypto";
+
+const MAX_WHITELIST_ENTRIES = 5;
+
+function generateAppId(): string {
+  return `LIB-${crypto.randomBytes(16).toString('hex').toUpperCase()}`;
+}
+
+function generateSecretKey(): string {
+  return crypto.randomBytes(32).toString('base64url');
+}
+
+function generateSalt(): string {
+  return crypto.randomBytes(16).toString('hex');
+}
+
+function hashSecret(secret: string, salt: string): string {
+  return crypto.pbkdf2Sync(secret, salt, 100000, 64, 'sha512').toString('hex');
+}
+
+function verifySecret(secret: string, hash: string, salt: string): boolean {
+  const testHash = hashSecret(secret, salt);
+  return crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(testHash));
+}
 
 export async function registerRoutes(
   httpServer: Server,
@@ -462,6 +488,264 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error performing Z39.50 search:", error);
       res.status(500).json({ error: "Failed to perform Z39.50 search" });
+    }
+  });
+
+  // ===== ERP Integration API =====
+  app.get("/api/erp-integrations", async (req, res) => {
+    try {
+      const integrations = await storage.getAllErpIntegrations();
+      const sanitized = integrations.map(({ secretHash, secretSalt, ...rest }) => rest);
+      res.json(sanitized);
+    } catch (error) {
+      console.error("Error fetching ERP integrations:", error);
+      res.status(500).json({ error: "Failed to fetch ERP integrations" });
+    }
+  });
+
+  app.get("/api/erp-integrations/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const integration = await storage.getErpIntegration(id);
+      
+      if (!integration) {
+        return res.status(404).json({ error: "ERP integration not found" });
+      }
+      
+      const { secretHash, secretSalt, ...sanitized } = integration;
+      res.json(sanitized);
+    } catch (error) {
+      console.error("Error fetching ERP integration:", error);
+      res.status(500).json({ error: "Failed to fetch ERP integration" });
+    }
+  });
+
+  app.post("/api/erp-integrations", async (req, res) => {
+    try {
+      const createSchema = z.object({
+        name: z.string().min(1, "Name is required"),
+        erpType: z.string().min(1, "ERP type is required"),
+        connectionMode: z.enum(['HOST', 'CLIENT', 'BIDIRECTIONAL']).default('BIDIRECTIONAL'),
+        outboundBaseUrl: z.string().url().optional().nullable(),
+        description: z.string().optional().nullable(),
+        isActive: z.boolean().default(true),
+      });
+      
+      const validated = createSchema.parse(req.body);
+      
+      const appId = generateAppId();
+      const secretKey = generateSecretKey();
+      const salt = generateSalt();
+      const secretHash = hashSecret(secretKey, salt);
+      
+      const integration = await storage.createErpIntegration({
+        ...validated,
+        appId,
+        secretHash,
+        secretSalt: salt,
+      });
+      
+      const { secretHash: _, secretSalt: __, ...sanitized } = integration;
+      
+      res.status(201).json({
+        ...sanitized,
+        credentials: {
+          appId,
+          secretKey,
+          note: "IMPORTANT: This is the only time the secret key will be displayed. Please save it securely."
+        }
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error creating ERP integration:", error);
+      res.status(500).json({ error: "Failed to create ERP integration" });
+    }
+  });
+
+  app.patch("/api/erp-integrations/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const updateSchema = z.object({
+        name: z.string().min(1).optional(),
+        erpType: z.string().min(1).optional(),
+        connectionMode: z.enum(['HOST', 'CLIENT', 'BIDIRECTIONAL']).optional(),
+        outboundBaseUrl: z.string().url().optional().nullable(),
+        description: z.string().optional().nullable(),
+        isActive: z.boolean().optional(),
+      });
+      
+      const validated = updateSchema.parse(req.body);
+      const integration = await storage.updateErpIntegration(id, validated);
+      
+      if (!integration) {
+        return res.status(404).json({ error: "ERP integration not found" });
+      }
+      
+      const { secretHash, secretSalt, ...sanitized } = integration;
+      res.json(sanitized);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error updating ERP integration:", error);
+      res.status(500).json({ error: "Failed to update ERP integration" });
+    }
+  });
+
+  app.delete("/api/erp-integrations/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const integration = await storage.getErpIntegration(id);
+      
+      if (!integration) {
+        return res.status(404).json({ error: "ERP integration not found" });
+      }
+      
+      await storage.deleteErpIntegration(id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting ERP integration:", error);
+      res.status(500).json({ error: "Failed to delete ERP integration" });
+    }
+  });
+
+  app.post("/api/erp-integrations/:id/rotate-secret", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const integration = await storage.getErpIntegration(id);
+      
+      if (!integration) {
+        return res.status(404).json({ error: "ERP integration not found" });
+      }
+      
+      const newSecretKey = generateSecretKey();
+      const newSalt = generateSalt();
+      const newSecretHash = hashSecret(newSecretKey, newSalt);
+      
+      const updated = await storage.rotateErpSecret(id, newSecretHash, newSalt);
+      
+      if (!updated) {
+        return res.status(500).json({ error: "Failed to rotate secret" });
+      }
+      
+      res.json({
+        message: "Secret rotated successfully",
+        credentials: {
+          appId: updated.appId,
+          secretKey: newSecretKey,
+          rotatedAt: updated.secretLastRotatedAt,
+          note: "IMPORTANT: This is the only time the new secret key will be displayed. Please save it securely."
+        }
+      });
+    } catch (error) {
+      console.error("Error rotating ERP secret:", error);
+      res.status(500).json({ error: "Failed to rotate ERP secret" });
+    }
+  });
+
+  // ===== ERP Whitelist API =====
+  app.get("/api/erp-integrations/:id/whitelist", async (req, res) => {
+    try {
+      const integrationId = parseInt(req.params.id);
+      const integration = await storage.getErpIntegration(integrationId);
+      
+      if (!integration) {
+        return res.status(404).json({ error: "ERP integration not found" });
+      }
+      
+      const whitelist = await storage.getWhitelistByIntegration(integrationId);
+      res.json(whitelist);
+    } catch (error) {
+      console.error("Error fetching ERP whitelist:", error);
+      res.status(500).json({ error: "Failed to fetch whitelist" });
+    }
+  });
+
+  app.post("/api/erp-integrations/:id/whitelist", async (req, res) => {
+    try {
+      const integrationId = parseInt(req.params.id);
+      const integration = await storage.getErpIntegration(integrationId);
+      
+      if (!integration) {
+        return res.status(404).json({ error: "ERP integration not found" });
+      }
+      
+      const count = await storage.countWhitelistByIntegration(integrationId);
+      if (count >= MAX_WHITELIST_ENTRIES) {
+        return res.status(400).json({ 
+          error: `Maximum of ${MAX_WHITELIST_ENTRIES} URL patterns allowed per ERP integration` 
+        });
+      }
+      
+      const createSchema = z.object({
+        urlPattern: z.string().min(1, "URL pattern is required"),
+        description: z.string().optional().nullable(),
+        isActive: z.boolean().default(true),
+      });
+      
+      const validated = createSchema.parse(req.body);
+      
+      const whitelist = await storage.createErpWhitelist({
+        ...validated,
+        integrationId,
+      });
+      
+      res.status(201).json(whitelist);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error creating whitelist entry:", error);
+      res.status(500).json({ error: "Failed to create whitelist entry" });
+    }
+  });
+
+  app.patch("/api/erp-integrations/:integrationId/whitelist/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const integrationId = parseInt(req.params.integrationId);
+      
+      const whitelist = await storage.getErpWhitelist(id);
+      if (!whitelist || whitelist.integrationId !== integrationId) {
+        return res.status(404).json({ error: "Whitelist entry not found" });
+      }
+      
+      const updateSchema = z.object({
+        urlPattern: z.string().min(1).optional(),
+        description: z.string().optional().nullable(),
+        isActive: z.boolean().optional(),
+      });
+      
+      const validated = updateSchema.parse(req.body);
+      const updated = await storage.updateErpWhitelist(id, validated);
+      
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error updating whitelist entry:", error);
+      res.status(500).json({ error: "Failed to update whitelist entry" });
+    }
+  });
+
+  app.delete("/api/erp-integrations/:integrationId/whitelist/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const integrationId = parseInt(req.params.integrationId);
+      
+      const whitelist = await storage.getErpWhitelist(id);
+      if (!whitelist || whitelist.integrationId !== integrationId) {
+        return res.status(404).json({ error: "Whitelist entry not found" });
+      }
+      
+      await storage.deleteErpWhitelist(id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting whitelist entry:", error);
+      res.status(500).json({ error: "Failed to delete whitelist entry" });
     }
   });
 
