@@ -1159,6 +1159,15 @@ export async function registerRoutes(
     try {
       const { bookId, libraryId } = req.query;
       
+      // Support filtering by both bookId AND libraryId together
+      if (bookId && libraryId) {
+        const copies = await storage.getBookCopiesByBookAndLibrary(
+          parseInt(bookId as string),
+          parseInt(libraryId as string)
+        );
+        return res.json(copies);
+      }
+      
       if (bookId) {
         const copies = await storage.getBookCopiesByBook(parseInt(bookId as string));
         return res.json(copies);
@@ -1173,6 +1182,23 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error fetching book copies:", error);
       res.status(500).json({ error: "Failed to fetch book copies" });
+    }
+  });
+
+  app.get("/api/book-copies/:id/circulation-history", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const copy = await storage.getBookCopy(id);
+      
+      if (!copy) {
+        return res.status(404).json({ error: "Book copy not found" });
+      }
+      
+      const history = await storage.getCirculationHistoryByCopy(id);
+      res.json(history);
+    } catch (error) {
+      console.error("Error fetching circulation history:", error);
+      res.status(500).json({ error: "Failed to fetch circulation history" });
     }
   });
 

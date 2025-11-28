@@ -689,6 +689,18 @@ export const bookCopiesApi = {
     return res.json();
   },
 
+  getByBookAndLibrary: async (bookId: number, libraryId: number): Promise<BookCopy[]> => {
+    const res = await fetch(`${API_BASE}/book-copies?bookId=${bookId}&libraryId=${libraryId}`);
+    if (!res.ok) throw new Error("Failed to fetch book copies");
+    return res.json();
+  },
+
+  getCirculationHistory: async (copyId: number): Promise<Circulation[]> => {
+    const res = await fetch(`${API_BASE}/book-copies/${copyId}/circulation-history`);
+    if (!res.ok) throw new Error("Failed to fetch circulation history");
+    return res.json();
+  },
+
   getById: async (id: number): Promise<BookCopy> => {
     const res = await fetch(`${API_BASE}/book-copies/${id}`);
     if (!res.ok) throw new Error("Failed to fetch book copy");

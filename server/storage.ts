@@ -144,6 +144,8 @@ export interface IStorage {
   deleteBookCopy(id: number): Promise<boolean>;
   getBookCopiesByBook(bookId: number): Promise<BookCopy[]>;
   getBookCopiesByLibrary(libraryId: number): Promise<BookCopy[]>;
+  getBookCopiesByBookAndLibrary(bookId: number, libraryId: number): Promise<BookCopy[]>;
+  getCirculationHistoryByCopy(bookCopyId: number): Promise<Circulation[]>;
   getUnallocatedCopies(): Promise<BookCopy[]>;
   getUnallocatedCopiesWithBookInfo(): Promise<UnallocatedCopyInfo[]>;
   getAvailableCopiesByLibrary(libraryId: number): Promise<BookCopy[]>;
@@ -698,6 +700,18 @@ export class DBStorage implements IStorage {
     return await db.select().from(bookCopies)
       .where(eq(bookCopies.libraryId, libraryId))
       .orderBy(asc(bookCopies.barcode));
+  }
+
+  async getBookCopiesByBookAndLibrary(bookId: number, libraryId: number): Promise<BookCopy[]> {
+    return await db.select().from(bookCopies)
+      .where(and(eq(bookCopies.bookId, bookId), eq(bookCopies.libraryId, libraryId)))
+      .orderBy(asc(bookCopies.internalSSN), asc(bookCopies.barcode));
+  }
+
+  async getCirculationHistoryByCopy(bookCopyId: number): Promise<Circulation[]> {
+    return await db.select().from(circulation)
+      .where(eq(circulation.bookCopyId, bookCopyId))
+      .orderBy(desc(circulation.checkoutDate));
   }
 
   async getUnallocatedCopies(): Promise<BookCopy[]> {

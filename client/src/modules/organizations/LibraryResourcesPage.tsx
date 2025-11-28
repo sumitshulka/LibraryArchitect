@@ -19,6 +19,23 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
 import { 
   ArrowLeft, 
   Search, 
@@ -34,8 +51,13 @@ import {
   ChevronDown,
   ChevronUp,
   X,
+  History,
+  ChevronRight,
+  ArrowLeftCircle,
 } from "lucide-react";
-import { librariesApi, type LibraryResourceStats } from "@/lib/api";
+import { librariesApi, bookCopiesApi, type LibraryResourceStats } from "@/lib/api";
+import type { BookCopy, Circulation } from "@shared/schema";
+import { format } from "date-fns";
 
 const FORMAT_OPTIONS = [
   { value: "", label: "All Formats" },
@@ -55,7 +77,15 @@ const STATUS_OPTIONS = [
   { value: "ALL_ISSUED", label: "All Copies Issued" },
 ];
 
-function ResourceCard({ resource }: { resource: LibraryResourceStats }) {
+type StatusFilter = "all" | "AVAILABLE" | "CHECKED_OUT" | "RESERVED" | "DAMAGED" | "LOST" | "IN_TRANSIT";
+
+function ResourceCard({ 
+  resource,
+  onStatClick,
+}: { 
+  resource: LibraryResourceStats;
+  onStatClick: (resource: LibraryResourceStats, statusFilter: StatusFilter) => void;
+}) {
   const formatIcon = {
     PHYSICAL: Book,
     EBOOK: BookOpen,
@@ -99,6 +129,7 @@ function ResourceCard({ resource }: { resource: LibraryResourceStats }) {
             icon={Book}
             variant="default"
             testId={`stat-total-${resource.bookId}`}
+            onClick={() => onStatClick(resource, "all")}
           />
           <CopyStat
             label="Available"
@@ -106,6 +137,7 @@ function ResourceCard({ resource }: { resource: LibraryResourceStats }) {
             icon={CheckCircle2}
             variant={resource.available > 0 ? "success" : "muted"}
             testId={`stat-available-${resource.bookId}`}
+            onClick={() => onStatClick(resource, "AVAILABLE")}
           />
           <CopyStat
             label="Issued"
@@ -113,6 +145,7 @@ function ResourceCard({ resource }: { resource: LibraryResourceStats }) {
             icon={XCircle}
             variant={resource.checkedOut > 0 ? "info" : "muted"}
             testId={`stat-issued-${resource.bookId}`}
+            onClick={() => onStatClick(resource, "CHECKED_OUT")}
           />
           <CopyStat
             label="Reserved"
@@ -120,6 +153,7 @@ function ResourceCard({ resource }: { resource: LibraryResourceStats }) {
             icon={Clock}
             variant={resource.reserved > 0 ? "warning" : "muted"}
             testId={`stat-reserved-${resource.bookId}`}
+            onClick={() => onStatClick(resource, "RESERVED")}
           />
           <CopyStat
             label="Damaged"
@@ -127,6 +161,7 @@ function ResourceCard({ resource }: { resource: LibraryResourceStats }) {
             icon={AlertTriangle}
             variant={resource.damaged > 0 ? "danger" : "muted"}
             testId={`stat-damaged-${resource.bookId}`}
+            onClick={() => onStatClick(resource, "DAMAGED")}
           />
           <CopyStat
             label="Lost"
@@ -134,6 +169,7 @@ function ResourceCard({ resource }: { resource: LibraryResourceStats }) {
             icon={AlertTriangle}
             variant={resource.lost > 0 ? "danger" : "muted"}
             testId={`stat-lost-${resource.bookId}`}
+            onClick={() => onStatClick(resource, "LOST")}
           />
           <CopyStat
             label="In Transit"
@@ -141,6 +177,7 @@ function ResourceCard({ resource }: { resource: LibraryResourceStats }) {
             icon={Truck}
             variant={resource.inTransit > 0 ? "info" : "muted"}
             testId={`stat-transit-${resource.bookId}`}
+            onClick={() => onStatClick(resource, "IN_TRANSIT")}
           />
         </div>
       </CardContent>
@@ -154,12 +191,14 @@ function CopyStat({
   icon: Icon, 
   variant,
   testId,
+  onClick,
 }: { 
   label: string; 
   value: number; 
   icon: React.ComponentType<{ className?: string }>;
   variant: "default" | "success" | "warning" | "danger" | "info" | "muted";
   testId: string;
+  onClick?: () => void;
 }) {
   const variantStyles = {
     default: "text-foreground",
@@ -171,11 +210,246 @@ function CopyStat({
   };
 
   return (
-    <div className="flex flex-col items-center p-2 rounded-lg bg-muted/50" data-testid={testId}>
+    <button 
+      type="button"
+      onClick={onClick}
+      className="flex flex-col items-center p-2 rounded-lg bg-muted/50 hover:bg-muted transition-colors cursor-pointer" 
+      data-testid={testId}
+    >
       <Icon className={`h-4 w-4 ${variantStyles[variant]}`} />
       <span className={`text-lg font-bold ${variantStyles[variant]}`}>{value}</span>
       <span className="text-xs text-muted-foreground">{label}</span>
-    </div>
+    </button>
+  );
+}
+
+function getStatusBadgeVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
+  switch (status) {
+    case "AVAILABLE": return "default";
+    case "CHECKED_OUT": return "secondary";
+    case "RESERVED": return "outline";
+    case "DAMAGED":
+    case "LOST": return "destructive";
+    case "IN_TRANSIT": return "secondary";
+    default: return "outline";
+  }
+}
+
+function CopyDetailsSheet({
+  open,
+  onOpenChange,
+  resource,
+  statusFilter,
+  libraryId,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  resource: LibraryResourceStats | null;
+  statusFilter: StatusFilter;
+  libraryId: number;
+}) {
+  const [selectedCopy, setSelectedCopy] = useState<BookCopy | null>(null);
+
+  const { data: copies = [], isLoading: copiesLoading } = useQuery({
+    queryKey: ["book-copies", resource?.bookId, libraryId],
+    queryFn: () => bookCopiesApi.getByBookAndLibrary(resource!.bookId, libraryId),
+    enabled: open && !!resource,
+  });
+
+  const { data: circulationHistory = [], isLoading: historyLoading } = useQuery({
+    queryKey: ["circulation-history", selectedCopy?.id],
+    queryFn: () => bookCopiesApi.getCirculationHistory(selectedCopy!.id),
+    enabled: !!selectedCopy,
+  });
+
+  const filteredCopies = useMemo(() => {
+    if (statusFilter === "all") return copies;
+    return copies.filter(copy => copy.status === statusFilter);
+  }, [copies, statusFilter]);
+
+  const statusLabels: Record<StatusFilter, string> = {
+    all: "All Copies",
+    AVAILABLE: "Available",
+    CHECKED_OUT: "Issued",
+    RESERVED: "Reserved",
+    DAMAGED: "Damaged",
+    LOST: "Lost",
+    IN_TRANSIT: "In Transit",
+  };
+
+  const handleBackToList = () => {
+    setSelectedCopy(null);
+  };
+
+  const handleClose = (value: boolean) => {
+    onOpenChange(value);
+    if (!value) {
+      setSelectedCopy(null);
+    }
+  };
+
+  if (!resource) return null;
+
+  return (
+    <Sheet open={open} onOpenChange={handleClose}>
+      <SheetContent className="w-[500px] sm:max-w-[500px] p-0">
+        <SheetHeader className="p-6 pb-4 border-b">
+          {selectedCopy ? (
+            <>
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="icon" onClick={handleBackToList} data-testid="button-back-to-list">
+                  <ArrowLeftCircle className="h-4 w-4" />
+                </Button>
+                <div>
+                  <SheetTitle className="text-left">Circulation History</SheetTitle>
+                  <SheetDescription className="text-left">
+                    SSN: {selectedCopy.internalSSN || "N/A"} - {selectedCopy.barcode}
+                  </SheetDescription>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <SheetTitle className="text-left">{resource.title}</SheetTitle>
+              <SheetDescription className="text-left">
+                {statusLabels[statusFilter]} - {filteredCopies.length} {filteredCopies.length === 1 ? "copy" : "copies"}
+              </SheetDescription>
+            </>
+          )}
+        </SheetHeader>
+
+        <ScrollArea className="h-[calc(100vh-120px)]">
+          {selectedCopy ? (
+            <div className="p-6">
+              <div className="mb-4 p-4 bg-muted rounded-lg">
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div>
+                    <span className="text-muted-foreground">SSN:</span>
+                    <span className="ml-2 font-mono">{selectedCopy.internalSSN || "Not assigned"}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Barcode:</span>
+                    <span className="ml-2 font-mono">{selectedCopy.barcode}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Status:</span>
+                    <Badge className="ml-2" variant={getStatusBadgeVariant(selectedCopy.status)}>
+                      {selectedCopy.status.replace("_", " ")}
+                    </Badge>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Location:</span>
+                    <span className="ml-2">{selectedCopy.shelfLocation || "-"}</span>
+                  </div>
+                </div>
+              </div>
+
+              <h4 className="font-semibold mb-3 flex items-center gap-2">
+                <History className="h-4 w-4" />
+                Movement History
+              </h4>
+              
+              {historyLoading ? (
+                <div className="text-center py-8 text-muted-foreground">Loading history...</div>
+              ) : circulationHistory.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground border rounded-lg border-dashed">
+                  <History className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p>No circulation history</p>
+                  <p className="text-sm">This copy has not been issued yet.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {circulationHistory.map((record) => (
+                    <div key={record.id} className="p-3 border rounded-lg">
+                      <div className="flex items-center justify-between mb-2">
+                        <Badge variant={record.status === "ACTIVE" ? "default" : "secondary"}>
+                          {record.status}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground">
+                          #{record.id}
+                        </span>
+                      </div>
+                      <div className="grid gap-1 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Checkout:</span>
+                          <span>{format(new Date(record.checkoutDate), "MMM d, yyyy HH:mm")}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Due:</span>
+                          <span>{format(new Date(record.dueDate), "MMM d, yyyy")}</span>
+                        </div>
+                        {record.returnDate && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Returned:</span>
+                            <span>{format(new Date(record.returnDate), "MMM d, yyyy HH:mm")}</span>
+                          </div>
+                        )}
+                        {record.fineAmount && record.fineAmount > 0 && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Fine:</span>
+                            <span className="text-red-600">${(record.fineAmount / 100).toFixed(2)}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="p-6">
+              {copiesLoading ? (
+                <div className="text-center py-8 text-muted-foreground">Loading copies...</div>
+              ) : filteredCopies.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground border rounded-lg border-dashed">
+                  <Book className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p>No copies found</p>
+                  <p className="text-sm">No copies match the selected status filter.</p>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>SSN</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Location</TableHead>
+                      <TableHead></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredCopies.map((copy) => (
+                      <TableRow 
+                        key={copy.id} 
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => setSelectedCopy(copy)}
+                        data-testid={`row-copy-${copy.id}`}
+                      >
+                        <TableCell className="font-mono text-sm">
+                          {copy.internalSSN || (
+                            <span className="text-muted-foreground italic">No SSN</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={getStatusBadgeVariant(copy.status)}>
+                            {copy.status.replace("_", " ")}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {copy.shelfLocation || "-"}
+                        </TableCell>
+                        <TableCell>
+                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </div>
+          )}
+        </ScrollArea>
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -189,6 +463,17 @@ export function LibraryResourcesPage() {
   const [status, setStatus] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  
+  // Sheet state for copy details
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [selectedResource, setSelectedResource] = useState<LibraryResourceStats | null>(null);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+
+  const handleStatClick = (resource: LibraryResourceStats, filter: StatusFilter) => {
+    setSelectedResource(resource);
+    setStatusFilter(filter);
+    setSheetOpen(true);
+  };
 
   const { data: library } = useQuery({
     queryKey: ["library", libraryId],
@@ -387,13 +672,25 @@ export function LibraryResourcesPage() {
             ) : (
               <div className="space-y-4">
                 {resourcesData.resources.map((resource) => (
-                  <ResourceCard key={resource.bookId} resource={resource} />
+                  <ResourceCard 
+                    key={resource.bookId} 
+                    resource={resource}
+                    onStatClick={handleStatClick}
+                  />
                 ))}
               </div>
             )}
           </>
         )}
       </div>
+
+      <CopyDetailsSheet
+        open={sheetOpen}
+        onOpenChange={setSheetOpen}
+        resource={selectedResource}
+        statusFilter={statusFilter}
+        libraryId={libraryId}
+      />
     </MainLayout>
   );
 }
