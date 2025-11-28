@@ -61,13 +61,40 @@ const ORG_TYPE_LABELS: Record<string, string> = {
   DEPARTMENT: "Department",
 };
 
+function getParentPath(unitId: number | null | undefined, allUnits: OrgUnit[]): string {
+  if (!unitId) return "Root (Top Level)";
+  const path: string[] = [];
+  let currentId: number | null = unitId;
+  while (currentId !== null) {
+    const unit = allUnits.find(u => u.id === currentId);
+    if (!unit) break;
+    path.unshift(unit.name);
+    currentId = unit.parentId;
+  }
+  return path.length > 0 ? path.join(" → ") : "Root (Top Level)";
+}
+
+function getDescendantIds(unitId: number, allUnits: OrgUnit[]): Set<number> {
+  const descendants = new Set<number>();
+  const stack = [unitId];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    descendants.add(current);
+    const children = allUnits.filter(u => u.parentId === current);
+    children.forEach(c => stack.push(c.id));
+  }
+  return descendants;
+}
+
 function OrgUnitDialog({ 
   orgUnit, 
-  parentId,
+  parentId: initialParentId,
+  allOrgUnits,
   onClose 
 }: { 
   orgUnit?: OrgUnit;
   parentId?: number | null;
+  allOrgUnits: OrgUnit[];
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
@@ -76,6 +103,16 @@ function OrgUnitDialog({
   const [type, setType] = useState<string>(orgUnit?.type || "UNIVERSITY");
   const [description, setDescription] = useState(orgUnit?.description || "");
   const [isActive, setIsActive] = useState(orgUnit?.isActive ?? true);
+  const [selectedParentId, setSelectedParentId] = useState<string>(
+    initialParentId !== undefined && initialParentId !== null 
+      ? String(initialParentId) 
+      : orgUnit?.parentId 
+        ? String(orgUnit.parentId) 
+        : "root"
+  );
+
+  const excludedIds = orgUnit ? getDescendantIds(orgUnit.id, allOrgUnits) : new Set<number>();
+  const availableParents = allOrgUnits.filter(u => !excludedIds.has(u.id) && u.isActive);
 
   const createMutation = useMutation({
     mutationFn: (data: any) => orgUnitsApi.create(data),
@@ -108,12 +145,14 @@ function OrgUnitDialog({
       return;
     }
 
+    const parentIdValue = selectedParentId === "root" ? null : parseInt(selectedParentId);
+
     const data = { 
       code, 
       name, 
       type, 
       description: description || null, 
-      parentId: parentId ?? orgUnit?.parentId ?? null,
+      parentId: parentIdValue,
       isActive,
       sortOrder: 0
     };
@@ -126,6 +165,10 @@ function OrgUnitDialog({
   };
 
   const isPending = createMutation.isPending || updateMutation.isPending;
+  const parentPath = getParentPath(
+    selectedParentId === "root" ? null : parseInt(selectedParentId), 
+    allOrgUnits
+  );
 
   return (
     <form onSubmit={handleSubmit}>
@@ -136,6 +179,37 @@ function OrgUnitDialog({
         </DialogDescription>
       </DialogHeader>
       <div className="grid gap-4 py-4">
+        <div className="grid gap-2">
+          <Label>Parent Unit</Label>
+          <Select value={selectedParentId} onValueChange={setSelectedParentId}>
+            <SelectTrigger data-testid="select-parent-unit">
+              <SelectValue placeholder="Select parent unit" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="root">
+                <span className="font-medium">Root (Top Level)</span>
+              </SelectItem>
+              {availableParents.map(unit => {
+                const Icon = ORG_TYPE_ICONS[unit.type] || Building;
+                const path = getParentPath(unit.parentId, allOrgUnits);
+                return (
+                  <SelectItem key={unit.id} value={String(unit.id)}>
+                    <div className="flex items-center gap-2">
+                      <Icon className="h-4 w-4 text-muted-foreground" />
+                      <span>{unit.name}</span>
+                      <span className="text-xs text-muted-foreground">({unit.code})</span>
+                    </div>
+                  </SelectItem>
+                );
+              })}
+            </SelectContent>
+          </Select>
+          {selectedParentId !== "root" && (
+            <p className="text-xs text-muted-foreground">
+              Path: {parentPath}
+            </p>
+          )}
+        </div>
         <div className="grid gap-2">
           <Label htmlFor="org-code">Code *</Label>
           <Input
@@ -682,6 +756,7 @@ export default function OrganizationsPage() {
                     <OrgUnitDialog 
                       orgUnit={editingOrgUnit}
                       parentId={parentIdForNew}
+                      allOrgUnits={orgUnits}
                       onClose={() => {
                         setOrgDialogOpen(false);
                         setEditingOrgUnit(undefined);
