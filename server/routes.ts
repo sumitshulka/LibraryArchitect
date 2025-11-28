@@ -1172,6 +1172,62 @@ export async function registerRoutes(
     }
   });
 
+  // ===== Resource Allocations API =====
+  app.get("/api/allocations/unallocated", async (req, res) => {
+    try {
+      const unallocatedCopies = await storage.getUnallocatedCopiesWithBookInfo();
+      res.json(unallocatedCopies);
+    } catch (error) {
+      console.error("Error fetching unallocated copies:", error);
+      res.status(500).json({ error: "Failed to fetch unallocated copies" });
+    }
+  });
+
+  app.post("/api/allocations/allocate", async (req, res) => {
+    try {
+      const { copyIds, libraryId, generateSSN, ssnPrefix } = req.body;
+      
+      if (!Array.isArray(copyIds) || copyIds.length === 0) {
+        return res.status(400).json({ error: "copyIds must be a non-empty array of copy IDs" });
+      }
+      
+      if (!libraryId || typeof libraryId !== 'number') {
+        return res.status(400).json({ error: "libraryId is required and must be a number" });
+      }
+      
+      const library = await storage.getLibrary(libraryId);
+      if (!library) {
+        return res.status(404).json({ error: "Library not found" });
+      }
+      
+      for (const copyId of copyIds) {
+        const copy = await storage.getBookCopy(copyId);
+        if (!copy) {
+          return res.status(400).json({ error: `Book copy with ID ${copyId} not found` });
+        }
+        if (copy.libraryId !== null) {
+          return res.status(400).json({ error: `Book copy ${copy.barcode} is already allocated to a library` });
+        }
+      }
+      
+      const allocatedCopies = await storage.allocateCopies(
+        copyIds,
+        libraryId,
+        generateSSN === true,
+        ssnPrefix
+      );
+      
+      res.json({
+        success: true,
+        allocatedCount: allocatedCopies.length,
+        copies: allocatedCopies,
+      });
+    } catch (error) {
+      console.error("Error allocating copies:", error);
+      res.status(500).json({ error: "Failed to allocate copies" });
+    }
+  });
+
   // ===== Book Transfers API =====
   app.get("/api/book-transfers", async (req, res) => {
     try {

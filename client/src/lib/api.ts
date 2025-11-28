@@ -738,3 +738,52 @@ export const libraryMembershipsApi = {
     }
   },
 };
+
+// Allocations API
+export interface UnallocatedCopyInfo {
+  bookId: number;
+  bookTitle: string;
+  bookAuthor: string;
+  bookIsbn: string;
+  bookFormat: string;
+  totalUnallocatedCopies: number;
+  copies: {
+    id: number;
+    barcode: string;
+    shelfLocation: string | null;
+    status: string;
+    createdAt: string;
+  }[];
+}
+
+export interface AllocationResult {
+  success: boolean;
+  allocatedCount: number;
+  copies: BookCopy[];
+}
+
+export const allocationsApi = {
+  getUnallocated: async (): Promise<UnallocatedCopyInfo[]> => {
+    const res = await fetch(`${API_BASE}/allocations/unallocated`);
+    if (!res.ok) throw new Error("Failed to fetch unallocated copies");
+    return res.json();
+  },
+
+  allocate: async (data: {
+    copyIds: number[];
+    libraryId: number;
+    generateSSN: boolean;
+    ssnPrefix?: string;
+  }): Promise<AllocationResult> => {
+    const res = await fetch(`${API_BASE}/allocations/allocate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to allocate copies");
+    }
+    return res.json();
+  },
+};

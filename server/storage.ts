@@ -134,7 +134,9 @@ export interface IStorage {
   getBookCopiesByBook(bookId: number): Promise<BookCopy[]>;
   getBookCopiesByLibrary(libraryId: number): Promise<BookCopy[]>;
   getUnallocatedCopies(): Promise<BookCopy[]>;
+  getUnallocatedCopiesWithBookInfo(): Promise<UnallocatedCopyInfo[]>;
   getAvailableCopiesByLibrary(libraryId: number): Promise<BookCopy[]>;
+  allocateCopies(copyIds: number[], libraryId: number, generateSSN: boolean, ssnPrefix?: string): Promise<BookCopy[]>;
   
   // Book Transfers
   getBookTransfer(id: number): Promise<BookTransfer | undefined>;
@@ -185,6 +187,22 @@ export interface LibraryDashboardStats {
   pendingTransfersOut: number;
   
   totalMembers: number;
+}
+
+export interface UnallocatedCopyInfo {
+  bookId: number;
+  bookTitle: string;
+  bookAuthor: string;
+  bookIsbn: string;
+  bookFormat: string;
+  totalUnallocatedCopies: number;
+  copies: {
+    id: number;
+    barcode: string;
+    shelfLocation: string | null;
+    status: string;
+    createdAt: Date;
+  }[];
 }
 
 export class DBStorage implements IStorage {
@@ -612,6 +630,94 @@ export class DBStorage implements IStorage {
     return await db.select().from(bookCopies)
       .where(isNull(bookCopies.libraryId))
       .orderBy(asc(bookCopies.barcode));
+  }
+
+  async getUnallocatedCopiesWithBookInfo(): Promise<UnallocatedCopyInfo[]> {
+    const unallocatedCopies = await db.select({
+      copyId: bookCopies.id,
+      copyBarcode: bookCopies.barcode,
+      copyShelfLocation: bookCopies.shelfLocation,
+      copyStatus: bookCopies.status,
+      copyCreatedAt: bookCopies.createdAt,
+      bookId: books.id,
+      bookTitle: books.title,
+      bookAuthor: books.author,
+      bookIsbn: books.isbn,
+      bookFormat: books.format,
+    })
+      .from(bookCopies)
+      .leftJoin(books, eq(bookCopies.bookId, books.id))
+      .where(isNull(bookCopies.libraryId))
+      .orderBy(asc(books.title), asc(bookCopies.barcode));
+
+    const grouped = new Map<number, UnallocatedCopyInfo>();
+    
+    for (const row of unallocatedCopies) {
+      if (!row.bookId) continue;
+      
+      if (!grouped.has(row.bookId)) {
+        grouped.set(row.bookId, {
+          bookId: row.bookId,
+          bookTitle: row.bookTitle || '',
+          bookAuthor: row.bookAuthor || '',
+          bookIsbn: row.bookIsbn || '',
+          bookFormat: row.bookFormat || 'PHYSICAL',
+          totalUnallocatedCopies: 0,
+          copies: [],
+        });
+      }
+      
+      const bookInfo = grouped.get(row.bookId)!;
+      bookInfo.totalUnallocatedCopies++;
+      bookInfo.copies.push({
+        id: row.copyId,
+        barcode: row.copyBarcode,
+        shelfLocation: row.copyShelfLocation,
+        status: row.copyStatus,
+        createdAt: row.copyCreatedAt,
+      });
+    }
+    
+    return Array.from(grouped.values());
+  }
+
+  async allocateCopies(copyIds: number[], libraryId: number, generateSSN: boolean, ssnPrefix?: string): Promise<BookCopy[]> {
+    const allocatedCopies: BookCopy[] = [];
+    const prefix = ssnPrefix || 'SSN';
+    const batchTimestamp = Date.now();
+    const randomSuffix = Math.random().toString(36).substring(2, 8).toUpperCase();
+    
+    for (let i = 0; i < copyIds.length; i++) {
+      const copyId = copyIds[i];
+      
+      const existingCopy = await db.select().from(bookCopies).where(eq(bookCopies.id, copyId));
+      if (!existingCopy[0] || existingCopy[0].libraryId !== null) {
+        throw new Error(`Copy ${copyId} is already allocated or not found`);
+      }
+      
+      const updates: any = {
+        libraryId,
+        allocatedAt: new Date(),
+        updatedAt: new Date(),
+      };
+      
+      if (generateSSN && !existingCopy[0].internalSSN) {
+        updates.internalSSN = `${prefix}-${batchTimestamp}-${randomSuffix}-${String(i + 1).padStart(4, '0')}`;
+      }
+      
+      const [updatedCopy] = await db.update(bookCopies)
+        .set(updates)
+        .where(and(eq(bookCopies.id, copyId), isNull(bookCopies.libraryId)))
+        .returning();
+      
+      if (!updatedCopy) {
+        throw new Error(`Failed to allocate copy ${copyId} - may have been allocated by another process`);
+      }
+      
+      allocatedCopies.push(updatedCopy);
+    }
+    
+    return allocatedCopies;
   }
 
   async getAvailableCopiesByLibrary(libraryId: number): Promise<BookCopy[]> {
