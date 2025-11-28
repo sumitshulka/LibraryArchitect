@@ -8,6 +8,9 @@ import DashboardPage from "@/modules/dashboard/DashboardPage";
 import CatalogPage from "@/modules/catalog/CatalogPage";
 import UsersPage from "@/modules/users/UsersPage";
 import CirculationPage from "@/modules/circulation/CirculationPage";
+import InventoryPage from "@/modules/inventory/InventoryPage";
+import ReportsPage from "@/modules/reports/ReportsPage";
+import SettingsPage from "@/modules/settings/SettingsPage";
 
 function Router() {
   return (
@@ -16,6 +19,9 @@ function Router() {
       <Route path="/catalog" component={CatalogPage} />
       <Route path="/users" component={UsersPage} />
       <Route path="/circulation" component={CirculationPage} />
+      <Route path="/inventory" component={InventoryPage} />
+      <Route path="/reports" component={ReportsPage} />
+      <Route path="/settings" component={SettingsPage} />
       <Route component={NotFound} />
     </Switch>
   );
