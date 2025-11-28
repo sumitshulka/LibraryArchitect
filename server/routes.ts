@@ -462,32 +462,91 @@ export async function registerRoutes(
     }
   });
 
-  // ===== Z39.50 Search API =====
+  // ===== Z39.50 / ISBN Search API =====
   app.post("/api/z3950/search", async (req, res) => {
     try {
       const { isbn, server } = req.body;
       
-      // Simulate Z39.50 search - in production this would connect to actual Z39.50 servers
-      // For now, we return mock data based on ISBN
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      if (!isbn) {
+        return res.status(400).json({ error: "ISBN is required" });
+      }
       
-      const mockResults = [
-        { 
-          id: '1', 
-          title: 'Sample Book Title', 
-          author: 'Author Name', 
-          isbn: isbn || '978-0000000000', 
-          publisher: 'Sample Publisher', 
-          year: '2024', 
-          source: server || 'Library of Congress',
-          category: 'Computer Science'
-        },
-      ];
+      // Clean ISBN - remove hyphens and spaces
+      const cleanIsbn = isbn.replace(/[-\s]/g, '');
       
-      res.json(mockResults);
+      const results: any[] = [];
+      
+      // Try Open Library API first (free, no API key required)
+      try {
+        const openLibResponse = await fetch(
+          `https://openlibrary.org/api/books?bibkeys=ISBN:${cleanIsbn}&format=json&jscmd=data`
+        );
+        
+        if (openLibResponse.ok) {
+          const openLibData = await openLibResponse.json();
+          const bookKey = `ISBN:${cleanIsbn}`;
+          
+          if (openLibData[bookKey]) {
+            const book = openLibData[bookKey];
+            results.push({
+              id: `ol-${cleanIsbn}`,
+              title: book.title || 'Unknown Title',
+              author: book.authors?.map((a: any) => a.name).join(', ') || 'Unknown Author',
+              isbn: isbn,
+              publisher: book.publishers?.map((p: any) => p.name).join(', ') || 'Unknown Publisher',
+              year: book.publish_date ? book.publish_date.match(/\d{4}/)?.[0] || '' : '',
+              source: 'Open Library',
+              category: book.subjects?.slice(0, 3).map((s: any) => s.name).join(', ') || 'General',
+              cover: book.cover?.medium || book.cover?.small || null,
+              numberOfPages: book.number_of_pages || null,
+            });
+          }
+        }
+      } catch (openLibError) {
+        console.error("Open Library API error:", openLibError);
+      }
+      
+      // Try Google Books API as fallback (also free for basic usage)
+      if (results.length === 0) {
+        try {
+          const googleResponse = await fetch(
+            `https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`
+          );
+          
+          if (googleResponse.ok) {
+            const googleData = await googleResponse.json();
+            
+            if (googleData.items && googleData.items.length > 0) {
+              const book = googleData.items[0].volumeInfo;
+              results.push({
+                id: `gb-${googleData.items[0].id}`,
+                title: book.title || 'Unknown Title',
+                author: book.authors?.join(', ') || 'Unknown Author',
+                isbn: isbn,
+                publisher: book.publisher || 'Unknown Publisher',
+                year: book.publishedDate ? book.publishedDate.substring(0, 4) : '',
+                source: 'Google Books',
+                category: book.categories?.join(', ') || 'General',
+                cover: book.imageLinks?.thumbnail || null,
+                numberOfPages: book.pageCount || null,
+                description: book.description || null,
+              });
+            }
+          }
+        } catch (googleError) {
+          console.error("Google Books API error:", googleError);
+        }
+      }
+      
+      // If no results found from either API
+      if (results.length === 0) {
+        return res.json([]);
+      }
+      
+      res.json(results);
     } catch (error) {
-      console.error("Error performing Z39.50 search:", error);
-      res.status(500).json({ error: "Failed to perform Z39.50 search" });
+      console.error("Error performing ISBN search:", error);
+      res.status(500).json({ error: "Failed to perform ISBN search" });
     }
   });
 
