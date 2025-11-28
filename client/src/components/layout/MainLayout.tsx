@@ -12,7 +12,7 @@ export function MainLayout({ children }: MainLayoutProps) {
       <div className="flex-1 flex flex-col md:ml-64 transition-all duration-300 ease-in-out">
         <TopBar />
         <main className="flex-1 p-6 overflow-auto bg-muted/20">
-          <div className="max-w-7xl mx-auto w-full space-y-6">
+          <div className="max-w-7xl w-full space-y-6">
             {children}
           </div>
         </main>
