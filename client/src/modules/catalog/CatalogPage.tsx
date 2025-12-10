@@ -23,22 +23,251 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Search, MoreHorizontal, Filter, Download, Database, FileText, Plus } from "lucide-react";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { 
+  Search, MoreHorizontal, Filter, Download, Database, FileText, Plus,
+  Book as BookIcon, Library, CheckCircle2, Clock, AlertTriangle, Truck, XCircle, History
+} from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { booksApi } from "@/lib/api";
-import type { Book } from "@shared/schema";
+import { booksApi, type BookDashboard, type BookLibraryAllocation } from "@/lib/api";
+import type { Book, Circulation } from "@shared/schema";
 import { toast } from "sonner";
+import { format } from "date-fns";
+
+function BookDetailsSheet({
+  open,
+  onOpenChange,
+  bookId,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  bookId: number | null;
+}) {
+  const { data: dashboard, isLoading } = useQuery({
+    queryKey: ["book-dashboard", bookId],
+    queryFn: () => booksApi.getDashboard(bookId!),
+    enabled: open && bookId !== null,
+  });
+
+  if (!bookId) return null;
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent className="w-[600px] sm:max-w-[600px] p-0">
+        <SheetHeader className="p-6 pb-4 border-b">
+          <SheetTitle className="text-left flex items-center gap-2">
+            <BookIcon className="h-5 w-5" />
+            Resource Dashboard
+          </SheetTitle>
+          <SheetDescription className="text-left">
+            Overview of allocations and circulation history
+          </SheetDescription>
+        </SheetHeader>
+
+        <ScrollArea className="h-[calc(100vh-120px)]">
+          {isLoading ? (
+            <div className="p-6 text-center text-muted-foreground">Loading...</div>
+          ) : dashboard ? (
+            <div className="p-6 space-y-6">
+              {/* Book Details */}
+              <div>
+                <h3 className="font-semibold text-lg mb-2">{dashboard.book.title}</h3>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div>
+                    <span className="text-muted-foreground">Author:</span>
+                    <span className="ml-2">{dashboard.book.author}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">ISBN:</span>
+                    <span className="ml-2 font-mono">{dashboard.book.isbn}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Category:</span>
+                    <span className="ml-2">{dashboard.book.category}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Format:</span>
+                    <span className="ml-2 capitalize">{dashboard.book.format?.toLowerCase()}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Publisher:</span>
+                    <span className="ml-2">{dashboard.book.publisher || "-"}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Year:</span>
+                    <span className="ml-2">{dashboard.book.publishedYear || "-"}</span>
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Total Copies Summary */}
+              <div className="flex items-center gap-4 p-4 bg-muted rounded-lg">
+                <BookIcon className="h-8 w-8 text-muted-foreground" />
+                <div>
+                  <div className="text-2xl font-bold">{dashboard.totalCopies}</div>
+                  <div className="text-sm text-muted-foreground">Total Copies</div>
+                </div>
+              </div>
+
+              {/* Library Allocations */}
+              <div>
+                <h4 className="font-semibold mb-3 flex items-center gap-2">
+                  <Library className="h-4 w-4" />
+                  Library Allocations
+                </h4>
+                {dashboard.libraryAllocations.length === 0 ? (
+                  <div className="text-center py-4 text-muted-foreground border rounded-lg border-dashed">
+                    <Library className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                    <p>No library allocations</p>
+                    <p className="text-sm">This resource has not been allocated to any library yet.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {dashboard.libraryAllocations.map((alloc) => (
+                      <Card key={alloc.libraryId}>
+                        <CardHeader className="py-3 px-4">
+                          <CardTitle className="text-sm flex items-center justify-between">
+                            <span>{alloc.libraryName}</span>
+                            <Badge variant="outline" className="font-mono text-xs">
+                              {alloc.libraryCode}
+                            </Badge>
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="px-4 pb-3">
+                          <div className="grid grid-cols-4 gap-2 text-xs">
+                            <div className="flex flex-col items-center p-2 bg-green-50 rounded">
+                              <CheckCircle2 className="h-4 w-4 text-green-600 mb-1" />
+                              <span className="font-bold text-green-600">{alloc.available}</span>
+                              <span className="text-muted-foreground">Available</span>
+                            </div>
+                            <div className="flex flex-col items-center p-2 bg-blue-50 rounded">
+                              <XCircle className="h-4 w-4 text-blue-600 mb-1" />
+                              <span className="font-bold text-blue-600">{alloc.checkedOut}</span>
+                              <span className="text-muted-foreground">Issued</span>
+                            </div>
+                            <div className="flex flex-col items-center p-2 bg-amber-50 rounded">
+                              <Clock className="h-4 w-4 text-amber-600 mb-1" />
+                              <span className="font-bold text-amber-600">{alloc.reserved}</span>
+                              <span className="text-muted-foreground">Reserved</span>
+                            </div>
+                            <div className="flex flex-col items-center p-2 bg-gray-50 rounded">
+                              <BookIcon className="h-4 w-4 text-gray-600 mb-1" />
+                              <span className="font-bold">{alloc.total}</span>
+                              <span className="text-muted-foreground">Total</span>
+                            </div>
+                          </div>
+                          {(alloc.damaged > 0 || alloc.lost > 0 || alloc.inTransit > 0) && (
+                            <div className="flex gap-4 mt-2 text-xs text-muted-foreground">
+                              {alloc.damaged > 0 && (
+                                <span className="flex items-center gap-1">
+                                  <AlertTriangle className="h-3 w-3 text-red-500" />
+                                  {alloc.damaged} damaged
+                                </span>
+                              )}
+                              {alloc.lost > 0 && (
+                                <span className="flex items-center gap-1">
+                                  <AlertTriangle className="h-3 w-3 text-red-500" />
+                                  {alloc.lost} lost
+                                </span>
+                              )}
+                              {alloc.inTransit > 0 && (
+                                <span className="flex items-center gap-1">
+                                  <Truck className="h-3 w-3 text-blue-500" />
+                                  {alloc.inTransit} in transit
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <Separator />
+
+              {/* Recent Circulation History */}
+              <div>
+                <h4 className="font-semibold mb-3 flex items-center gap-2">
+                  <History className="h-4 w-4" />
+                  Recent Circulation
+                </h4>
+                {dashboard.recentCirculation.length === 0 ? (
+                  <div className="text-center py-4 text-muted-foreground border rounded-lg border-dashed">
+                    <History className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                    <p>No circulation history</p>
+                    <p className="text-sm">This resource has not been checked out yet.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {dashboard.recentCirculation.map((record) => (
+                      <div key={record.id} className="p-3 border rounded-lg text-sm">
+                        <div className="flex items-center justify-between mb-1">
+                          <Badge variant={record.status === "ACTIVE" ? "default" : "secondary"}>
+                            {record.status}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">
+                            Copy #{record.bookCopyId}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-1 text-xs">
+                          <div>
+                            <span className="text-muted-foreground">Checkout:</span>
+                            <span className="ml-1">{format(new Date(record.checkoutDate), "MMM d, yyyy")}</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Due:</span>
+                            <span className="ml-1">{format(new Date(record.dueDate), "MMM d, yyyy")}</span>
+                          </div>
+                          {record.returnDate && (
+                            <div className="col-span-2">
+                              <span className="text-muted-foreground">Returned:</span>
+                              <span className="ml-1">{format(new Date(record.returnDate), "MMM d, yyyy")}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : null}
+        </ScrollArea>
+      </SheetContent>
+    </Sheet>
+  );
+}
 
 export default function CatalogPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("browse");
+  const [selectedBookId, setSelectedBookId] = useState<number | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
   const queryClient = useQueryClient();
 
   const { data: books = [], isLoading } = useQuery({
     queryKey: ["books", searchQuery],
     queryFn: () => searchQuery ? booksApi.getAll(searchQuery) : booksApi.getAll(),
   });
+
+  const handleBookClick = (bookId: number) => {
+    setSelectedBookId(bookId);
+    setSheetOpen(true);
+  };
 
   const deleteMutation = useMutation({
     mutationFn: booksApi.delete,
@@ -171,7 +400,14 @@ export default function CatalogPage() {
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col">
-                          <span className="font-medium" data-testid={`text-title-${book.id}`}>{book.title}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleBookClick(book.id)}
+                            className="font-medium text-left hover:text-primary hover:underline cursor-pointer"
+                            data-testid={`text-title-${book.id}`}
+                          >
+                            {book.title}
+                          </button>
                           <span className="text-xs text-muted-foreground">{book.author} • {book.publishedYear}</span>
                         </div>
                       </TableCell>
@@ -241,6 +477,12 @@ export default function CatalogPage() {
           <Z3950Search />
         </TabsContent>
       </Tabs>
+
+      <BookDetailsSheet
+        open={sheetOpen}
+        onOpenChange={setSheetOpen}
+        bookId={selectedBookId}
+      />
     </MainLayout>
   );
 }

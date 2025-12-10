@@ -43,7 +43,7 @@ import {
   libraryMemberships
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, or, like, desc, asc, sql, isNull } from "drizzle-orm";
+import { eq, and, or, like, desc, asc, sql, isNull, inArray } from "drizzle-orm";
 
 export interface IStorage {
   // Users
@@ -146,6 +146,7 @@ export interface IStorage {
   getBookCopiesByLibrary(libraryId: number): Promise<BookCopy[]>;
   getBookCopiesByBookAndLibrary(bookId: number, libraryId: number): Promise<BookCopy[]>;
   getCirculationHistoryByCopy(bookCopyId: number): Promise<Circulation[]>;
+  getRecentCirculationByBook(bookId: number, limit?: number): Promise<Circulation[]>;
   getUnallocatedCopies(): Promise<BookCopy[]>;
   getUnallocatedCopiesWithBookInfo(): Promise<UnallocatedCopyInfo[]>;
   getAvailableCopiesByLibrary(libraryId: number): Promise<BookCopy[]>;
@@ -712,6 +713,23 @@ export class DBStorage implements IStorage {
     return await db.select().from(circulation)
       .where(eq(circulation.bookCopyId, bookCopyId))
       .orderBy(desc(circulation.checkoutDate));
+  }
+
+  async getRecentCirculationByBook(bookId: number, limit: number = 10): Promise<Circulation[]> {
+    // Get all copy IDs for this book
+    const copies = await db.select({ id: bookCopies.id })
+      .from(bookCopies)
+      .where(eq(bookCopies.bookId, bookId));
+    
+    if (copies.length === 0) return [];
+    
+    const copyIds = copies.map(c => c.id);
+    
+    // Get recent circulation records for these copies
+    return await db.select().from(circulation)
+      .where(inArray(circulation.bookCopyId, copyIds))
+      .orderBy(desc(circulation.checkoutDate))
+      .limit(limit);
   }
 
   async getUnallocatedCopies(): Promise<BookCopy[]> {

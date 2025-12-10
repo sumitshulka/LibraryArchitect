@@ -83,6 +83,81 @@ export async function registerRoutes(
     }
   });
 
+  // Book Dashboard - Get book details with library allocations and recent circulation
+  app.get("/api/books/:id/dashboard", async (req, res) => {
+    try {
+      const bookId = parseInt(req.params.id);
+      const book = await storage.getBook(bookId);
+      
+      if (!book) {
+        return res.status(404).json({ error: "Book not found" });
+      }
+      
+      // Get all copies for this book
+      const copies = await storage.getBookCopiesByBook(bookId);
+      
+      // Get all libraries to map names
+      const libraries = await storage.getAllLibraries();
+      const libraryMap = new Map(libraries.map(lib => [lib.id, lib]));
+      
+      // Group copies by library with stats
+      const libraryAllocations: Record<number, {
+        libraryId: number;
+        libraryName: string;
+        libraryCode: string;
+        total: number;
+        available: number;
+        checkedOut: number;
+        reserved: number;
+        damaged: number;
+        lost: number;
+        inTransit: number;
+      }> = {};
+      
+      for (const copy of copies) {
+        const libId = copy.libraryId;
+        if (!libraryAllocations[libId]) {
+          const lib = libraryMap.get(libId);
+          libraryAllocations[libId] = {
+            libraryId: libId,
+            libraryName: lib?.name || "Unknown",
+            libraryCode: lib?.code || "???",
+            total: 0,
+            available: 0,
+            checkedOut: 0,
+            reserved: 0,
+            damaged: 0,
+            lost: 0,
+            inTransit: 0,
+          };
+        }
+        
+        libraryAllocations[libId].total++;
+        switch (copy.status) {
+          case "AVAILABLE": libraryAllocations[libId].available++; break;
+          case "CHECKED_OUT": libraryAllocations[libId].checkedOut++; break;
+          case "RESERVED": libraryAllocations[libId].reserved++; break;
+          case "DAMAGED": libraryAllocations[libId].damaged++; break;
+          case "LOST": libraryAllocations[libId].lost++; break;
+          case "IN_TRANSIT": libraryAllocations[libId].inTransit++; break;
+        }
+      }
+      
+      // Get recent circulation records for this book's copies
+      const recentCirculation = await storage.getRecentCirculationByBook(bookId, 10);
+      
+      res.json({
+        book,
+        totalCopies: copies.length,
+        libraryAllocations: Object.values(libraryAllocations),
+        recentCirculation,
+      });
+    } catch (error) {
+      console.error("Error fetching book dashboard:", error);
+      res.status(500).json({ error: "Failed to fetch book dashboard" });
+    }
+  });
+
   app.post("/api/books", async (req, res) => {
     try {
       const { quantity, ...bookData } = req.body;

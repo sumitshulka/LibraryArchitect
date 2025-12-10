@@ -49,7 +49,34 @@ export const booksApi = {
       throw new Error(error.error || "Failed to delete book");
     }
   },
+
+  getDashboard: async (id: number): Promise<BookDashboard> => {
+    const res = await fetch(`${API_BASE}/books/${id}/dashboard`);
+    if (!res.ok) throw new Error("Failed to fetch book dashboard");
+    return res.json();
+  },
 };
+
+// Book Dashboard types
+export interface BookLibraryAllocation {
+  libraryId: number;
+  libraryName: string;
+  libraryCode: string;
+  total: number;
+  available: number;
+  checkedOut: number;
+  reserved: number;
+  damaged: number;
+  lost: number;
+  inTransit: number;
+}
+
+export interface BookDashboard {
+  book: Book;
+  totalCopies: number;
+  libraryAllocations: BookLibraryAllocation[];
+  recentCirculation: Circulation[];
+}
 
 // Users API
 export const usersApi = {
