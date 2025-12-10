@@ -115,13 +115,13 @@ export async function registerRoutes(
       }> = {};
       
       for (const copy of copies) {
-        const libId = copy.libraryId;
+        const libId = copy.libraryId || 0; // Use 0 for unallocated copies
         if (!libraryAllocations[libId]) {
-          const lib = libraryMap.get(libId);
+          const lib = libId ? libraryMap.get(libId) : null;
           libraryAllocations[libId] = {
             libraryId: libId,
-            libraryName: lib?.name || "Unknown",
-            libraryCode: lib?.code || "???",
+            libraryName: lib?.name || (libId === 0 ? "Unallocated" : "Unknown"),
+            libraryCode: lib?.code || (libId === 0 ? "N/A" : "???"),
             total: 0,
             available: 0,
             checkedOut: 0,
