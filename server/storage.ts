@@ -147,6 +147,7 @@ export interface IStorage {
   getBookCopiesByBookAndLibrary(bookId: number, libraryId: number): Promise<BookCopy[]>;
   getCirculationHistoryByCopy(bookCopyId: number): Promise<Circulation[]>;
   getRecentCirculationByBook(bookId: number, limit?: number): Promise<Circulation[]>;
+  getBookFinesSummary(bookId: number): Promise<{ paidFines: number; outstandingFines: number; waivedFines: number }>;
   getUnallocatedCopies(): Promise<BookCopy[]>;
   getUnallocatedCopiesWithBookInfo(): Promise<UnallocatedCopyInfo[]>;
   getAvailableCopiesByLibrary(libraryId: number): Promise<BookCopy[]>;
@@ -730,6 +731,48 @@ export class DBStorage implements IStorage {
       .where(inArray(circulation.bookCopyId, copyIds))
       .orderBy(desc(circulation.checkoutDate))
       .limit(limit);
+  }
+
+  async getBookFinesSummary(bookId: number): Promise<{ paidFines: number; outstandingFines: number; waivedFines: number }> {
+    // Get all copy IDs for this book
+    const copies = await db.select({ id: bookCopies.id })
+      .from(bookCopies)
+      .where(eq(bookCopies.bookId, bookId));
+    
+    if (copies.length === 0) {
+      return { paidFines: 0, outstandingFines: 0, waivedFines: 0 };
+    }
+    
+    const copyIds = copies.map(c => c.id);
+    
+    // Get all circulation records for these copies with fines
+    const circulationRecords = await db.select({
+      fineAmount: circulation.fineAmount,
+      fineStatus: circulation.fineStatus,
+    })
+      .from(circulation)
+      .where(inArray(circulation.bookCopyId, copyIds));
+    
+    let paidFines = 0;
+    let outstandingFines = 0;
+    let waivedFines = 0;
+    
+    for (const record of circulationRecords) {
+      const amount = record.fineAmount || 0;
+      switch (record.fineStatus) {
+        case 'PAID':
+          paidFines += amount;
+          break;
+        case 'PENDING':
+          outstandingFines += amount;
+          break;
+        case 'WAIVED':
+          waivedFines += amount;
+          break;
+      }
+    }
+    
+    return { paidFines, outstandingFines, waivedFines };
   }
 
   async getUnallocatedCopies(): Promise<BookCopy[]> {

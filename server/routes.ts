@@ -146,11 +146,60 @@ export async function registerRoutes(
       // Get recent circulation records for this book's copies
       const recentCirculation = await storage.getRecentCirculationByBook(bookId, 10);
       
+      // Calculate financial information
+      const finesData = await storage.getBookFinesSummary(bookId);
+      
+      // Calculate acquisition data from copies
+      let totalAcquisitionCost = 0;
+      const acquisitionHistory: {
+        date: Date | null;
+        source: string | null;
+        cost: number;
+        quantity: number;
+      }[] = [];
+      
+      // Group copies by acquisition date and source
+      const acquisitionGroups = new Map<string, { date: Date | null; source: string | null; cost: number; quantity: number }>();
+      
+      for (const copy of copies) {
+        const price = copy.price || 0;
+        totalAcquisitionCost += price;
+        
+        const key = `${copy.acquisitionDate?.toISOString() || 'unknown'}_${copy.acquisitionSource || 'unknown'}`;
+        const existing = acquisitionGroups.get(key);
+        if (existing) {
+          existing.cost += price;
+          existing.quantity += 1;
+        } else {
+          acquisitionGroups.set(key, {
+            date: copy.acquisitionDate,
+            source: copy.acquisitionSource,
+            cost: price,
+            quantity: 1,
+          });
+        }
+      }
+      
+      // Sort acquisition history by date (newest first)
+      const sortedAcquisitions = Array.from(acquisitionGroups.values())
+        .sort((a, b) => {
+          if (!a.date) return 1;
+          if (!b.date) return -1;
+          return b.date.getTime() - a.date.getTime();
+        });
+      
       res.json({
         book,
         totalCopies: copies.length,
         libraryAllocations: Object.values(libraryAllocations),
         recentCirculation,
+        financials: {
+          totalFinesCollected: finesData.paidFines,
+          totalFinesOutstanding: finesData.outstandingFines,
+          totalFinesWaived: finesData.waivedFines,
+          totalAcquisitionCost,
+        },
+        acquisitionHistory: sortedAcquisitions,
       });
     } catch (error) {
       console.error("Error fetching book dashboard:", error);

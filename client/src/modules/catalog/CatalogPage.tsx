@@ -35,7 +35,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { 
   Search, MoreHorizontal, Filter, Download, Database, FileText, Plus,
-  Book as BookIcon, Library, CheckCircle2, Clock, AlertTriangle, Truck, XCircle, History
+  Book as BookIcon, Library, CheckCircle2, Clock, AlertTriangle, Truck, XCircle, History,
+  DollarSign, ShoppingCart, Receipt
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { booksApi, type BookDashboard, type BookLibraryAllocation } from "@/lib/api";
@@ -62,7 +63,7 @@ function BookDetailsSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-[600px] sm:max-w-[600px] p-0">
+      <SheetContent className="w-[95vw] sm:w-[1100px] sm:max-w-[1100px] p-0">
         <SheetHeader className="p-6 pb-4 border-b">
           <SheetTitle className="text-left flex items-center gap-2">
             <BookIcon className="h-5 w-5" />
@@ -111,14 +112,91 @@ function BookDetailsSheet({
 
               <Separator />
 
-              {/* Total Copies Summary */}
-              <div className="flex items-center gap-4 p-4 bg-muted rounded-lg">
-                <BookIcon className="h-8 w-8 text-muted-foreground" />
-                <div>
-                  <div className="text-2xl font-bold">{dashboard.totalCopies}</div>
-                  <div className="text-sm text-muted-foreground">Total Copies</div>
+              {/* Summary Cards */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="flex items-center gap-3 p-4 bg-muted rounded-lg">
+                  <BookIcon className="h-6 w-6 text-muted-foreground" />
+                  <div>
+                    <div className="text-xl font-bold">{dashboard.totalCopies}</div>
+                    <div className="text-xs text-muted-foreground">Total Copies</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 p-4 bg-green-50 rounded-lg">
+                  <DollarSign className="h-6 w-6 text-green-600" />
+                  <div>
+                    <div className="text-xl font-bold text-green-600">
+                      ${(dashboard.financials.totalFinesCollected / 100).toFixed(2)}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Fines Collected</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 p-4 bg-amber-50 rounded-lg">
+                  <Receipt className="h-6 w-6 text-amber-600" />
+                  <div>
+                    <div className="text-xl font-bold text-amber-600">
+                      ${(dashboard.financials.totalFinesOutstanding / 100).toFixed(2)}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Fines Outstanding</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 p-4 bg-blue-50 rounded-lg">
+                  <ShoppingCart className="h-6 w-6 text-blue-600" />
+                  <div>
+                    <div className="text-xl font-bold text-blue-600">
+                      ${(dashboard.financials.totalAcquisitionCost / 100).toFixed(2)}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Acquisition Cost</div>
+                  </div>
                 </div>
               </div>
+
+              <Separator />
+
+              {/* Acquisition History */}
+              <div>
+                <h4 className="font-semibold mb-3 flex items-center gap-2">
+                  <ShoppingCart className="h-4 w-4" />
+                  Acquisition History
+                </h4>
+                {dashboard.acquisitionHistory.length === 0 ? (
+                  <div className="text-center py-4 text-muted-foreground border rounded-lg border-dashed">
+                    <ShoppingCart className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                    <p>No acquisition records</p>
+                    <p className="text-sm">No acquisition data available for this resource.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {dashboard.acquisitionHistory.map((entry, index) => (
+                      <div key={index} className="p-3 border rounded-lg text-sm flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
+                            <ShoppingCart className="h-5 w-5 text-blue-600" />
+                          </div>
+                          <div>
+                            <div className="font-medium">
+                              {entry.quantity} {entry.quantity === 1 ? "copy" : "copies"} acquired
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {entry.date ? format(new Date(entry.date), "MMM d, yyyy") : "Date unknown"}
+                              {entry.source && ` • ${entry.source}`}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-bold text-green-600">
+                            ${(entry.cost / 100).toFixed(2)}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            ${((entry.cost / entry.quantity) / 100).toFixed(2)}/copy
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <Separator />
 
               {/* Library Allocations */}
               <div>

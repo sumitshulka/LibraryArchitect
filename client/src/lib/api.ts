@@ -71,11 +71,27 @@ export interface BookLibraryAllocation {
   inTransit: number;
 }
 
+export interface BookFinancials {
+  totalFinesCollected: number;
+  totalFinesOutstanding: number;
+  totalFinesWaived: number;
+  totalAcquisitionCost: number;
+}
+
+export interface AcquisitionHistoryEntry {
+  date: string | null;
+  source: string | null;
+  cost: number;
+  quantity: number;
+}
+
 export interface BookDashboard {
   book: Book;
   totalCopies: number;
   libraryAllocations: BookLibraryAllocation[];
   recentCirculation: Circulation[];
+  financials: BookFinancials;
+  acquisitionHistory: AcquisitionHistoryEntry[];
 }
 
 // Users API
