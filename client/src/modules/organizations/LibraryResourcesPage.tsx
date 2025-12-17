@@ -413,7 +413,7 @@ function CopyDetailsSheet({
 
   return (
     <Sheet open={open} onOpenChange={handleClose}>
-      <SheetContent className="w-[500px] sm:max-w-[500px] p-0">
+      <SheetContent className="w-[95vw] sm:w-[1000px] sm:max-w-[1000px] p-0">
         <SheetHeader className="p-6 pb-4 border-b">
           {selectedCopy ? (
             <>
