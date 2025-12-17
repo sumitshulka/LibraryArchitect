@@ -1,6 +1,6 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo } from "react";
 import { useParams, Link } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Barcode from "react-barcode";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -56,7 +56,11 @@ import {
   ChevronRight,
   ArrowLeftCircle,
   Printer,
+  Pencil,
+  Check,
+  MapPin,
 } from "lucide-react";
+import { toast } from "sonner";
 import { librariesApi, bookCopiesApi, type LibraryResourceStats } from "@/lib/api";
 import type { BookCopy, Circulation } from "@shared/schema";
 import { format } from "date-fns";
@@ -336,8 +340,25 @@ function CopyDetailsSheet({
   statusFilter: StatusFilter;
   libraryId: number;
 }) {
+  const queryClient = useQueryClient();
   const [selectedCopy, setSelectedCopy] = useState<BookCopy | null>(null);
   const [selectedForPrint, setSelectedForPrint] = useState<Set<number>>(new Set());
+  const [editingLocation, setEditingLocation] = useState(false);
+  const [locationValue, setLocationValue] = useState("");
+
+  const updateCopyMutation = useMutation({
+    mutationFn: ({ id, shelfLocation }: { id: number; shelfLocation: string }) =>
+      bookCopiesApi.update(id, { shelfLocation: shelfLocation || null }),
+    onSuccess: (updatedCopy) => {
+      queryClient.invalidateQueries({ queryKey: ["book-copies", resource?.bookId, libraryId] });
+      setSelectedCopy(updatedCopy);
+      setEditingLocation(false);
+      toast.success("Shelf location updated");
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
 
   const { data: copies = [], isLoading: copiesLoading } = useQuery({
     queryKey: ["book-copies", resource?.bookId, libraryId],
@@ -458,9 +479,57 @@ function CopyDetailsSheet({
                       {selectedCopy.status.replace("_", " ")}
                     </Badge>
                   </div>
-                  <div>
-                    <span className="text-muted-foreground">Location:</span>
-                    <span className="ml-2">{selectedCopy.shelfLocation || "-"}</span>
+                  <div className="col-span-2">
+                    <div className="flex items-center gap-2">
+                      <MapPin className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-muted-foreground">Shelf Location:</span>
+                      {editingLocation ? (
+                        <div className="flex items-center gap-2 flex-1">
+                          <Input
+                            value={locationValue}
+                            onChange={(e) => setLocationValue(e.target.value)}
+                            placeholder="e.g., Shelf A-12, Floor 2 Row 5"
+                            className="h-8 flex-1"
+                            data-testid="input-shelf-location"
+                          />
+                          <Button
+                            size="sm"
+                            variant="default"
+                            onClick={() => updateCopyMutation.mutate({ id: selectedCopy.id, shelfLocation: locationValue })}
+                            disabled={updateCopyMutation.isPending}
+                            data-testid="button-save-location"
+                          >
+                            <Check className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              setEditingLocation(false);
+                              setLocationValue(selectedCopy.shelfLocation || "");
+                            }}
+                            data-testid="button-cancel-location"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{selectedCopy.shelfLocation || <span className="text-muted-foreground italic">Not set</span>}</span>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              setLocationValue(selectedCopy.shelfLocation || "");
+                              setEditingLocation(true);
+                            }}
+                            data-testid="button-edit-location"
+                          >
+                            <Pencil className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
