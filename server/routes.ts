@@ -284,6 +284,51 @@ export async function registerRoutes(
     }
   });
 
+  // Book cover upload
+  const coverUpload = multer({
+    storage: multer.diskStorage({
+      destination: (req, file, cb) => {
+        cb(null, 'uploads/covers');
+      },
+      filename: (req, file, cb) => {
+        const ext = file.originalname.split('.').pop();
+        cb(null, `book-${req.params.id}-${Date.now()}.${ext}`);
+      }
+    }),
+    limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+      if (allowedTypes.includes(file.mimetype)) {
+        cb(null, true);
+      } else {
+        cb(new Error('Invalid file type. Only JPEG, PNG, WebP, and GIF are allowed.'));
+      }
+    }
+  });
+
+  app.post("/api/books/:id/cover", coverUpload.single("cover"), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const book = await storage.getBook(id);
+      
+      if (!book) {
+        return res.status(404).json({ error: "Book not found" });
+      }
+      
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+      
+      const coverUrl = `/uploads/covers/${req.file.filename}`;
+      const updatedBook = await storage.updateBook(id, { coverUrl });
+      
+      res.json({ coverUrl, book: updatedBook });
+    } catch (error: any) {
+      console.error("Error uploading cover:", error);
+      res.status(500).json({ error: error.message || "Failed to upload cover" });
+    }
+  });
+
   // ===== Users API =====
   app.get("/api/users", async (req, res) => {
     try {

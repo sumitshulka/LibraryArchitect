@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Link } from "wouter";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Input } from "@/components/ui/input";
@@ -34,9 +34,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { 
-  Search, MoreHorizontal, Filter, Download, Database, FileText, Plus, Upload,
+  Search, MoreHorizontal, Filter, Download, Database, FileText, Plus, Upload, Camera, Loader2,
   Book as BookIcon, Library, CheckCircle2, Clock, AlertTriangle, Truck, XCircle, History,
-  DollarSign, ShoppingCart, Receipt
+  DollarSign, ShoppingCart, Receipt, ImageIcon
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { booksApi, type BookDashboard, type BookLibraryAllocation } from "@/lib/api";
@@ -53,11 +53,43 @@ function BookDetailsSheet({
   onOpenChange: (open: boolean) => void;
   bookId: number | null;
 }) {
+  const queryClient = useQueryClient();
+  const [isUploading, setIsUploading] = useState(false);
+  
   const { data: dashboard, isLoading } = useQuery({
     queryKey: ["book-dashboard", bookId],
     queryFn: () => booksApi.getDashboard(bookId!),
     enabled: open && bookId !== null,
   });
+
+  const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !bookId) return;
+    
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("cover", file);
+      
+      const res = await fetch(`/api/books/${bookId}/cover`, {
+        method: "POST",
+        body: formData,
+      });
+      
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to upload cover");
+      }
+      
+      queryClient.invalidateQueries({ queryKey: ["book-dashboard", bookId] });
+      queryClient.invalidateQueries({ queryKey: ["books"] });
+      toast.success("Cover image uploaded successfully");
+    } catch (error: any) {
+      toast.error(error.message);
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   if (!bookId) return null;
 
@@ -79,33 +111,75 @@ function BookDetailsSheet({
             <div className="p-6 text-center text-muted-foreground">Loading...</div>
           ) : dashboard ? (
             <div className="p-6 space-y-6">
-              {/* Book Details */}
-              <div>
-                <h3 className="font-semibold text-lg mb-2">{dashboard.book.title}</h3>
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  <div>
-                    <span className="text-muted-foreground">Author:</span>
-                    <span className="ml-2">{dashboard.book.author}</span>
+              {/* Book Details with Cover */}
+              <div className="flex gap-6">
+                {/* Cover Image Section */}
+                <div className="flex-shrink-0">
+                  <div className="relative group">
+                    {dashboard.book.coverUrl ? (
+                      <img 
+                        src={dashboard.book.coverUrl} 
+                        alt={dashboard.book.title}
+                        className="w-32 h-48 object-cover rounded-lg border shadow-sm"
+                      />
+                    ) : (
+                      <div className="w-32 h-48 bg-muted rounded-lg border flex flex-col items-center justify-center text-muted-foreground">
+                        <ImageIcon className="h-8 w-8 mb-2" />
+                        <span className="text-xs">No Cover</span>
+                      </div>
+                    )}
+                    <label className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg cursor-pointer">
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp,image/gif"
+                        onChange={handleCoverUpload}
+                        className="hidden"
+                        disabled={isUploading}
+                        data-testid="input-cover-upload"
+                      />
+                      {isUploading ? (
+                        <Loader2 className="h-6 w-6 text-white animate-spin" />
+                      ) : (
+                        <div className="text-center text-white">
+                          <Camera className="h-6 w-6 mx-auto mb-1" />
+                          <span className="text-xs">Upload Cover</span>
+                        </div>
+                      )}
+                    </label>
                   </div>
-                  <div>
-                    <span className="text-muted-foreground">ISBN:</span>
-                    <span className="ml-2 font-mono">{dashboard.book.isbn}</span>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Category:</span>
-                    <span className="ml-2">{dashboard.book.category}</span>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Format:</span>
-                    <span className="ml-2 capitalize">{dashboard.book.format?.toLowerCase()}</span>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Publisher:</span>
-                    <span className="ml-2">{dashboard.book.publisher || "-"}</span>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Year:</span>
-                    <span className="ml-2">{dashboard.book.publishedYear || "-"}</span>
+                  <p className="text-xs text-muted-foreground text-center mt-2">
+                    Hover to upload
+                  </p>
+                </div>
+
+                {/* Book Info */}
+                <div className="flex-1">
+                  <h3 className="font-semibold text-lg mb-2">{dashboard.book.title}</h3>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div>
+                      <span className="text-muted-foreground">Author:</span>
+                      <span className="ml-2">{dashboard.book.author}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">ISBN:</span>
+                      <span className="ml-2 font-mono">{dashboard.book.isbn}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Category:</span>
+                      <span className="ml-2">{dashboard.book.category}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Format:</span>
+                      <span className="ml-2 capitalize">{dashboard.book.format?.toLowerCase()}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Publisher:</span>
+                      <span className="ml-2">{dashboard.book.publisher || "-"}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Year:</span>
+                      <span className="ml-2">{dashboard.book.publishedYear || "-"}</span>
+                    </div>
                   </div>
                 </div>
               </div>
