@@ -1,6 +1,7 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useParams, Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
+import Barcode from "react-barcode";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -54,6 +55,7 @@ import {
   History,
   ChevronRight,
   ArrowLeftCircle,
+  Printer,
 } from "lucide-react";
 import { librariesApi, bookCopiesApi, type LibraryResourceStats } from "@/lib/api";
 import type { BookCopy, Circulation } from "@shared/schema";
@@ -343,6 +345,82 @@ function CopyDetailsSheet({
                   </div>
                 </div>
               </div>
+
+              {/* SSN Barcode Display */}
+              {selectedCopy.internalSSN && (
+                <div className="mb-4 p-4 border rounded-lg">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="font-semibold text-sm">SSN Barcode Label</h4>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => {
+                        const printWindow = window.open('', '_blank');
+                        if (printWindow) {
+                          printWindow.document.write(`
+                            <html>
+                              <head>
+                                <title>Print SSN Barcode</title>
+                                <style>
+                                  body { 
+                                    display: flex; 
+                                    flex-direction: column;
+                                    align-items: center; 
+                                    justify-content: center;
+                                    min-height: 100vh;
+                                    margin: 0;
+                                    font-family: monospace;
+                                  }
+                                  .label { 
+                                    text-align: center; 
+                                    padding: 20px;
+                                    border: 1px dashed #ccc;
+                                  }
+                                  .ssn { font-size: 12px; margin-top: 8px; }
+                                  @media print {
+                                    .label { border: none; }
+                                  }
+                                </style>
+                              </head>
+                              <body>
+                                <div class="label">
+                                  <svg id="barcode"></svg>
+                                  <div class="ssn">${selectedCopy.internalSSN}</div>
+                                </div>
+                                <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+                                <script>
+                                  JsBarcode("#barcode", "${selectedCopy.internalSSN}", {
+                                    format: "CODE128",
+                                    width: 2,
+                                    height: 50,
+                                    displayValue: false
+                                  });
+                                  setTimeout(() => window.print(), 500);
+                                </script>
+                              </body>
+                            </html>
+                          `);
+                          printWindow.document.close();
+                        }
+                      }}
+                      data-testid="button-print-barcode"
+                    >
+                      <Printer className="h-4 w-4 mr-2" />
+                      Print
+                    </Button>
+                  </div>
+                  <div className="flex justify-center bg-white p-4 rounded border">
+                    <Barcode 
+                      value={selectedCopy.internalSSN} 
+                      format="CODE128"
+                      width={1.5}
+                      height={50}
+                      fontSize={12}
+                      margin={5}
+                    />
+                  </div>
+                </div>
+              )}
 
               <h4 className="font-semibold mb-3 flex items-center gap-2">
                 <History className="h-4 w-4" />
