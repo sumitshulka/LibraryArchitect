@@ -57,6 +57,7 @@ export const books = pgTable("books", {
   coverUrl: text("cover_url"),
   shelfLocation: text("shelf_location"),
   marcRecord: text("marc_record"),
+  acquisitionDate: timestamp("acquisition_date"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

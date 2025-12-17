@@ -211,8 +211,15 @@ export async function registerRoutes(
 
   app.post("/api/books", async (req, res) => {
     try {
-      const { quantity, ...bookData } = req.body;
-      const validated = insertBookSchema.parse(bookData);
+      const { quantity, acquisitionDate, ...bookData } = req.body;
+      
+      // Convert acquisitionDate string to Date object if provided
+      const parsedAcquisitionDate = acquisitionDate ? new Date(acquisitionDate) : null;
+      
+      const validated = insertBookSchema.parse({
+        ...bookData,
+        acquisitionDate: parsedAcquisitionDate,
+      });
       
       // Check for duplicate ISBN
       const existing = await storage.getBookByIsbn(validated.isbn);
@@ -225,7 +232,7 @@ export async function registerRoutes(
       // Create unallocated copies if quantity is specified
       const copyCount = Math.min(Math.max(1, parseInt(quantity) || 1), 1000);
       if (copyCount > 0) {
-        await storage.createBookCopies(book.id, copyCount, validated.shelfLocation || undefined);
+        await storage.createBookCopies(book.id, copyCount, validated.shelfLocation || undefined, parsedAcquisitionDate || undefined);
       }
       
       res.status(201).json({ ...book, copiesCreated: copyCount });

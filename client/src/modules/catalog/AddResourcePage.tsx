@@ -70,9 +70,11 @@ export default function AddResourcePage() {
     resourceTypeId: null as number | null,
     shelfLocation: "",
     status: "AVAILABLE" as const,
+    format: "PHYSICAL" as "PHYSICAL" | "EBOOK" | "AUDIOBOOK",
     coverUrl: null as string | null,
     marcRecord: null as string | null,
     quantity: 1,
+    acquisitionDate: new Date().toISOString().split('T')[0],
   });
 
   const { data: resourceTypes = [], isLoading: loadingTypes } = useQuery({
@@ -468,6 +470,19 @@ export default function AddResourcePage() {
                 />
               </div>
 
+              <div className="space-y-2">
+                <Label htmlFor="acquisitionDate">Acquisition Date</Label>
+                <Input
+                  id="acquisitionDate"
+                  type="date"
+                  value={formData.acquisitionDate}
+                  onChange={(e) => setFormData({ ...formData, acquisitionDate: e.target.value })}
+                  data-testid="input-acquisition-date"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <Label htmlFor="quantity">Quantity (Copies) *</Label>
                 <Input
