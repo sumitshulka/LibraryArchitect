@@ -20,6 +20,8 @@ import {
 import { z } from "zod";
 import { fromZodError } from "zod-validation-error";
 import crypto from "crypto";
+import * as XLSX from "xlsx";
+import multer from "multer";
 
 const MAX_WHITELIST_ENTRIES = 5;
 
@@ -764,6 +766,285 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error performing ISBN search:", error);
       res.status(500).json({ error: "Failed to perform ISBN search" });
+    }
+  });
+
+  // ===== Bulk Upload API =====
+  const upload = multer({ 
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 2 * 1024 * 1024 }
+  });
+
+  app.get("/api/catalog/bulk-upload/template", async (req, res) => {
+    try {
+      const mode = req.query.mode as string || "search";
+      const workbook = XLSX.utils.book_new();
+      
+      let headers: string[];
+      let sampleData: any[];
+      
+      if (mode === "search") {
+        headers = ["Resource Type", "ISBN", "Book Name (Optional)", "Copies", "Acquisition Date", "Acquisition Source"];
+        sampleData = [
+          ["Book", "978-0-13-468599-1", "The Pragmatic Programmer", 2, "2024-01-15", "Purchase"],
+          ["Book", "978-0-596-51774-8", "JavaScript: The Good Parts", 1, "2024-01-15", "Donation"],
+        ];
+      } else {
+        headers = ["Resource Type", "ISBN", "Title", "Author", "Publisher", "Published Year", "Category", "Format", "Copies", "Acquisition Date", "Acquisition Source", "Shelf Location", "Price"];
+        sampleData = [
+          ["Book", "978-0-13-468599-1", "The Pragmatic Programmer", "David Thomas, Andrew Hunt", "Addison-Wesley", 2019, "Computer Science", "PHYSICAL", 2, "2024-01-15", "Purchase", "CS-001-A", 4500],
+          ["Book", "978-0-596-51774-8", "JavaScript: The Good Parts", "Douglas Crockford", "O'Reilly Media", 2008, "Programming", "PHYSICAL", 1, "2024-01-15", "Donation", "PR-002-B", 3200],
+        ];
+      }
+      
+      const worksheetData = [headers, ...sampleData];
+      const worksheet = XLSX.utils.aoa_to_sheet(worksheetData);
+      
+      const colWidths = headers.map((h, i) => ({ wch: Math.max(h.length, 15) }));
+      worksheet['!cols'] = colWidths;
+      
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Template");
+      
+      const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+      
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename=bulk_upload_${mode}_template.xlsx`);
+      res.send(buffer);
+    } catch (error) {
+      console.error("Error generating template:", error);
+      res.status(500).json({ error: "Failed to generate template" });
+    }
+  });
+
+  app.post("/api/catalog/bulk-upload/preview", upload.single("file"), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+      
+      const mode = req.body.mode as string || "search";
+      const workbook = XLSX.read(req.file.buffer, { type: "buffer" });
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      const data = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+      
+      if (data.length < 2) {
+        return res.status(400).json({ error: "File must contain at least one data row" });
+      }
+      
+      const headers = data[0] as string[];
+      const rows = data.slice(1);
+      
+      const result: any[] = [];
+      let enriched = 0;
+      let errors = 0;
+      
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        if (!row || row.length === 0 || !row[1]) continue;
+        
+        const isbn = String(row[1] || "").trim();
+        if (!isbn) continue;
+        
+        let bookData: any = {
+          rowId: i + 1,
+          isbn,
+          title: "",
+          author: "",
+          publisher: "",
+          publishedYear: "",
+          category: "General",
+          resourceTypeId: null,
+          format: "PHYSICAL",
+          copies: parseInt(row[mode === "search" ? 3 : 8]) || 1,
+          acquisitionDate: formatExcelDate(row[mode === "search" ? 4 : 9]),
+          acquisitionSource: String(row[mode === "search" ? 5 : 10] || ""),
+          shelfLocation: mode === "manual" ? String(row[11] || "") : "",
+          price: mode === "manual" ? (parseInt(row[12]) || null) : null,
+          status: "pending" as const,
+        };
+        
+        if (mode === "manual") {
+          bookData.title = String(row[2] || "");
+          bookData.author = String(row[3] || "");
+          bookData.publisher = String(row[4] || "");
+          bookData.publishedYear = String(row[5] || "");
+          bookData.category = String(row[6] || "General");
+          bookData.format = String(row[7] || "PHYSICAL");
+          bookData.status = bookData.title ? "enriched" : "pending";
+          if (bookData.title) enriched++;
+        } else {
+          bookData.title = String(row[2] || "");
+          
+          try {
+            const cleanIsbn = isbn.replace(/[-\s]/g, '');
+            const openLibUrl = `https://openlibrary.org/api/books?bibkeys=ISBN:${cleanIsbn}&format=json&jscmd=data`;
+            const openLibResponse = await fetch(openLibUrl);
+            
+            if (openLibResponse.ok) {
+              const openLibData = await openLibResponse.json();
+              const bookKey = `ISBN:${cleanIsbn}`;
+              
+              if (openLibData[bookKey]) {
+                const book = openLibData[bookKey];
+                bookData.title = book.title || bookData.title;
+                bookData.author = book.authors?.map((a: any) => a.name).join(', ') || "";
+                bookData.publisher = book.publishers?.map((p: any) => p.name).join(', ') || "";
+                bookData.publishedYear = book.publish_date ? book.publish_date.match(/\d{4}/)?.[0] || "" : "";
+                bookData.category = book.subjects?.slice(0, 3).map((s: any) => s.name).join(', ') || "General";
+                bookData.coverUrl = book.cover?.medium || null;
+                bookData.source = "Open Library";
+                bookData.status = "enriched";
+                enriched++;
+              }
+            }
+            
+            if (bookData.status !== "enriched") {
+              const googleResponse = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`);
+              if (googleResponse.ok) {
+                const googleData = await googleResponse.json();
+                if (googleData.items && googleData.items.length > 0) {
+                  const book = googleData.items[0].volumeInfo;
+                  bookData.title = book.title || bookData.title;
+                  bookData.author = book.authors?.join(', ') || "";
+                  bookData.publisher = book.publisher || "";
+                  bookData.publishedYear = book.publishedDate ? book.publishedDate.substring(0, 4) : "";
+                  bookData.category = book.categories?.join(', ') || "General";
+                  bookData.coverUrl = book.imageLinks?.thumbnail || null;
+                  bookData.source = "Google Books";
+                  bookData.status = "enriched";
+                  enriched++;
+                }
+              }
+            }
+            
+            if (bookData.status !== "enriched") {
+              bookData.status = "error";
+              bookData.errorMessage = "Could not find book details";
+              errors++;
+            }
+          } catch (err) {
+            bookData.status = "error";
+            bookData.errorMessage = "API lookup failed";
+            errors++;
+          }
+        }
+        
+        result.push(bookData);
+      }
+      
+      res.json({
+        rows: result,
+        stats: {
+          total: result.length,
+          enriched,
+          errors,
+        },
+        templateMode: mode,
+      });
+    } catch (error) {
+      console.error("Error processing upload:", error);
+      res.status(500).json({ error: "Failed to process uploaded file" });
+    }
+  });
+
+  function formatExcelDate(value: any): string {
+    if (!value) return new Date().toISOString().split('T')[0];
+    if (typeof value === 'number') {
+      const date = XLSX.SSF.parse_date_code(value);
+      return `${date.y}-${String(date.m).padStart(2, '0')}-${String(date.d).padStart(2, '0')}`;
+    }
+    const dateStr = String(value);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
+    return new Date().toISOString().split('T')[0];
+  }
+
+  function generateSSN(): string {
+    const timestamp = Date.now().toString(36).toUpperCase();
+    const random = crypto.randomBytes(3).toString('hex').toUpperCase();
+    return `SSN-${timestamp}-${random}`;
+  }
+
+  app.post("/api/catalog/bulk-upload/commit", async (req, res) => {
+    try {
+      const { rows, idempotencyKey } = req.body;
+      
+      if (!rows || !Array.isArray(rows) || rows.length === 0) {
+        return res.status(400).json({ error: "No rows to import" });
+      }
+      
+      let createdBooks = 0;
+      let createdCopies = 0;
+      let skippedRows = 0;
+      const errors: { rowId: number; message: string }[] = [];
+      
+      for (const row of rows) {
+        try {
+          if (!row.title || !row.isbn) {
+            skippedRows++;
+            errors.push({ rowId: row.rowId, message: "Missing title or ISBN" });
+            continue;
+          }
+          
+          const existingBooks = await storage.searchBooks(row.isbn);
+          let bookId: number;
+          
+          if (existingBooks.length > 0) {
+            bookId = existingBooks[0].id;
+          } else {
+            const newBook = await storage.createBook({
+              isbn: row.isbn,
+              title: row.title,
+              author: row.author || "Unknown",
+              publisher: row.publisher || null,
+              publishedYear: row.publishedYear ? parseInt(row.publishedYear) : null,
+              category: row.category || "General",
+              resourceTypeId: row.resourceTypeId || null,
+              format: row.format || "PHYSICAL",
+              status: "AVAILABLE",
+              coverUrl: row.coverUrl || null,
+              shelfLocation: row.shelfLocation || null,
+              marcRecord: null,
+            });
+            bookId = newBook.id;
+            createdBooks++;
+          }
+          
+          const copyCount = row.copies || 1;
+          for (let c = 0; c < copyCount; c++) {
+            const ssn = generateSSN();
+            const barcode = `BC-${bookId}-${Date.now()}-${c}`;
+            
+            await storage.createBookCopy({
+              bookId,
+              libraryId: null,
+              barcode,
+              internalSSN: ssn,
+              callNumber: null,
+              shelfLocation: row.shelfLocation || null,
+              status: "AVAILABLE",
+              condition: "GOOD",
+              acquisitionDate: row.acquisitionDate ? new Date(row.acquisitionDate) : new Date(),
+              acquisitionSource: row.acquisitionSource || null,
+              price: row.price || null,
+              notes: `Bulk imported on ${new Date().toISOString().split('T')[0]}`,
+            });
+            createdCopies++;
+          }
+        } catch (err: any) {
+          errors.push({ rowId: row.rowId, message: err.message || "Import failed" });
+        }
+      }
+      
+      res.json({
+        createdBooks,
+        createdCopies,
+        skippedRows,
+        errors,
+      });
+    } catch (error) {
+      console.error("Error committing bulk upload:", error);
+      res.status(500).json({ error: "Failed to commit bulk upload" });
     }
   });
 

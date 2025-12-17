@@ -34,7 +34,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { 
-  Search, MoreHorizontal, Filter, Download, Database, FileText, Plus,
+  Search, MoreHorizontal, Filter, Download, Database, FileText, Plus, Upload,
   Book as BookIcon, Library, CheckCircle2, Clock, AlertTriangle, Truck, XCircle, History,
   DollarSign, ShoppingCart, Receipt
 } from "lucide-react";
@@ -389,10 +389,18 @@ export default function CatalogPage() {
         </div>
         <div className="flex gap-2">
           {activeTab === "browse" && (
-            <Button variant="outline" size="sm" className="gap-2" data-testid="button-export">
-              <Download className="h-4 w-4" />
-              Export
-            </Button>
+            <>
+              <Button variant="outline" size="sm" className="gap-2" data-testid="button-export">
+                <Download className="h-4 w-4" />
+                Export
+              </Button>
+              <Link href="/catalog/bulk-upload">
+                <Button variant="outline" size="sm" className="gap-2" data-testid="button-bulk-upload">
+                  <Upload className="h-4 w-4" />
+                  Bulk Upload
+                </Button>
+              </Link>
+            </>
           )}
           <Link href="/catalog/new">
             <Button size="sm" className="gap-2" data-testid="button-add-resource">

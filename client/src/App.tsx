@@ -8,6 +8,7 @@ import NotFound from "@/pages/not-found";
 import DashboardPage from "@/modules/dashboard/DashboardPage";
 import CatalogPage from "@/modules/catalog/CatalogPage";
 import AddResourcePage from "@/modules/catalog/AddResourcePage";
+import BulkUploadPage from "@/modules/catalog/BulkUploadPage";
 import AllocationsPage from "@/modules/allocations/AllocationsPage";
 import UsersPage from "@/modules/users/UsersPage";
 import CirculationPage from "@/modules/circulation/CirculationPage";
@@ -24,6 +25,7 @@ function AppRouter() {
       <Route path="/" component={DashboardPage} />
       <Route path="/catalog" component={CatalogPage} />
       <Route path="/catalog/new" component={AddResourcePage} />
+      <Route path="/catalog/bulk-upload" component={BulkUploadPage} />
       <Route path="/allocations" component={AllocationsPage} />
       <Route path="/users" component={UsersPage} />
       <Route path="/circulation" component={CirculationPage} />
