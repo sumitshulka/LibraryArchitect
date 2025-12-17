@@ -554,9 +554,17 @@ export default function CatalogPage() {
                   filteredBooks.map((book) => (
                     <TableRow key={book.id} data-testid={`row-book-${book.id}`}>
                       <TableCell>
-                        <div className="h-12 w-8 bg-muted rounded border flex items-center justify-center text-xs text-muted-foreground">
-                          Img
-                        </div>
+                        {book.coverUrl ? (
+                          <img 
+                            src={book.coverUrl} 
+                            alt={book.title}
+                            className="h-12 w-8 object-cover rounded border"
+                          />
+                        ) : (
+                          <div className="h-12 w-8 bg-muted rounded border flex items-center justify-center">
+                            <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col">
