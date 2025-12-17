@@ -237,6 +237,92 @@ function getStatusBadgeVariant(status: string): "default" | "secondary" | "destr
   }
 }
 
+function printBarcodeSheet(ssns: string[]) {
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) return;
+  
+  const stickerDivs = ssns.map((ssn, index) => `
+    <div class="sticker">
+      <svg id="barcode-${index}"></svg>
+      <div class="ssn">${ssn}</div>
+    </div>
+  `).join('');
+  
+  const barcodeScripts = ssns.map((ssn, index) => `
+    JsBarcode("#barcode-${index}", "${ssn}", {
+      format: "CODE128",
+      width: 1.2,
+      height: 35,
+      displayValue: false,
+      margin: 0
+    });
+  `).join('\n');
+  
+  printWindow.document.write(`
+    <html>
+      <head>
+        <title>Print SSN Barcodes</title>
+        <style>
+          @page {
+            size: A4;
+            margin: 0;
+          }
+          body { 
+            margin: 0;
+            padding: 5mm;
+            font-family: monospace;
+          }
+          .sticker-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 66.5mm);
+            grid-template-rows: repeat(8, 33.9mm);
+            gap: 0;
+            width: 200mm;
+            height: 271mm;
+          }
+          .sticker {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 2mm;
+            box-sizing: border-box;
+            overflow: hidden;
+          }
+          .sticker svg {
+            max-width: 60mm;
+            height: 18mm;
+          }
+          .ssn { 
+            font-size: 7pt; 
+            margin-top: 1mm;
+            word-break: break-all;
+            max-width: 60mm;
+          }
+          @media screen {
+            .sticker { border: 1px dashed #ccc; }
+          }
+          @media print {
+            .sticker { border: none; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="sticker-grid">
+          ${stickerDivs}
+        </div>
+        <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+        <script>
+          ${barcodeScripts}
+          setTimeout(() => window.print(), 500);
+        </script>
+      </body>
+    </html>
+  `);
+  printWindow.document.close();
+}
+
 function CopyDetailsSheet({
   open,
   onOpenChange,
@@ -251,6 +337,7 @@ function CopyDetailsSheet({
   libraryId: number;
 }) {
   const [selectedCopy, setSelectedCopy] = useState<BookCopy | null>(null);
+  const [selectedForPrint, setSelectedForPrint] = useState<Set<number>>(new Set());
 
   const { data: copies = [], isLoading: copiesLoading } = useQuery({
     queryKey: ["book-copies", resource?.bookId, libraryId],
@@ -287,7 +374,39 @@ function CopyDetailsSheet({
     onOpenChange(value);
     if (!value) {
       setSelectedCopy(null);
+      setSelectedForPrint(new Set());
     }
+  };
+
+  const togglePrintSelection = (copyId: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedForPrint(prev => {
+      const next = new Set(prev);
+      if (next.has(copyId)) {
+        next.delete(copyId);
+      } else {
+        next.add(copyId);
+      }
+      return next;
+    });
+  };
+
+  const handleBatchPrint = () => {
+    const ssnsToprint = filteredCopies
+      .filter(copy => selectedForPrint.has(copy.id) && copy.internalSSN)
+      .map(copy => copy.internalSSN as string);
+    if (ssnsToprint.length > 0) {
+      printBarcodeSheet(ssnsToprint);
+    }
+  };
+
+  const selectAllForPrint = () => {
+    const allWithSSN = filteredCopies.filter(c => c.internalSSN).map(c => c.id);
+    setSelectedForPrint(new Set(allWithSSN));
+  };
+
+  const clearPrintSelection = () => {
+    setSelectedForPrint(new Set());
   };
 
   if (!resource) return null;
@@ -362,38 +481,66 @@ function CopyDetailsSheet({
                               <head>
                                 <title>Print SSN Barcode</title>
                                 <style>
-                                  body { 
-                                    display: flex; 
-                                    flex-direction: column;
-                                    align-items: center; 
-                                    justify-content: center;
-                                    min-height: 100vh;
+                                  @page {
+                                    size: A4;
                                     margin: 0;
+                                  }
+                                  body { 
+                                    margin: 0;
+                                    padding: 5mm;
                                     font-family: monospace;
                                   }
-                                  .label { 
-                                    text-align: center; 
-                                    padding: 20px;
-                                    border: 1px dashed #ccc;
+                                  .sticker-grid {
+                                    display: grid;
+                                    grid-template-columns: repeat(3, 66.5mm);
+                                    grid-template-rows: repeat(8, 33.9mm);
+                                    gap: 0;
+                                    width: 200mm;
+                                    height: 271mm;
                                   }
-                                  .ssn { font-size: 12px; margin-top: 8px; }
+                                  .sticker {
+                                    display: flex;
+                                    flex-direction: column;
+                                    align-items: center;
+                                    justify-content: center;
+                                    text-align: center;
+                                    padding: 2mm;
+                                    box-sizing: border-box;
+                                    overflow: hidden;
+                                  }
+                                  .sticker svg {
+                                    max-width: 60mm;
+                                    height: 18mm;
+                                  }
+                                  .ssn { 
+                                    font-size: 7pt; 
+                                    margin-top: 1mm;
+                                    word-break: break-all;
+                                    max-width: 60mm;
+                                  }
+                                  @media screen {
+                                    .sticker { border: 1px dashed #ccc; }
+                                  }
                                   @media print {
-                                    .label { border: none; }
+                                    .sticker { border: none; }
                                   }
                                 </style>
                               </head>
                               <body>
-                                <div class="label">
-                                  <svg id="barcode"></svg>
-                                  <div class="ssn">${selectedCopy.internalSSN}</div>
+                                <div class="sticker-grid">
+                                  <div class="sticker">
+                                    <svg id="barcode"></svg>
+                                    <div class="ssn">${selectedCopy.internalSSN}</div>
+                                  </div>
                                 </div>
                                 <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
                                 <script>
                                   JsBarcode("#barcode", "${selectedCopy.internalSSN}", {
                                     format: "CODE128",
-                                    width: 2,
-                                    height: 50,
-                                    displayValue: false
+                                    width: 1.2,
+                                    height: 35,
+                                    displayValue: false,
+                                    margin: 0
                                   });
                                   setTimeout(() => window.print(), 500);
                                 </script>
@@ -406,19 +553,22 @@ function CopyDetailsSheet({
                       data-testid="button-print-barcode"
                     >
                       <Printer className="h-4 w-4 mr-2" />
-                      Print
+                      Print Label
                     </Button>
                   </div>
                   <div className="flex justify-center bg-white p-4 rounded border">
                     <Barcode 
                       value={selectedCopy.internalSSN} 
                       format="CODE128"
-                      width={1.5}
-                      height={50}
-                      fontSize={12}
+                      width={1.2}
+                      height={40}
+                      fontSize={10}
                       margin={5}
                     />
                   </div>
+                  <p className="text-xs text-muted-foreground mt-2 text-center">
+                    Sized for A4 sticker sheets (3×8 layout, 24 stickers per page)
+                  </p>
                 </div>
               )}
 
@@ -485,43 +635,94 @@ function CopyDetailsSheet({
                   <p className="text-sm">No copies match the selected status filter.</p>
                 </div>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>SSN</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Location</TableHead>
-                      <TableHead></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredCopies.map((copy) => (
-                      <TableRow 
-                        key={copy.id} 
-                        className="cursor-pointer hover:bg-muted/50"
-                        onClick={() => setSelectedCopy(copy)}
-                        data-testid={`row-copy-${copy.id}`}
+                <>
+                  {/* Batch Print Controls */}
+                  <div className="flex items-center justify-between mb-4 p-3 bg-muted/50 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={selectAllForPrint}
+                        data-testid="button-select-all"
                       >
-                        <TableCell className="font-mono text-sm">
-                          {copy.internalSSN || (
-                            <span className="text-muted-foreground italic">No SSN</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={getStatusBadgeVariant(copy.status)}>
-                            {copy.status.replace("_", " ")}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {copy.shelfLocation || "-"}
-                        </TableCell>
-                        <TableCell>
-                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                        </TableCell>
+                        Select All
+                      </Button>
+                      {selectedForPrint.size > 0 && (
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          onClick={clearPrintSelection}
+                          data-testid="button-clear-selection"
+                        >
+                          Clear ({selectedForPrint.size})
+                        </Button>
+                      )}
+                    </div>
+                    <Button 
+                      variant="default" 
+                      size="sm"
+                      disabled={selectedForPrint.size === 0}
+                      onClick={handleBatchPrint}
+                      data-testid="button-batch-print"
+                    >
+                      <Printer className="h-4 w-4 mr-2" />
+                      Print Selected ({selectedForPrint.size})
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Select copies to print barcodes on A4 sticker sheet (3×8 layout, up to 24 per page)
+                  </p>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-10"></TableHead>
+                        <TableHead>SSN</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Location</TableHead>
+                        <TableHead></TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredCopies.map((copy) => (
+                        <TableRow 
+                          key={copy.id} 
+                          className="cursor-pointer hover:bg-muted/50"
+                          onClick={() => setSelectedCopy(copy)}
+                          data-testid={`row-copy-${copy.id}`}
+                        >
+                          <TableCell onClick={(e) => e.stopPropagation()}>
+                            {copy.internalSSN && (
+                              <input
+                                type="checkbox"
+                                checked={selectedForPrint.has(copy.id)}
+                                onChange={(e) => togglePrintSelection(copy.id, e as any)}
+                                onClick={(e) => togglePrintSelection(copy.id, e)}
+                                className="h-4 w-4 rounded border-gray-300"
+                                data-testid={`checkbox-copy-${copy.id}`}
+                              />
+                            )}
+                          </TableCell>
+                          <TableCell className="font-mono text-sm">
+                            {copy.internalSSN || (
+                              <span className="text-muted-foreground italic">No SSN</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={getStatusBadgeVariant(copy.status)}>
+                              {copy.status.replace("_", " ")}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {copy.shelfLocation || "-"}
+                          </TableCell>
+                          <TableCell>
+                            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </>
               )}
             </div>
           )}
