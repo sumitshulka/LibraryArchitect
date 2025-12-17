@@ -59,8 +59,18 @@ import {
   Pencil,
   Check,
   MapPin,
+  CreditCard,
+  Settings2,
 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { librariesApi, bookCopiesApi, type LibraryResourceStats } from "@/lib/api";
 import type { BookCopy, Circulation } from "@shared/schema";
 import { format } from "date-fns";
@@ -241,6 +251,206 @@ function getStatusBadgeVariant(status: string): "default" | "secondary" | "destr
   }
 }
 
+type CardSize = 'A6' | 'A7' | 'A5' | 'custom';
+
+interface CatalogCardData {
+  title: string;
+  author: string;
+  isbn: string;
+  publisher?: string;
+  publishedYear?: number;
+  category: string;
+  ssn: string;
+  barcode: string;
+  shelfLocation?: string;
+  acquisitionDate?: string;
+  copyNumber?: number;
+}
+
+const CARD_SIZES: Record<CardSize, { width: string; height: string; label: string }> = {
+  A6: { width: '105mm', height: '148mm', label: 'A6 (105×148mm)' },
+  A7: { width: '74mm', height: '105mm', label: 'A7 (74×105mm)' },
+  A5: { width: '148mm', height: '210mm', label: 'A5 (148×210mm)' },
+  custom: { width: '100mm', height: '150mm', label: 'Custom' },
+};
+
+function printCatalogCards(cards: CatalogCardData[], cardSize: CardSize = 'A6') {
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) return;
+  
+  const size = CARD_SIZES[cardSize];
+  
+  const cardHtml = cards.map((card, index) => `
+    <div class="catalog-card" ${index > 0 ? 'style="page-break-before: always;"' : ''}>
+      <div class="card-header">
+        <div class="library-title">LIBRARY CATALOG CARD</div>
+      </div>
+      <div class="card-body">
+        <div class="field title-field">
+          <span class="label">Title:</span>
+          <span class="value">${card.title}</span>
+        </div>
+        <div class="field">
+          <span class="label">Author:</span>
+          <span class="value">${card.author}</span>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <span class="label">ISBN:</span>
+            <span class="value mono">${card.isbn}</span>
+          </div>
+          <div class="field">
+            <span class="label">Year:</span>
+            <span class="value">${card.publishedYear || '-'}</span>
+          </div>
+        </div>
+        <div class="field">
+          <span class="label">Publisher:</span>
+          <span class="value">${card.publisher || '-'}</span>
+        </div>
+        <div class="field">
+          <span class="label">Category:</span>
+          <span class="value">${card.category}</span>
+        </div>
+        <div class="divider"></div>
+        <div class="field">
+          <span class="label">SSN:</span>
+          <span class="value mono">${card.ssn}</span>
+        </div>
+        <div class="field">
+          <span class="label">Barcode:</span>
+          <span class="value mono">${card.barcode}</span>
+        </div>
+        <div class="field">
+          <span class="label">Location:</span>
+          <span class="value">${card.shelfLocation || '-'}</span>
+        </div>
+        <div class="field">
+          <span class="label">Acquired:</span>
+          <span class="value">${card.acquisitionDate || '-'}</span>
+        </div>
+      </div>
+      <div class="card-footer">
+        <div class="barcode-row">
+          <svg id="ssn-barcode-${index}"></svg>
+        </div>
+        <div class="ssn-text">${card.ssn}</div>
+      </div>
+    </div>
+  `).join('');
+  
+  const barcodeScripts = cards.map((card, index) => `
+    JsBarcode("#ssn-barcode-${index}", "${card.ssn}", {
+      format: "CODE128",
+      width: 1,
+      height: 25,
+      displayValue: false,
+      margin: 0
+    });
+  `).join('\n');
+  
+  printWindow.document.write(`
+    <html>
+      <head>
+        <title>Catalog Cards</title>
+        <style>
+          @page {
+            size: ${size.width} ${size.height};
+            margin: 5mm;
+          }
+          * { box-sizing: border-box; }
+          body { 
+            margin: 0;
+            font-family: 'Georgia', serif;
+            font-size: 9pt;
+          }
+          .catalog-card {
+            width: calc(${size.width} - 10mm);
+            height: calc(${size.height} - 10mm);
+            border: 1px solid #000;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+          }
+          .card-header {
+            background: #f0f0f0;
+            border-bottom: 1px solid #000;
+            padding: 3mm;
+            text-align: center;
+          }
+          .library-title {
+            font-weight: bold;
+            font-size: 10pt;
+            letter-spacing: 1px;
+          }
+          .card-body {
+            flex: 1;
+            padding: 3mm;
+          }
+          .field {
+            margin-bottom: 2mm;
+          }
+          .field-row {
+            display: flex;
+            gap: 3mm;
+            margin-bottom: 2mm;
+          }
+          .field-row .field {
+            flex: 1;
+            margin-bottom: 0;
+          }
+          .label {
+            font-weight: bold;
+            display: inline-block;
+            min-width: 18mm;
+          }
+          .value {
+            display: inline;
+          }
+          .value.mono {
+            font-family: 'Courier New', monospace;
+            font-size: 8pt;
+          }
+          .title-field .value {
+            font-weight: bold;
+            font-size: 10pt;
+          }
+          .divider {
+            border-top: 1px dashed #999;
+            margin: 2mm 0;
+          }
+          .card-footer {
+            border-top: 1px solid #000;
+            padding: 2mm;
+            text-align: center;
+            background: #fafafa;
+          }
+          .card-footer svg {
+            max-width: 100%;
+            height: 20mm;
+          }
+          @media screen {
+            body { padding: 10mm; background: #eee; }
+            .catalog-card { margin-bottom: 10mm; background: white; }
+          }
+          @media print {
+            .catalog-card { border: 1px solid #000; }
+          }
+        </style>
+      </head>
+      <body>
+        ${cardHtml}
+        <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+        <script>
+          ${barcodeScripts}
+          setTimeout(() => window.print(), 500);
+        </script>
+      </body>
+    </html>
+  `);
+  printWindow.document.close();
+}
+
 function printBarcodeSheet(ssns: string[]) {
   const printWindow = window.open('', '_blank');
   if (!printWindow) return;
@@ -345,6 +555,8 @@ function CopyDetailsSheet({
   const [selectedForPrint, setSelectedForPrint] = useState<Set<number>>(new Set());
   const [editingLocation, setEditingLocation] = useState(false);
   const [locationValue, setLocationValue] = useState("");
+  const [cardSize, setCardSize] = useState<CardSize>('A6');
+  const [showCardSizeDialog, setShowCardSizeDialog] = useState(false);
 
   const updateCopyMutation = useMutation({
     mutationFn: ({ id, shelfLocation }: { id: number; shelfLocation: string }) =>
@@ -418,6 +630,41 @@ function CopyDetailsSheet({
       .map(copy => copy.internalSSN as string);
     if (ssnsToprint.length > 0) {
       printBarcodeSheet(ssnsToprint);
+    }
+  };
+
+  const handlePrintCatalogCard = (copy: BookCopy) => {
+    if (!resource || !copy.internalSSN) return;
+    const cardData: CatalogCardData = {
+      title: resource.title,
+      author: resource.author,
+      isbn: resource.isbn,
+      category: resource.category,
+      ssn: copy.internalSSN,
+      barcode: copy.barcode,
+      shelfLocation: copy.shelfLocation || undefined,
+      acquisitionDate: copy.acquisitionDate ? format(new Date(copy.acquisitionDate), "MMM d, yyyy") : undefined,
+    };
+    printCatalogCards([cardData], cardSize);
+  };
+
+  const handleBatchPrintCatalogCards = () => {
+    if (!resource) return;
+    const cards: CatalogCardData[] = filteredCopies
+      .filter(copy => selectedForPrint.has(copy.id) && copy.internalSSN)
+      .map((copy, index) => ({
+        title: resource.title,
+        author: resource.author,
+        isbn: resource.isbn,
+        category: resource.category,
+        ssn: copy.internalSSN!,
+        barcode: copy.barcode,
+        shelfLocation: copy.shelfLocation || undefined,
+        acquisitionDate: copy.acquisitionDate ? format(new Date(copy.acquisitionDate), "MMM d, yyyy") : undefined,
+        copyNumber: index + 1,
+      }));
+    if (cards.length > 0) {
+      printCatalogCards(cards, cardSize);
     }
   };
 
@@ -641,6 +888,47 @@ function CopyDetailsSheet({
                 </div>
               )}
 
+              {/* Catalog Card Section */}
+              {selectedCopy.internalSSN && (
+                <div className="mb-4 p-4 border rounded-lg">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="font-semibold text-sm flex items-center gap-2">
+                      <CreditCard className="h-4 w-4" />
+                      Catalog Card
+                    </h4>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setShowCardSizeDialog(true)}
+                        data-testid="button-card-size-settings"
+                      >
+                        <Settings2 className="h-4 w-4 mr-1" />
+                        {CARD_SIZES[cardSize].label}
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => handlePrintCatalogCard(selectedCopy)}
+                        data-testid="button-print-catalog-card"
+                      >
+                        <Printer className="h-4 w-4 mr-2" />
+                        Print Card
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="text-sm text-muted-foreground bg-muted/50 p-3 rounded">
+                    <p>Prints a catalog card containing:</p>
+                    <ul className="list-disc ml-5 mt-1 space-y-0.5">
+                      <li>Book details (title, author, ISBN, publisher, year)</li>
+                      <li>Copy information (SSN, barcode, location)</li>
+                      <li>Acquisition date</li>
+                      <li>SSN barcode for scanning</li>
+                    </ul>
+                  </div>
+                </div>
+              )}
+
               <h4 className="font-semibold mb-3 flex items-center gap-2">
                 <History className="h-4 w-4" />
                 Movement History
@@ -706,40 +994,63 @@ function CopyDetailsSheet({
               ) : (
                 <>
                   {/* Batch Print Controls */}
-                  <div className="flex items-center justify-between mb-4 p-3 bg-muted/50 rounded-lg">
+                  <div className="flex flex-col gap-3 mb-4 p-4 bg-muted/50 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={selectAllForPrint}
+                          data-testid="button-select-all"
+                        >
+                          Select All
+                        </Button>
+                        {selectedForPrint.size > 0 && (
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            onClick={clearPrintSelection}
+                            data-testid="button-clear-selection"
+                          >
+                            Clear ({selectedForPrint.size})
+                          </Button>
+                        )}
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setShowCardSizeDialog(true)}
+                        data-testid="button-card-size"
+                      >
+                        <Settings2 className="h-4 w-4 mr-1" />
+                        Card: {CARD_SIZES[cardSize].label}
+                      </Button>
+                    </div>
                     <div className="flex items-center gap-2">
                       <Button 
                         variant="outline" 
-                        size="sm" 
-                        onClick={selectAllForPrint}
-                        data-testid="button-select-all"
+                        size="sm"
+                        disabled={selectedForPrint.size === 0}
+                        onClick={handleBatchPrint}
+                        data-testid="button-batch-print-barcodes"
                       >
-                        Select All
+                        <Printer className="h-4 w-4 mr-2" />
+                        Print Barcodes ({selectedForPrint.size})
                       </Button>
-                      {selectedForPrint.size > 0 && (
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
-                          onClick={clearPrintSelection}
-                          data-testid="button-clear-selection"
-                        >
-                          Clear ({selectedForPrint.size})
-                        </Button>
-                      )}
+                      <Button 
+                        variant="default" 
+                        size="sm"
+                        disabled={selectedForPrint.size === 0}
+                        onClick={handleBatchPrintCatalogCards}
+                        data-testid="button-batch-print-cards"
+                      >
+                        <CreditCard className="h-4 w-4 mr-2" />
+                        Print Catalog Cards ({selectedForPrint.size})
+                      </Button>
                     </div>
-                    <Button 
-                      variant="default" 
-                      size="sm"
-                      disabled={selectedForPrint.size === 0}
-                      onClick={handleBatchPrint}
-                      data-testid="button-batch-print"
-                    >
-                      <Printer className="h-4 w-4 mr-2" />
-                      Print Selected ({selectedForPrint.size})
-                    </Button>
                   </div>
                   <p className="text-xs text-muted-foreground mb-3">
-                    Select copies to print barcodes on A4 sticker sheet (3×8 layout, up to 24 per page)
+                    Select copies to print barcodes (A4 sticker sheet) or catalog cards (customizable size)
                   </p>
                   <Table>
                     <TableHeader>
@@ -797,6 +1108,47 @@ function CopyDetailsSheet({
           )}
         </ScrollArea>
       </SheetContent>
+
+      {/* Card Size Settings Dialog */}
+      <Dialog open={showCardSizeDialog} onOpenChange={setShowCardSizeDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Catalog Card Size</DialogTitle>
+            <DialogDescription>
+              Select the card size for printing catalog cards
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 py-4">
+            {(Object.keys(CARD_SIZES) as CardSize[]).map((size) => (
+              <Button
+                key={size}
+                variant={cardSize === size ? "default" : "outline"}
+                className="justify-start h-auto py-3"
+                onClick={() => {
+                  setCardSize(size);
+                  setShowCardSizeDialog(false);
+                }}
+                data-testid={`button-size-${size}`}
+              >
+                <div className="text-left">
+                  <div className="font-medium">{CARD_SIZES[size].label}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {size === 'A6' && 'Default - Standard catalog card size'}
+                    {size === 'A7' && 'Smaller cards for compact spaces'}
+                    {size === 'A5' && 'Larger cards with more detail space'}
+                    {size === 'custom' && 'Custom size (100×150mm)'}
+                  </div>
+                </div>
+              </Button>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCardSizeDialog(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Sheet>
   );
 }
