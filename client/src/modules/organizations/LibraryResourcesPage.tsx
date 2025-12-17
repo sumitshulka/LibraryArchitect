@@ -611,8 +611,7 @@ function CopyDetailsSheet({
     }
   };
 
-  const togglePrintSelection = (copyId: number, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const togglePrintSelection = (copyId: number) => {
     setSelectedForPrint(prev => {
       const next = new Set(prev);
       if (next.has(copyId)) {
@@ -1075,9 +1074,8 @@ function CopyDetailsSheet({
                               <input
                                 type="checkbox"
                                 checked={selectedForPrint.has(copy.id)}
-                                onChange={(e) => togglePrintSelection(copy.id, e as any)}
-                                onClick={(e) => togglePrintSelection(copy.id, e)}
-                                className="h-4 w-4 rounded border-gray-300"
+                                onChange={() => togglePrintSelection(copy.id)}
+                                className="h-4 w-4 rounded border-gray-300 cursor-pointer"
                                 data-testid={`checkbox-copy-${copy.id}`}
                               />
                             )}
