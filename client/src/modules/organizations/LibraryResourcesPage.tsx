@@ -557,18 +557,21 @@ function CopyDetailsSheet({
   const [selectedForPrint, setSelectedForPrint] = useState<Set<number>>(new Set());
   const [editingLocation, setEditingLocation] = useState(false);
   const [locationValue, setLocationValue] = useState("");
+  const [editingUserSSN, setEditingUserSSN] = useState(false);
+  const [userSSNValue, setUserSSNValue] = useState("");
   const [cardSize, setCardSize] = useState<CardSize>('A6');
   const [showCardSizeDialog, setShowCardSizeDialog] = useState(false);
   const { format: formatCurrency } = useCurrency();
 
   const updateCopyMutation = useMutation({
-    mutationFn: ({ id, shelfLocation }: { id: number; shelfLocation: string }) =>
-      bookCopiesApi.update(id, { shelfLocation: shelfLocation || null }),
+    mutationFn: ({ id, updates }: { id: number; updates: { shelfLocation?: string | null; userDefinedSSN?: string | null } }) =>
+      bookCopiesApi.update(id, updates),
     onSuccess: (updatedCopy) => {
       queryClient.invalidateQueries({ queryKey: ["book-copies", resource?.bookId, libraryId] });
       setSelectedCopy(updatedCopy);
       setEditingLocation(false);
-      toast.success("Shelf location updated");
+      setEditingUserSSN(false);
+      toast.success("Copy updated successfully");
     },
     onError: (error: Error) => {
       toast.error(error.message);
@@ -626,23 +629,28 @@ function CopyDetailsSheet({
     });
   };
 
+  const getDisplaySSN = (copy: BookCopy): string | null => {
+    return copy.userDefinedSSN || copy.internalSSN || null;
+  };
+
   const handleBatchPrint = () => {
     const ssnsToprint = filteredCopies
-      .filter(copy => selectedForPrint.has(copy.id) && copy.internalSSN)
-      .map(copy => copy.internalSSN as string);
+      .filter(copy => selectedForPrint.has(copy.id) && getDisplaySSN(copy))
+      .map(copy => getDisplaySSN(copy) as string);
     if (ssnsToprint.length > 0) {
       printBarcodeSheet(ssnsToprint);
     }
   };
 
   const handlePrintCatalogCard = (copy: BookCopy) => {
-    if (!resource || !copy.internalSSN) return;
+    const displaySSN = getDisplaySSN(copy);
+    if (!resource || !displaySSN) return;
     const cardData: CatalogCardData = {
       title: resource.title,
       author: resource.author,
       isbn: formatIsbn(resource.isbn),
       category: resource.category,
-      ssn: copy.internalSSN,
+      ssn: displaySSN,
       barcode: copy.barcode,
       shelfLocation: copy.shelfLocation || undefined,
       acquisitionDate: copy.acquisitionDate ? format(new Date(copy.acquisitionDate), "MMM d, yyyy") : undefined,
@@ -653,13 +661,13 @@ function CopyDetailsSheet({
   const handleBatchPrintCatalogCards = () => {
     if (!resource) return;
     const cards: CatalogCardData[] = filteredCopies
-      .filter(copy => selectedForPrint.has(copy.id) && copy.internalSSN)
+      .filter(copy => selectedForPrint.has(copy.id) && getDisplaySSN(copy))
       .map((copy, index) => ({
         title: resource.title,
         author: resource.author,
         isbn: formatIsbn(resource.isbn),
         category: resource.category,
-        ssn: copy.internalSSN!,
+        ssn: getDisplaySSN(copy)!,
         barcode: copy.barcode,
         shelfLocation: copy.shelfLocation || undefined,
         acquisitionDate: copy.acquisitionDate ? format(new Date(copy.acquisitionDate), "MMM d, yyyy") : undefined,
@@ -671,7 +679,7 @@ function CopyDetailsSheet({
   };
 
   const selectAllForPrint = () => {
-    const allWithSSN = filteredCopies.filter(c => c.internalSSN).map(c => c.id);
+    const allWithSSN = filteredCopies.filter(c => getDisplaySSN(c)).map(c => c.id);
     setSelectedForPrint(new Set(allWithSSN));
   };
 
@@ -694,7 +702,7 @@ function CopyDetailsSheet({
                 <div>
                   <SheetTitle className="text-left">Circulation History</SheetTitle>
                   <SheetDescription className="text-left">
-                    SSN: {selectedCopy.internalSSN || "N/A"} - {selectedCopy.barcode}
+                    SSN: {getDisplaySSN(selectedCopy) || "N/A"} - {selectedCopy.barcode}
                   </SheetDescription>
                 </div>
               </div>
@@ -715,12 +723,63 @@ function CopyDetailsSheet({
               <div className="mb-4 p-4 bg-muted rounded-lg">
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div>
-                    <span className="text-muted-foreground">SSN:</span>
+                    <span className="text-muted-foreground">System SSN:</span>
                     <span className="ml-2 font-mono">{selectedCopy.internalSSN || "Not assigned"}</span>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Barcode:</span>
                     <span className="ml-2 font-mono">{selectedCopy.barcode}</span>
+                  </div>
+                  <div className="col-span-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground">User Defined SSN:</span>
+                      {editingUserSSN ? (
+                        <div className="flex items-center gap-2 flex-1">
+                          <Input
+                            value={userSSNValue}
+                            onChange={(e) => setUserSSNValue(e.target.value)}
+                            placeholder="Enter your custom SSN identifier..."
+                            className="h-8 flex-1 font-mono"
+                            data-testid="input-user-ssn"
+                          />
+                          <Button
+                            size="sm"
+                            variant="default"
+                            onClick={() => updateCopyMutation.mutate({ id: selectedCopy.id, updates: { userDefinedSSN: userSSNValue || null } })}
+                            disabled={updateCopyMutation.isPending}
+                            data-testid="button-save-user-ssn"
+                          >
+                            <Check className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              setEditingUserSSN(false);
+                              setUserSSNValue(selectedCopy.userDefinedSSN || "");
+                            }}
+                            data-testid="button-cancel-user-ssn"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono">{selectedCopy.userDefinedSSN || <span className="text-muted-foreground italic">Not set</span>}</span>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              setUserSSNValue(selectedCopy.userDefinedSSN || "");
+                              setEditingUserSSN(true);
+                            }}
+                            data-testid="button-edit-user-ssn"
+                          >
+                            <Pencil className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Status:</span>
@@ -744,7 +803,7 @@ function CopyDetailsSheet({
                           <Button
                             size="sm"
                             variant="default"
-                            onClick={() => updateCopyMutation.mutate({ id: selectedCopy.id, shelfLocation: locationValue })}
+                            onClick={() => updateCopyMutation.mutate({ id: selectedCopy.id, updates: { shelfLocation: locationValue || null } })}
                             disabled={updateCopyMutation.isPending}
                             data-testid="button-save-location"
                           >
@@ -784,7 +843,7 @@ function CopyDetailsSheet({
               </div>
 
               {/* SSN Barcode Display */}
-              {selectedCopy.internalSSN && (
+              {getDisplaySSN(selectedCopy) && (
                 <div className="mb-4 p-4 border rounded-lg">
                   <div className="flex items-center justify-between mb-3">
                     <h4 className="font-semibold text-sm">SSN Barcode Label</h4>
@@ -792,6 +851,8 @@ function CopyDetailsSheet({
                       variant="outline" 
                       size="sm"
                       onClick={() => {
+                        const displaySSN = getDisplaySSN(selectedCopy);
+                        if (!displaySSN) return;
                         const printWindow = window.open('', '_blank');
                         if (printWindow) {
                           printWindow.document.write(`
@@ -848,12 +909,12 @@ function CopyDetailsSheet({
                                 <div class="sticker-grid">
                                   <div class="sticker">
                                     <svg id="barcode"></svg>
-                                    <div class="ssn">${selectedCopy.internalSSN}</div>
+                                    <div class="ssn">${displaySSN}</div>
                                   </div>
                                 </div>
                                 <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
                                 <script>
-                                  JsBarcode("#barcode", "${selectedCopy.internalSSN}", {
+                                  JsBarcode("#barcode", "${displaySSN}", {
                                     format: "CODE128",
                                     width: 1.2,
                                     height: 35,
@@ -876,7 +937,7 @@ function CopyDetailsSheet({
                   </div>
                   <div className="flex justify-center bg-white p-4 rounded border">
                     <Barcode 
-                      value={selectedCopy.internalSSN} 
+                      value={getDisplaySSN(selectedCopy)!} 
                       format="CODE128"
                       width={1.2}
                       height={40}
@@ -891,7 +952,7 @@ function CopyDetailsSheet({
               )}
 
               {/* Catalog Card Section */}
-              {selectedCopy.internalSSN && (
+              {getDisplaySSN(selectedCopy) && (
                 <div className="mb-4 p-4 border rounded-lg">
                   <div className="flex items-center justify-between mb-3">
                     <h4 className="font-semibold text-sm flex items-center gap-2">
@@ -1073,7 +1134,7 @@ function CopyDetailsSheet({
                           data-testid={`row-copy-${copy.id}`}
                         >
                           <TableCell onClick={(e) => e.stopPropagation()}>
-                            {copy.internalSSN && (
+                            {(copy.userDefinedSSN || copy.internalSSN) && (
                               <input
                                 type="checkbox"
                                 checked={selectedForPrint.has(copy.id)}
@@ -1084,7 +1145,16 @@ function CopyDetailsSheet({
                             )}
                           </TableCell>
                           <TableCell className="font-mono text-sm">
-                            {copy.internalSSN || (
+                            {copy.userDefinedSSN ? (
+                              <div className="flex flex-col">
+                                <span>{copy.userDefinedSSN}</span>
+                                {copy.internalSSN && (
+                                  <span className="text-xs text-muted-foreground">Sys: {copy.internalSSN}</span>
+                                )}
+                              </div>
+                            ) : copy.internalSSN ? (
+                              copy.internalSSN
+                            ) : (
                               <span className="text-muted-foreground italic">No SSN</span>
                             )}
                           </TableCell>

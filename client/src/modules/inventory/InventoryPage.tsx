@@ -86,7 +86,8 @@ type BookCopy = {
   id: number;
   bookId: number;
   libraryId: number;
-  internalSsn: string;
+  internalSSN: string;
+  userDefinedSSN: string | null;
   shelfLocation: string | null;
   condition: string;
   status: string;
@@ -223,7 +224,7 @@ export default function InventoryPage() {
       } else {
         toast({
           title: "Item Verified",
-          description: `SSN ${data.copy?.internalSsn} has been verified.`,
+          description: `SSN ${data.copy?.userDefinedSSN || data.copy?.internalSSN} has been verified.`,
         });
       }
     },
@@ -523,7 +524,7 @@ export default function InventoryPage() {
                 const copy = getCopyDetails(item.bookCopyId);
                 return (
                   <TableRow key={item.id} data-testid={`row-item-${item.id}`}>
-                    <TableCell className="font-mono text-xs">{copy?.internalSsn || '-'}</TableCell>
+                    <TableCell className="font-mono text-xs">{copy?.userDefinedSSN || copy?.internalSSN || '-'}</TableCell>
                     <TableCell className="text-muted-foreground">{item.expectedLocation || copy?.shelfLocation || '-'}</TableCell>
                     <TableCell>{item.scannedLocation || '-'}</TableCell>
                     <TableCell>{item.condition || copy?.condition || '-'}</TableCell>

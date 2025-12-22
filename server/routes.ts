@@ -848,7 +848,7 @@ export async function registerRoutes(
       
       // Find copy by SSN
       const copies = await storage.getAllBookCopies();
-      const copy = copies.find(c => c.internalSsn === ssn);
+      const copy = copies.find(c => c.internalSSN === ssn || c.userDefinedSSN === ssn);
       
       if (!copy) {
         // SSN not found in system
