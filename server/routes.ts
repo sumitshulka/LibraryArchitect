@@ -702,24 +702,29 @@ export async function registerRoutes(
         discrepancies: 0,
       });
       
-      // Pre-populate inventory items as PENDING for all available book copies in the library
+      // Pre-populate inventory items as PENDING for all available book copies
+      let copies;
       if (session.libraryId) {
-        const copies = await storage.getBookCopiesByLibrary(session.libraryId);
-        // Only include copies that are AVAILABLE (not checked out, lost, etc.)
-        const availableCopies = copies.filter(c => c.status === 'AVAILABLE');
-        
-        for (const copy of availableCopies) {
-          await storage.createInventoryItem({
-            auditSessionId: session.id,
-            bookCopyId: copy.id,
-            status: 'PENDING',
-            expectedLocation: copy.shelfLocation || null,
-            scannedLocation: null,
-            condition: null,
-            scannedAt: null,
-            notes: null,
-          });
-        }
+        copies = await storage.getBookCopiesByLibrary(session.libraryId);
+      } else {
+        // If no library specified, include all copies from all libraries
+        copies = await storage.getAllBookCopies();
+      }
+      
+      // Only include copies that are AVAILABLE (not checked out, lost, etc.)
+      const availableCopies = copies.filter(c => c.status === 'AVAILABLE');
+      
+      for (const copy of availableCopies) {
+        await storage.createInventoryItem({
+          auditSessionId: session.id,
+          bookCopyId: copy.id,
+          status: 'PENDING',
+          expectedLocation: copy.shelfLocation || null,
+          scannedLocation: null,
+          condition: null,
+          scannedAt: null,
+          notes: null,
+        });
       }
       
       res.status(201).json(session);

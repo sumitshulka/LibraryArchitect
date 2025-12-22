@@ -120,6 +120,7 @@ type Library = {
 export default function InventoryPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [scanInput, setScanInput] = useState("");
+  const [scanNotes, setScanNotes] = useState("");
   const [selectedSession, setSelectedSession] = useState<number | null>(null);
   const [showNewSessionDialog, setShowNewSessionDialog] = useState(false);
   const [newSessionLibraryId, setNewSessionLibraryId] = useState<string>("");
@@ -204,15 +205,16 @@ export default function InventoryPage() {
   });
 
   const scanMutation = useMutation({
-    mutationFn: async (ssn: string) => {
+    mutationFn: async ({ ssn, notes }: { ssn: string; notes?: string }) => {
       if (!currentSessionId) throw new Error("No active session");
-      const res = await apiRequest("POST", `/api/audit-sessions/${currentSessionId}/scan`, { ssn });
+      const res = await apiRequest("POST", `/api/audit-sessions/${currentSessionId}/scan`, { ssn, notes });
       return res.json();
     },
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: [`/api/audit-sessions/${currentSessionId}/items-enriched`] });
       queryClient.invalidateQueries({ queryKey: [`/api/audit-sessions/${currentSessionId}/stats`] });
       setScanInput("");
+      setScanNotes("");
       
       if (data.duplicate) {
         toast({
@@ -252,7 +254,7 @@ export default function InventoryPage() {
       });
       return;
     }
-    scanMutation.mutate(scanInput.trim());
+    scanMutation.mutate({ ssn: scanInput.trim(), notes: scanNotes.trim() || undefined });
   };
 
   const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -502,6 +504,14 @@ export default function InventoryPage() {
                 data-testid="input-scan-ssn"
               />
             </div>
+            <Input 
+              placeholder="Remarks (optional)..." 
+              className="h-9 w-48" 
+              value={scanNotes}
+              onChange={(e) => setScanNotes(e.target.value)}
+              disabled={!currentSession || currentSession.status !== 'ACTIVE'}
+              data-testid="input-scan-notes"
+            />
             <Button 
               size="sm" 
               onClick={handleScan}
@@ -546,6 +556,7 @@ export default function InventoryPage() {
                       <TableHead>Scanned Location</TableHead>
                       <TableHead>Scanned At</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead>Remarks</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -566,6 +577,9 @@ export default function InventoryPage() {
                             : '-'}
                         </TableCell>
                         <TableCell>{getStatusBadge(item.status)}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">
+                          {item.notes || '-'}
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
