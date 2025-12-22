@@ -308,8 +308,20 @@ export default function InventoryPage() {
   const pendingItems = inventoryItems.filter(item => item.status === 'PENDING');
   const missingItems = inventoryItems.filter(item => item.status === 'MISSING');
   
+  // Group pending items by library for summary view (when all libraries selected)
+  const pendingByLibrary = pendingItems.reduce((acc, item) => {
+    const libraryName = item.library?.name || 'Unknown Library';
+    const libraryId = item.library?.id || 0;
+    if (!acc[libraryId]) {
+      acc[libraryId] = { name: libraryName, count: 0 };
+    }
+    acc[libraryId].count++;
+    return acc;
+  }, {} as Record<number, { name: string; count: number }>);
+  
   const totalAssets = sessionStats?.total || 0;
   const currentSession = sessions.find(s => s.id === currentSessionId);
+  const isAllLibraries = !currentSession?.libraryId;
 
   return (
     <MainLayout>
@@ -604,6 +616,30 @@ export default function InventoryPage() {
               </h4>
               {pendingItems.length === 0 ? (
                 <p className="text-sm text-muted-foreground italic">All items have been verified!</p>
+              ) : isAllLibraries ? (
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground mb-3">Summary by library (select a specific library to view individual items):</p>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Library</TableHead>
+                        <TableHead className="text-right">Pending Items</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {Object.entries(pendingByLibrary).map(([libraryId, data]) => (
+                        <TableRow key={libraryId} data-testid={`row-pending-library-${libraryId}`}>
+                          <TableCell className="font-medium">{data.name}</TableCell>
+                          <TableCell className="text-right">
+                            <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+                              {data.count} items
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
               ) : (
                 <Table>
                   <TableHeader>
