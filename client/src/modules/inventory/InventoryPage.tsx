@@ -310,7 +310,7 @@ export default function InventoryPage() {
   
   // Group pending items by library for summary view (when all libraries selected)
   const pendingByLibrary = pendingItems.reduce((acc, item) => {
-    const libraryName = item.library?.name || 'Unknown Library';
+    const libraryName = item.library?.name || 'Unallocated Stock';
     const libraryId = item.library?.id || 0;
     if (!acc[libraryId]) {
       acc[libraryId] = { name: libraryName, count: 0 };
@@ -588,7 +588,7 @@ export default function InventoryPage() {
                             <span className="text-xs text-muted-foreground block">{item.book.author}</span>
                           )}
                         </TableCell>
-                        <TableCell>{item.library?.name || '-'}</TableCell>
+                        <TableCell>{item.library?.name || 'Unallocated Stock'}</TableCell>
                         <TableCell className="font-mono text-xs">{item.copy?.userDefinedSSN || item.copy?.internalSSN || '-'}</TableCell>
                         <TableCell className="text-muted-foreground">{item.expectedLocation || item.copy?.shelfLocation || '-'}</TableCell>
                         <TableCell>{item.scannedLocation || '-'}</TableCell>
@@ -661,7 +661,7 @@ export default function InventoryPage() {
                             <span className="text-xs text-muted-foreground block">{item.book.author}</span>
                           )}
                         </TableCell>
-                        <TableCell>{item.library?.name || '-'}</TableCell>
+                        <TableCell>{item.library?.name || 'Unallocated Stock'}</TableCell>
                         <TableCell className="font-mono text-xs">{item.copy?.userDefinedSSN || item.copy?.internalSSN || '-'}</TableCell>
                         <TableCell className="text-muted-foreground">{item.expectedLocation || item.copy?.shelfLocation || '-'}</TableCell>
                         <TableCell>{item.copy?.condition || '-'}</TableCell>
@@ -703,7 +703,7 @@ export default function InventoryPage() {
                             <span className="text-xs text-muted-foreground block">{item.book.author}</span>
                           )}
                         </TableCell>
-                        <TableCell>{item.library?.name || '-'}</TableCell>
+                        <TableCell>{item.library?.name || 'Unallocated Stock'}</TableCell>
                         <TableCell className="font-mono text-xs">{item.copy?.userDefinedSSN || item.copy?.internalSSN || '-'}</TableCell>
                         <TableCell className="text-muted-foreground">{item.expectedLocation || item.copy?.shelfLocation || '-'}</TableCell>
                         <TableCell>{item.copy?.condition || '-'}</TableCell>
