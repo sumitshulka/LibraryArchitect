@@ -1915,7 +1915,9 @@ export async function registerRoutes(
         return res.json(copies);
       }
       
-      res.status(400).json({ error: "Either bookId or libraryId is required" });
+      // Return all copies for inventory audit purposes
+      const copies = await storage.getAllBookCopies();
+      res.json(copies);
     } catch (error) {
       console.error("Error fetching book copies:", error);
       res.status(500).json({ error: "Failed to fetch book copies" });
