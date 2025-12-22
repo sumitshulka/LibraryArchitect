@@ -46,7 +46,7 @@ import { Badge } from "@/components/ui/badge";
 import { 
   Building2, Lock, Globe, Mail, Database, BookOpen, Plus, Pencil, Trash2, 
   Key, RefreshCw, Shield, Copy, Eye, EyeOff, AlertTriangle, CheckCircle2, Link2, Coins,
-  ArrowDownToLine, Play, Clock, Settings2
+  ArrowDownToLine, Play, Clock, Settings2, Zap, Send, ChevronDown, ChevronUp
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { resourceTypesApi, categoriesApi, erpIntegrationsApi, configApi, type ErpIntegrationPublic, type ErpCredentials, type ErpPullEndpoint } from "@/lib/api";
@@ -841,6 +841,7 @@ function PullEndpointsCard({ integrationId }: { integrationId: number }) {
   const [, setLocation] = useLocation();
   const [endpointDialogOpen, setEndpointDialogOpen] = useState(false);
   const [editingEndpoint, setEditingEndpoint] = useState<ErpPullEndpoint | undefined>();
+  const [sandboxOpen, setSandboxOpen] = useState(false);
 
   const { data: endpoints = [], isLoading } = useQuery({
     queryKey: ["erp-pull-endpoints", integrationId],
@@ -936,15 +937,28 @@ function PullEndpointsCard({ integrationId }: { integrationId: number }) {
                 Configure API endpoints to pull data from the ERP system
               </CardDescription>
             </div>
-            <Button 
-              size="sm" 
-              className="gap-2" 
-              onClick={handleAddEndpoint}
-              data-testid="button-add-pull-endpoint"
-            >
-              <Plus className="h-4 w-4" />
-              Add Endpoint
-            </Button>
+            <div className="flex gap-2">
+              <Button 
+                size="sm" 
+                variant="outline"
+                className="gap-2" 
+                onClick={() => setSandboxOpen(true)}
+                disabled={endpoints.length === 0}
+                data-testid="button-open-swagger"
+              >
+                <Zap className="h-4 w-4" />
+                API Sandbox
+              </Button>
+              <Button 
+                size="sm" 
+                className="gap-2" 
+                onClick={handleAddEndpoint}
+                data-testid="button-add-pull-endpoint"
+              >
+                <Plus className="h-4 w-4" />
+                Add Endpoint
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -1036,6 +1050,281 @@ function PullEndpointsCard({ integrationId }: { integrationId: number }) {
           />
         </DialogContent>
       </Dialog>
+
+      <Dialog open={sandboxOpen} onOpenChange={setSandboxOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+          <ApiSandbox 
+            integrationId={integrationId}
+            endpoints={endpoints}
+            onClose={() => setSandboxOpen(false)}
+          />
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+function ApiSandbox({ 
+  integrationId, 
+  endpoints, 
+  onClose 
+}: { 
+  integrationId: number;
+  endpoints: ErpPullEndpoint[];
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [selectedEndpoint, setSelectedEndpoint] = useState<ErpPullEndpoint | null>(
+    endpoints.length > 0 ? endpoints[0] : null
+  );
+  const [customHeaders, setCustomHeaders] = useState("");
+  const [customBody, setCustomBody] = useState("");
+  const [customQueryParams, setCustomQueryParams] = useState("");
+  const [testResult, setTestResult] = useState<{
+    success: boolean;
+    status?: number;
+    statusText?: string;
+    headers?: Record<string, string>;
+    body?: unknown;
+    responseTimeMs: number;
+    error?: string;
+  } | null>(null);
+  const [expandedSections, setExpandedSections] = useState({
+    request: true,
+    response: true,
+  });
+
+  const testMutation = useMutation({
+    mutationFn: erpIntegrationsApi.testPullEndpoint,
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["erp-pull-endpoints", integrationId] });
+      setTestResult(result);
+      if (result.success) {
+        toast.success(`Request successful (${result.responseTimeMs}ms)`);
+      } else {
+        toast.error(`Request failed: ${result.error || 'Unknown error'}`);
+      }
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+      setTestResult({
+        success: false,
+        error: error.message,
+        responseTimeMs: 0,
+      });
+    },
+  });
+
+  const handleSelectEndpoint = (endpoint: ErpPullEndpoint) => {
+    setSelectedEndpoint(endpoint);
+    setCustomHeaders(endpoint.requestHeaders ? JSON.stringify(endpoint.requestHeaders, null, 2) : "");
+    setCustomBody(endpoint.requestBodyTemplate ? JSON.stringify(endpoint.requestBodyTemplate, null, 2) : "");
+    setCustomQueryParams(endpoint.queryParameters ? JSON.stringify(endpoint.queryParameters, null, 2) : "");
+    setTestResult(null);
+  };
+
+  const handleTest = () => {
+    if (selectedEndpoint) {
+      testMutation.mutate(selectedEndpoint.id);
+    }
+  };
+
+  const toggleSection = (section: 'request' | 'response') => {
+    setExpandedSections(prev => ({
+      ...prev,
+      [section]: !prev[section],
+    }));
+  };
+
+  const getMethodColor = (method: string) => {
+    switch (method) {
+      case 'GET': return 'bg-green-500';
+      case 'POST': return 'bg-blue-500';
+      case 'PUT': return 'bg-yellow-500';
+      case 'PATCH': return 'bg-orange-500';
+      case 'DELETE': return 'bg-red-500';
+      default: return 'bg-gray-500';
+    }
+  };
+
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle className="flex items-center gap-2">
+          <Zap className="h-5 w-5" />
+          API Sandbox
+        </DialogTitle>
+        <DialogDescription>
+          Test your ERP API endpoints with a Swagger-like interface
+        </DialogDescription>
+      </DialogHeader>
+      
+      <div className="flex-1 overflow-auto grid grid-cols-3 gap-4 mt-4">
+        <div className="col-span-1 border rounded-lg overflow-auto max-h-[60vh]">
+          <div className="p-3 border-b bg-muted/50 sticky top-0">
+            <h4 className="font-medium text-sm">Endpoints</h4>
+          </div>
+          <div className="p-2 space-y-1">
+            {endpoints.map((ep) => (
+              <button
+                key={ep.id}
+                onClick={() => handleSelectEndpoint(ep)}
+                className={`w-full text-left p-2 rounded-md text-sm transition-colors ${
+                  selectedEndpoint?.id === ep.id 
+                    ? 'bg-primary text-primary-foreground' 
+                    : 'hover:bg-muted'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <Badge className={`${getMethodColor(ep.httpMethod)} text-white text-xs px-1.5`}>
+                    {ep.httpMethod}
+                  </Badge>
+                  <span className="truncate">{ep.name}</span>
+                </div>
+                <code className="text-xs opacity-70 truncate block mt-1">{ep.urlPath}</code>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="col-span-2 space-y-4 overflow-auto max-h-[60vh]">
+          {selectedEndpoint ? (
+            <>
+              <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
+                <Badge className={`${getMethodColor(selectedEndpoint.httpMethod)} text-white`}>
+                  {selectedEndpoint.httpMethod}
+                </Badge>
+                <code className="flex-1 text-sm font-mono truncate">{selectedEndpoint.urlPath}</code>
+                <Button 
+                  size="sm" 
+                  onClick={handleTest}
+                  disabled={testMutation.isPending}
+                  className="gap-2"
+                  data-testid="button-sandbox-test"
+                >
+                  <Send className="h-4 w-4" />
+                  {testMutation.isPending ? "Sending..." : "Send Request"}
+                </Button>
+              </div>
+
+              <div className="border rounded-lg">
+                <button 
+                  onClick={() => toggleSection('request')}
+                  className="w-full flex items-center justify-between p-3 hover:bg-muted/50"
+                >
+                  <span className="font-medium text-sm">Request Configuration</span>
+                  {expandedSections.request ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                </button>
+                {expandedSections.request && (
+                  <div className="p-3 border-t space-y-3">
+                    <div>
+                      <Label className="text-xs">Headers (JSON)</Label>
+                      <textarea
+                        className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-xs font-mono"
+                        value={customHeaders}
+                        onChange={(e) => setCustomHeaders(e.target.value)}
+                        placeholder='{"Authorization": "Bearer token"}'
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Query Parameters (JSON)</Label>
+                      <textarea
+                        className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-xs font-mono"
+                        value={customQueryParams}
+                        onChange={(e) => setCustomQueryParams(e.target.value)}
+                        placeholder='{"page": 1, "limit": 10}'
+                      />
+                    </div>
+                    {['POST', 'PUT', 'PATCH'].includes(selectedEndpoint.httpMethod) && (
+                      <div>
+                        <Label className="text-xs">Request Body (JSON)</Label>
+                        <textarea
+                          className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-xs font-mono"
+                          value={customBody}
+                          onChange={(e) => setCustomBody(e.target.value)}
+                          placeholder='{"key": "value"}'
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="border rounded-lg">
+                <button 
+                  onClick={() => toggleSection('response')}
+                  className="w-full flex items-center justify-between p-3 hover:bg-muted/50"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-sm">Response</span>
+                    {testResult && (
+                      <>
+                        <Badge variant={testResult.success ? "default" : "destructive"} className={testResult.success ? "bg-green-500" : ""}>
+                          {testResult.success ? "Success" : "Failed"}
+                        </Badge>
+                        {testResult.status && (
+                          <Badge variant="outline">HTTP {testResult.status}</Badge>
+                        )}
+                        <span className="text-xs text-muted-foreground">{testResult.responseTimeMs}ms</span>
+                      </>
+                    )}
+                  </div>
+                  {expandedSections.response ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                </button>
+                {expandedSections.response && (
+                  <div className="p-3 border-t">
+                    {testResult ? (
+                      <div className="space-y-3">
+                        {testResult.error && (
+                          <Alert variant="destructive">
+                            <AlertTriangle className="h-4 w-4" />
+                            <AlertTitle>Error</AlertTitle>
+                            <AlertDescription>{testResult.error}</AlertDescription>
+                          </Alert>
+                        )}
+                        {testResult.headers && (
+                          <div>
+                            <Label className="text-xs">Response Headers</Label>
+                            <pre className="p-2 bg-muted rounded text-xs font-mono overflow-auto max-h-24">
+                              {JSON.stringify(testResult.headers, null, 2)}
+                            </pre>
+                          </div>
+                        )}
+                        {testResult.body !== undefined && (
+                          <div>
+                            <Label className="text-xs">Response Body</Label>
+                            <pre className="p-2 bg-muted rounded text-xs font-mono overflow-auto max-h-64">
+                              {typeof testResult.body === 'string' 
+                                ? testResult.body 
+                                : JSON.stringify(testResult.body, null, 2)}
+                            </pre>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <Send className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                        <p className="text-sm">Click "Send Request" to test this endpoint</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="text-center py-12 text-muted-foreground">
+              <Zap className="h-12 w-12 mx-auto mb-4 opacity-50" />
+              <p>Select an endpoint from the list to test it</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <DialogFooter className="mt-4">
+        <Button variant="outline" onClick={onClose}>
+          Close
+        </Button>
+      </DialogFooter>
     </>
   );
 }
