@@ -783,6 +783,41 @@ export async function registerRoutes(
     }
   });
 
+  // Get enriched inventory items for a session
+  app.get("/api/audit-sessions/:id/items-enriched", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const session = await storage.getAuditSession(id);
+      
+      if (!session) {
+        return res.status(404).json({ error: "Audit session not found" });
+      }
+      
+      const items = await storage.getInventoryItemsBySession(id);
+      
+      // Enrich items with book and copy details
+      const enrichedItems = await Promise.all(items.map(async (item) => {
+        const copy = await storage.getBookCopy(item.bookCopyId);
+        const book = copy ? await storage.getBook(copy.bookId) : null;
+        return {
+          ...item,
+          book: book ? { title: book.title, author: book.author, isbn: book.isbn } : null,
+          copy: copy ? { 
+            internalSSN: copy.internalSSN, 
+            userDefinedSSN: copy.userDefinedSSN,
+            shelfLocation: copy.shelfLocation,
+            condition: copy.condition
+          } : null,
+        };
+      }));
+      
+      res.json(enrichedItems);
+    } catch (error) {
+      console.error("Error fetching enriched inventory items:", error);
+      res.status(500).json({ error: "Failed to fetch inventory items" });
+    }
+  });
+
   // Download audit report as Excel
   app.get("/api/audit-sessions/:id/report", async (req, res) => {
     try {
