@@ -52,6 +52,17 @@ import { resourceTypesApi, categoriesApi, erpIntegrationsApi, configApi, type Er
 import { toast } from "sonner";
 import type { ResourceType, Category, ErpWhitelist } from "@shared/schema";
 import { CURRENCIES, getCurrencyByCode } from "@/lib/currency";
+import { useCurrency } from "@/lib/useCurrency";
+
+function FinePerDayField() {
+  const { currency } = useCurrency();
+  return (
+    <div className="grid gap-2">
+      <Label htmlFor="fine-amount">Fine per Day ({currency.symbol})</Label>
+      <Input id="fine-amount" type="number" defaultValue="0.50" />
+    </div>
+  );
+}
 
 function ResourceTypeDialog({ 
   resourceType, 
@@ -1443,10 +1454,7 @@ export default function SettingsPage() {
                     </div>
                     <Switch defaultChecked />
                   </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="fine-amount">Fine per Day ($)</Label>
-                    <Input id="fine-amount" type="number" defaultValue="0.50" />
-                  </div>
+                  <FinePerDayField />
                 </CardContent>
               </Card>
             </TabsContent>

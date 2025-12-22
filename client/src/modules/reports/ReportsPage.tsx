@@ -24,6 +24,7 @@ import {
   Legend 
 } from "recharts";
 import { Download, Calendar, Filter } from "lucide-react";
+import { useCurrency } from "@/lib/useCurrency";
 
 const monthlyData = [
   { name: 'Jan', issues: 400, returns: 350, fines: 120 },
@@ -43,6 +44,8 @@ const categoryData = [
 ];
 
 export default function ReportsPage() {
+  const { currency } = useCurrency();
+  
   return (
     <MainLayout>
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -141,10 +144,10 @@ export default function ReportsPage() {
                   <LineChart data={monthlyData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
                     <XAxis dataKey="name" axisLine={false} tickLine={false} />
-                    <YAxis axisLine={false} tickLine={false} tickFormatter={(value) => `$${value}`} />
-                    <Tooltip formatter={(value) => [`$${value}`, 'Amount']} />
+                    <YAxis axisLine={false} tickLine={false} tickFormatter={(value) => `${currency.symbol}${value}`} />
+                    <Tooltip formatter={(value) => [`${currency.symbol}${value}`, 'Amount']} />
                     <Legend />
-                    <Line type="monotone" dataKey="fines" name="Fines Collected ($)" stroke="hsl(var(--destructive))" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 8 }} />
+                    <Line type="monotone" dataKey="fines" name={`Fines Collected (${currency.symbol})`} stroke="hsl(var(--destructive))" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 8 }} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
