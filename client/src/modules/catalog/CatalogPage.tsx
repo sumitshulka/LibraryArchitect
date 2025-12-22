@@ -43,6 +43,7 @@ import { booksApi, type BookDashboard, type BookLibraryAllocation } from "@/lib/
 import type { Book, Circulation } from "@shared/schema";
 import { toast } from "sonner";
 import { format } from "date-fns";
+import { useCurrency } from "@/lib/useCurrency";
 
 function BookDetailsSheet({
   open,
@@ -55,6 +56,7 @@ function BookDetailsSheet({
 }) {
   const queryClient = useQueryClient();
   const [isUploading, setIsUploading] = useState(false);
+  const { format: formatCurrency } = useCurrency();
   
   const { data: dashboard, isLoading } = useQuery({
     queryKey: ["book-dashboard", bookId],
@@ -199,7 +201,7 @@ function BookDetailsSheet({
                   <DollarSign className="h-6 w-6 text-green-600" />
                   <div>
                     <div className="text-xl font-bold text-green-600">
-                      ${(dashboard.financials.totalFinesCollected / 100).toFixed(2)}
+                      {formatCurrency(dashboard.financials.totalFinesCollected)}
                     </div>
                     <div className="text-xs text-muted-foreground">Fines Collected</div>
                   </div>
@@ -208,7 +210,7 @@ function BookDetailsSheet({
                   <Receipt className="h-6 w-6 text-amber-600" />
                   <div>
                     <div className="text-xl font-bold text-amber-600">
-                      ${(dashboard.financials.totalFinesOutstanding / 100).toFixed(2)}
+                      {formatCurrency(dashboard.financials.totalFinesOutstanding)}
                     </div>
                     <div className="text-xs text-muted-foreground">Fines Outstanding</div>
                   </div>
@@ -217,7 +219,7 @@ function BookDetailsSheet({
                   <ShoppingCart className="h-6 w-6 text-blue-600" />
                   <div>
                     <div className="text-xl font-bold text-blue-600">
-                      ${(dashboard.financials.totalAcquisitionCost / 100).toFixed(2)}
+                      {formatCurrency(dashboard.financials.totalAcquisitionCost)}
                     </div>
                     <div className="text-xs text-muted-foreground">Acquisition Cost</div>
                   </div>
@@ -258,10 +260,10 @@ function BookDetailsSheet({
                         </div>
                         <div className="text-right">
                           <div className="font-bold text-green-600">
-                            ${(entry.cost / 100).toFixed(2)}
+                            {formatCurrency(entry.cost)}
                           </div>
                           <div className="text-xs text-muted-foreground">
-                            ${((entry.cost / entry.quantity) / 100).toFixed(2)}/copy
+                            {formatCurrency(Math.round(entry.cost / entry.quantity))}/copy
                           </div>
                         </div>
                       </div>

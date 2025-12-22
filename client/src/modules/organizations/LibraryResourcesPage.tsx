@@ -73,6 +73,7 @@ import {
 } from "@/components/ui/dialog";
 import { librariesApi, bookCopiesApi, type LibraryResourceStats } from "@/lib/api";
 import type { BookCopy, Circulation } from "@shared/schema";
+import { useCurrency } from "@/lib/useCurrency";
 import { format } from "date-fns";
 
 const FORMAT_OPTIONS = [
@@ -557,6 +558,7 @@ function CopyDetailsSheet({
   const [locationValue, setLocationValue] = useState("");
   const [cardSize, setCardSize] = useState<CardSize>('A6');
   const [showCardSizeDialog, setShowCardSizeDialog] = useState(false);
+  const { format: formatCurrency } = useCurrency();
 
   const updateCopyMutation = useMutation({
     mutationFn: ({ id, shelfLocation }: { id: number; shelfLocation: string }) =>
@@ -971,7 +973,7 @@ function CopyDetailsSheet({
                         {record.fineAmount && record.fineAmount > 0 && (
                           <div className="flex justify-between">
                             <span className="text-muted-foreground">Fine:</span>
-                            <span className="text-red-600">${(record.fineAmount / 100).toFixed(2)}</span>
+                            <span className="text-red-600">{formatCurrency(record.fineAmount)}</span>
                           </div>
                         )}
                       </div>

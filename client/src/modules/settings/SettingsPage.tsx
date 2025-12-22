@@ -45,12 +45,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { 
   Building2, Lock, Globe, Mail, Database, BookOpen, Plus, Pencil, Trash2, 
-  Key, RefreshCw, Shield, Copy, Eye, EyeOff, AlertTriangle, CheckCircle2, Link2
+  Key, RefreshCw, Shield, Copy, Eye, EyeOff, AlertTriangle, CheckCircle2, Link2, Coins
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { resourceTypesApi, categoriesApi, erpIntegrationsApi, type ErpIntegrationPublic, type ErpCredentials } from "@/lib/api";
+import { resourceTypesApi, categoriesApi, erpIntegrationsApi, configApi, type ErpIntegrationPublic, type ErpCredentials } from "@/lib/api";
 import { toast } from "sonner";
 import type { ResourceType, Category, ErpWhitelist } from "@shared/schema";
+import { CURRENCIES, getCurrencyByCode } from "@/lib/currency";
 
 function ResourceTypeDialog({ 
   resourceType, 
@@ -1013,6 +1014,35 @@ export default function SettingsPage() {
     queryFn: categoriesApi.getAll,
   });
 
+  // Currency settings
+  const { data: systemConfigs = [] } = useQuery({
+    queryKey: ["system-config"],
+    queryFn: configApi.getAll,
+  });
+
+  const currencyConfig = systemConfigs.find(c => c.key === "currency");
+  const selectedCurrency = currencyConfig?.value || "USD";
+
+  const currencyMutation = useMutation({
+    mutationFn: (currencyCode: string) => configApi.set({
+      key: "currency",
+      value: currencyCode,
+      category: "general",
+      description: "Default currency for the library system",
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["system-config"] });
+      toast.success("Currency updated successfully");
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+
+  const handleCurrencyChange = (currencyCode: string) => {
+    currencyMutation.mutate(currencyCode);
+  };
+
   const deleteMutation = useMutation({
     mutationFn: resourceTypesApi.delete,
     onSuccess: () => {
@@ -1167,6 +1197,43 @@ export default function SettingsPage() {
                         <SelectItem value="gmt">London (GMT)</SelectItem>
                       </SelectContent>
                     </Select>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Coins className="h-5 w-5" />
+                    Currency Settings
+                  </CardTitle>
+                  <CardDescription>Configure the currency used for fines, fees, and financial displays.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="currency">Default Currency</Label>
+                    <Select 
+                      value={selectedCurrency} 
+                      onValueChange={handleCurrencyChange}
+                    >
+                      <SelectTrigger data-testid="select-currency">
+                        <SelectValue placeholder="Select currency" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CURRENCIES.map((currency) => (
+                          <SelectItem key={currency.code} value={currency.code}>
+                            <span className="flex items-center gap-2">
+                              <span className="font-mono w-8">{currency.symbol}</span>
+                              <span>{currency.name}</span>
+                              <span className="text-muted-foreground">({currency.code})</span>
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-sm text-muted-foreground">
+                      This currency will be used throughout the system for displaying fines, fees, and acquisition costs.
+                    </p>
                   </div>
                 </CardContent>
               </Card>
