@@ -793,7 +793,19 @@ export async function registerRoutes(
       }
       
       const items = await storage.getInventoryItemsBySession(parseInt(sessionId));
-      res.json(items);
+      
+      // Enrich items with book and copy details
+      const enrichedItems = await Promise.all(items.map(async (item) => {
+        const copy = await storage.getBookCopy(item.bookCopyId);
+        const book = copy ? await storage.getBook(copy.bookId) : null;
+        return {
+          ...item,
+          copy,
+          book,
+        };
+      }));
+      
+      res.json(enrichedItems);
     } catch (error) {
       console.error("Error fetching inventory items:", error);
       res.status(500).json({ error: "Failed to fetch inventory items" });
