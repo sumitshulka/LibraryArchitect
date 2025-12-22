@@ -17,6 +17,12 @@ import {
   type InsertErpIntegration,
   type ErpWhitelist,
   type InsertErpWhitelist,
+  type ErpPullEndpoint,
+  type InsertErpPullEndpoint,
+  type ErpFieldMapping,
+  type InsertErpFieldMapping,
+  type ErpTestLog,
+  type InsertErpTestLog,
   type OrgUnit,
   type InsertOrgUnit,
   type Library,
@@ -40,6 +46,9 @@ import {
   categories,
   erpIntegrations,
   erpIntegrationWhitelist,
+  erpPullEndpoints,
+  erpFieldMappings,
+  erpTestLogs,
   orgUnits,
   libraries,
   bookCopies,
@@ -137,6 +146,28 @@ export interface IStorage {
   updateErpWhitelist(id: number, whitelist: Partial<InsertErpWhitelist>): Promise<ErpWhitelist | undefined>;
   deleteErpWhitelist(id: number): Promise<boolean>;
   countWhitelistByIntegration(integrationId: number): Promise<number>;
+  
+  // ERP Pull Endpoints
+  getErpPullEndpoint(id: number): Promise<ErpPullEndpoint | undefined>;
+  getErpPullEndpointsByIntegration(integrationId: number): Promise<ErpPullEndpoint[]>;
+  createErpPullEndpoint(endpoint: InsertErpPullEndpoint): Promise<ErpPullEndpoint>;
+  updateErpPullEndpoint(id: number, endpoint: Partial<InsertErpPullEndpoint>): Promise<ErpPullEndpoint | undefined>;
+  deleteErpPullEndpoint(id: number): Promise<boolean>;
+  updateErpPullEndpointTestStatus(id: number, status: string): Promise<ErpPullEndpoint | undefined>;
+  
+  // ERP Field Mappings
+  getErpFieldMapping(id: number): Promise<ErpFieldMapping | undefined>;
+  getErpFieldMappingsByEndpoint(endpointId: number): Promise<ErpFieldMapping[]>;
+  createErpFieldMapping(mapping: InsertErpFieldMapping): Promise<ErpFieldMapping>;
+  updateErpFieldMapping(id: number, mapping: Partial<InsertErpFieldMapping>): Promise<ErpFieldMapping | undefined>;
+  deleteErpFieldMapping(id: number): Promise<boolean>;
+  deleteErpFieldMappingsByEndpoint(endpointId: number): Promise<boolean>;
+  
+  // ERP Test Logs
+  getErpTestLog(id: number): Promise<ErpTestLog | undefined>;
+  getErpTestLogsByEndpoint(endpointId: number, limit?: number): Promise<ErpTestLog[]>;
+  createErpTestLog(log: InsertErpTestLog): Promise<ErpTestLog>;
+  deleteErpTestLog(id: number): Promise<boolean>;
   
   // Organizational Units
   getOrgUnit(id: number): Promise<OrgUnit | undefined>;
@@ -644,6 +675,102 @@ export class DBStorage implements IStorage {
       .from(erpIntegrationWhitelist)
       .where(eq(erpIntegrationWhitelist.integrationId, integrationId));
     return Number(result[0]?.count || 0);
+  }
+
+  // ERP Pull Endpoints
+  async getErpPullEndpoint(id: number): Promise<ErpPullEndpoint | undefined> {
+    const [endpoint] = await db.select().from(erpPullEndpoints).where(eq(erpPullEndpoints.id, id));
+    return endpoint;
+  }
+
+  async getErpPullEndpointsByIntegration(integrationId: number): Promise<ErpPullEndpoint[]> {
+    return await db.select().from(erpPullEndpoints)
+      .where(eq(erpPullEndpoints.integrationId, integrationId))
+      .orderBy(asc(erpPullEndpoints.name));
+  }
+
+  async createErpPullEndpoint(insertEndpoint: InsertErpPullEndpoint): Promise<ErpPullEndpoint> {
+    const [endpoint] = await db.insert(erpPullEndpoints).values(insertEndpoint).returning();
+    return endpoint;
+  }
+
+  async updateErpPullEndpoint(id: number, updateData: Partial<InsertErpPullEndpoint>): Promise<ErpPullEndpoint | undefined> {
+    const [endpoint] = await db.update(erpPullEndpoints)
+      .set({ ...updateData, updatedAt: new Date() })
+      .where(eq(erpPullEndpoints.id, id))
+      .returning();
+    return endpoint;
+  }
+
+  async deleteErpPullEndpoint(id: number): Promise<boolean> {
+    await db.delete(erpPullEndpoints).where(eq(erpPullEndpoints.id, id));
+    return true;
+  }
+
+  async updateErpPullEndpointTestStatus(id: number, status: string): Promise<ErpPullEndpoint | undefined> {
+    const [endpoint] = await db.update(erpPullEndpoints)
+      .set({ lastTestedAt: new Date(), lastTestStatus: status, updatedAt: new Date() })
+      .where(eq(erpPullEndpoints.id, id))
+      .returning();
+    return endpoint;
+  }
+
+  // ERP Field Mappings
+  async getErpFieldMapping(id: number): Promise<ErpFieldMapping | undefined> {
+    const [mapping] = await db.select().from(erpFieldMappings).where(eq(erpFieldMappings.id, id));
+    return mapping;
+  }
+
+  async getErpFieldMappingsByEndpoint(endpointId: number): Promise<ErpFieldMapping[]> {
+    return await db.select().from(erpFieldMappings)
+      .where(eq(erpFieldMappings.endpointId, endpointId))
+      .orderBy(asc(erpFieldMappings.sortOrder));
+  }
+
+  async createErpFieldMapping(insertMapping: InsertErpFieldMapping): Promise<ErpFieldMapping> {
+    const [mapping] = await db.insert(erpFieldMappings).values(insertMapping).returning();
+    return mapping;
+  }
+
+  async updateErpFieldMapping(id: number, updateData: Partial<InsertErpFieldMapping>): Promise<ErpFieldMapping | undefined> {
+    const [mapping] = await db.update(erpFieldMappings)
+      .set(updateData)
+      .where(eq(erpFieldMappings.id, id))
+      .returning();
+    return mapping;
+  }
+
+  async deleteErpFieldMapping(id: number): Promise<boolean> {
+    await db.delete(erpFieldMappings).where(eq(erpFieldMappings.id, id));
+    return true;
+  }
+
+  async deleteErpFieldMappingsByEndpoint(endpointId: number): Promise<boolean> {
+    await db.delete(erpFieldMappings).where(eq(erpFieldMappings.endpointId, endpointId));
+    return true;
+  }
+
+  // ERP Test Logs
+  async getErpTestLog(id: number): Promise<ErpTestLog | undefined> {
+    const [log] = await db.select().from(erpTestLogs).where(eq(erpTestLogs.id, id));
+    return log;
+  }
+
+  async getErpTestLogsByEndpoint(endpointId: number, limit: number = 20): Promise<ErpTestLog[]> {
+    return await db.select().from(erpTestLogs)
+      .where(eq(erpTestLogs.endpointId, endpointId))
+      .orderBy(desc(erpTestLogs.createdAt))
+      .limit(limit);
+  }
+
+  async createErpTestLog(insertLog: InsertErpTestLog): Promise<ErpTestLog> {
+    const [log] = await db.insert(erpTestLogs).values(insertLog).returning();
+    return log;
+  }
+
+  async deleteErpTestLog(id: number): Promise<boolean> {
+    await db.delete(erpTestLogs).where(eq(erpTestLogs.id, id));
+    return true;
   }
 
   // Organizational Units
