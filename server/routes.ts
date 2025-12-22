@@ -800,10 +800,11 @@ export async function registerRoutes(
       
       const items = await storage.getInventoryItemsBySession(id);
       
-      // Enrich items with book and copy details
+      // Enrich items with book, copy, and library details
       const enrichedItems = await Promise.all(items.map(async (item) => {
         const copy = await storage.getBookCopy(item.bookCopyId);
         const book = copy ? await storage.getBook(copy.bookId) : null;
+        const library = copy?.libraryId ? await storage.getLibrary(copy.libraryId) : null;
         return {
           ...item,
           book: book ? { title: book.title, author: book.author, isbn: book.isbn } : null,
@@ -813,6 +814,7 @@ export async function registerRoutes(
             shelfLocation: copy.shelfLocation,
             condition: copy.condition
           } : null,
+          library: library ? { id: library.id, name: library.name, code: library.code } : null,
         };
       }));
       

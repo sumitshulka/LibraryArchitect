@@ -88,6 +88,12 @@ type Book = {
   isbn: string;
 };
 
+type LibraryInfo = {
+  id: number;
+  name: string;
+  code: string;
+};
+
 type InventoryItem = {
   id: number;
   auditSessionId: number;
@@ -101,6 +107,7 @@ type InventoryItem = {
   createdAt: Date;
   copy?: BookCopy;
   book?: Book;
+  library?: LibraryInfo;
 };
 
 type SessionStats = {
@@ -551,6 +558,7 @@ export default function InventoryPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Book Title</TableHead>
+                      <TableHead>Library</TableHead>
                       <TableHead>SSN</TableHead>
                       <TableHead>Expected Location</TableHead>
                       <TableHead>Scanned Location</TableHead>
@@ -568,6 +576,7 @@ export default function InventoryPage() {
                             <span className="text-xs text-muted-foreground block">{item.book.author}</span>
                           )}
                         </TableCell>
+                        <TableCell>{item.library?.name || '-'}</TableCell>
                         <TableCell className="font-mono text-xs">{item.copy?.userDefinedSSN || item.copy?.internalSSN || '-'}</TableCell>
                         <TableCell className="text-muted-foreground">{item.expectedLocation || item.copy?.shelfLocation || '-'}</TableCell>
                         <TableCell>{item.scannedLocation || '-'}</TableCell>
@@ -600,6 +609,7 @@ export default function InventoryPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Book Title</TableHead>
+                      <TableHead>Library</TableHead>
                       <TableHead>SSN</TableHead>
                       <TableHead>Expected Location</TableHead>
                       <TableHead>Condition</TableHead>
@@ -615,6 +625,7 @@ export default function InventoryPage() {
                             <span className="text-xs text-muted-foreground block">{item.book.author}</span>
                           )}
                         </TableCell>
+                        <TableCell>{item.library?.name || '-'}</TableCell>
                         <TableCell className="font-mono text-xs">{item.copy?.userDefinedSSN || item.copy?.internalSSN || '-'}</TableCell>
                         <TableCell className="text-muted-foreground">{item.expectedLocation || item.copy?.shelfLocation || '-'}</TableCell>
                         <TableCell>{item.copy?.condition || '-'}</TableCell>
@@ -639,6 +650,7 @@ export default function InventoryPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Book Title</TableHead>
+                      <TableHead>Library</TableHead>
                       <TableHead>SSN</TableHead>
                       <TableHead>Expected Location</TableHead>
                       <TableHead>Condition</TableHead>
@@ -655,6 +667,7 @@ export default function InventoryPage() {
                             <span className="text-xs text-muted-foreground block">{item.book.author}</span>
                           )}
                         </TableCell>
+                        <TableCell>{item.library?.name || '-'}</TableCell>
                         <TableCell className="font-mono text-xs">{item.copy?.userDefinedSSN || item.copy?.internalSSN || '-'}</TableCell>
                         <TableCell className="text-muted-foreground">{item.expectedLocation || item.copy?.shelfLocation || '-'}</TableCell>
                         <TableCell>{item.copy?.condition || '-'}</TableCell>
