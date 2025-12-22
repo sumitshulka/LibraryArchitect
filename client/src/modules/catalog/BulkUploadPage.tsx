@@ -475,16 +475,16 @@ export default function BulkUploadPage() {
                 <Table>
                   <TableHeader className="sticky top-0 bg-background z-10">
                     <TableRow>
-                      <TableHead className="w-[50px]">Include</TableHead>
-                      <TableHead className="w-[80px]">Status</TableHead>
-                      <TableHead className="w-[120px]">ISBN</TableHead>
-                      <TableHead className="min-w-[200px]">Title</TableHead>
-                      <TableHead>Author</TableHead>
-                      <TableHead>Publisher</TableHead>
-                      <TableHead className="w-[60px]">Year</TableHead>
-                      <TableHead className="w-[80px]">Copies</TableHead>
-                      <TableHead className="w-[120px]">Acq. Date</TableHead>
-                      <TableHead className="w-[80px]">Actions</TableHead>
+                      <TableHead className="w-[50px] whitespace-nowrap">Include</TableHead>
+                      <TableHead className="w-[80px] whitespace-nowrap">Status</TableHead>
+                      <TableHead className="min-w-[140px] whitespace-nowrap">ISBN</TableHead>
+                      <TableHead className="min-w-[280px] whitespace-nowrap">Title</TableHead>
+                      <TableHead className="min-w-[200px] whitespace-nowrap">Author</TableHead>
+                      <TableHead className="min-w-[200px] whitespace-nowrap">Publisher</TableHead>
+                      <TableHead className="min-w-[80px] whitespace-nowrap">Year</TableHead>
+                      <TableHead className="min-w-[80px] whitespace-nowrap">Copies</TableHead>
+                      <TableHead className="min-w-[140px] whitespace-nowrap">Acq. Date</TableHead>
+                      <TableHead className="w-[80px] whitespace-nowrap">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -526,12 +526,12 @@ export default function BulkUploadPage() {
                             </Badge>
                           )}
                         </TableCell>
-                        <TableCell className="font-mono text-xs">{row.isbn}</TableCell>
+                        <TableCell className="font-mono text-xs whitespace-nowrap">{row.isbn}</TableCell>
                         <TableCell>
                           <Input
                             value={row.title}
                             onChange={(e) => updateRowField(row.rowId, "title", e.target.value)}
-                            className="h-8 text-sm"
+                            className="h-8 text-sm min-w-[260px]"
                             disabled={row.status === "excluded"}
                             data-testid={`input-title-${row.rowId}`}
                           />
@@ -540,7 +540,7 @@ export default function BulkUploadPage() {
                           <Input
                             value={row.author}
                             onChange={(e) => updateRowField(row.rowId, "author", e.target.value)}
-                            className="h-8 text-sm"
+                            className="h-8 text-sm min-w-[180px]"
                             disabled={row.status === "excluded"}
                             data-testid={`input-author-${row.rowId}`}
                           />
@@ -549,7 +549,7 @@ export default function BulkUploadPage() {
                           <Input
                             value={row.publisher}
                             onChange={(e) => updateRowField(row.rowId, "publisher", e.target.value)}
-                            className="h-8 text-sm"
+                            className="h-8 text-sm min-w-[180px]"
                             disabled={row.status === "excluded"}
                             data-testid={`input-publisher-${row.rowId}`}
                           />
@@ -558,7 +558,7 @@ export default function BulkUploadPage() {
                           <Input
                             value={row.publishedYear}
                             onChange={(e) => updateRowField(row.rowId, "publishedYear", e.target.value)}
-                            className="h-8 text-sm w-[70px]"
+                            className="h-8 text-sm min-w-[70px]"
                             disabled={row.status === "excluded"}
                             data-testid={`input-year-${row.rowId}`}
                           />
@@ -568,7 +568,7 @@ export default function BulkUploadPage() {
                             type="number"
                             value={row.copies}
                             onChange={(e) => updateRowField(row.rowId, "copies", parseInt(e.target.value) || 1)}
-                            className="h-8 text-sm w-[60px]"
+                            className="h-8 text-sm min-w-[60px]"
                             min={1}
                             disabled={row.status === "excluded"}
                             data-testid={`input-copies-${row.rowId}`}
@@ -579,7 +579,7 @@ export default function BulkUploadPage() {
                             type="date"
                             value={row.acquisitionDate}
                             onChange={(e) => updateRowField(row.rowId, "acquisitionDate", e.target.value)}
-                            className="h-8 text-sm"
+                            className="h-8 text-sm min-w-[130px]"
                             disabled={row.status === "excluded"}
                             data-testid={`input-acqdate-${row.rowId}`}
                           />
