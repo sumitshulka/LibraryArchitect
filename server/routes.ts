@@ -2345,6 +2345,22 @@ export async function registerRoutes(
       const id = parseInt(req.params.id);
       const validated = insertBookCopySchema.partial().parse(req.body);
       
+      // Check status transition rules if status is being updated
+      if (validated.status) {
+        const existingCopy = await storage.getBookCopy(id);
+        if (!existingCopy) {
+          return res.status(404).json({ error: "Book copy not found" });
+        }
+        
+        // DAMAGED and LOST are final statuses - cannot transition out of them
+        const finalStatuses = ['DAMAGED', 'LOST'];
+        if (finalStatuses.includes(existingCopy.status) && existingCopy.status !== validated.status) {
+          return res.status(400).json({ 
+            error: `Cannot change status from ${existingCopy.status}. This is a final status in the book lifecycle.` 
+          });
+        }
+      }
+      
       const copy = await storage.updateBookCopy(id, validated);
       
       if (!copy) {

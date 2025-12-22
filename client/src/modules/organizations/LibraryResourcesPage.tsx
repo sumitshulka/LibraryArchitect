@@ -1227,10 +1227,15 @@ function CopyDetailsSheet({
                             )}
                           </TableCell>
                           <TableCell>
-                            {copy.status === 'CHECKED_OUT' ? (
-                              <Badge variant={getStatusBadgeVariant(copy.status)}>
-                                {copy.status.replace("_", " ")}
-                              </Badge>
+                            {['CHECKED_OUT', 'DAMAGED', 'LOST'].includes(copy.status) ? (
+                              <div className="flex items-center gap-1">
+                                <Badge variant={getStatusBadgeVariant(copy.status)}>
+                                  {copy.status.replace("_", " ")}
+                                </Badge>
+                                {(copy.status === 'DAMAGED' || copy.status === 'LOST') && (
+                                  <span className="text-xs text-muted-foreground">(Final)</span>
+                                )}
+                              </div>
                             ) : (
                               <Select
                                 value={copy.status}
