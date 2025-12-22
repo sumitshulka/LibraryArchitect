@@ -1219,7 +1219,7 @@ export default function SettingsPage() {
                       <SelectTrigger data-testid="select-currency">
                         <SelectValue placeholder="Select currency" />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className="max-h-[300px] overflow-y-auto">
                         {CURRENCIES.map((currency) => (
                           <SelectItem key={currency.code} value={currency.code}>
                             <span className="flex items-center gap-2">
