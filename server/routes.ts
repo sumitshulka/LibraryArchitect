@@ -701,6 +701,27 @@ export async function registerRoutes(
         totalMissing: 0,
         discrepancies: 0,
       });
+      
+      // Pre-populate inventory items as PENDING for all available book copies in the library
+      if (session.libraryId) {
+        const copies = await storage.getBookCopiesByLibrary(session.libraryId);
+        // Only include copies that are AVAILABLE (not checked out, lost, etc.)
+        const availableCopies = copies.filter(c => c.status === 'AVAILABLE');
+        
+        for (const copy of availableCopies) {
+          await storage.createInventoryItem({
+            auditSessionId: session.id,
+            bookCopyId: copy.id,
+            status: 'PENDING',
+            expectedLocation: copy.shelfLocation || null,
+            scannedLocation: null,
+            condition: null,
+            scannedAt: null,
+            notes: null,
+          });
+        }
+      }
+      
       res.status(201).json(session);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -859,33 +880,52 @@ export async function registerRoutes(
         });
       }
       
+      // Get book details for the response
+      const book = await storage.getBook(copy.bookId);
+      
       // Check if copy belongs to this library
       if (session.libraryId && copy.libraryId !== session.libraryId) {
-        // Create discrepancy record - copy from different library
-        const item = await storage.createInventoryItem({
-          auditSessionId: sessionId,
-          bookCopyId: copy.id,
-          status: 'DISCREPANCY',
-          scannedLocation: shelfLocation || null,
-          expectedLocation: copy.shelfLocation || null,
-          condition: condition || copy.condition || null,
-          scannedAt: new Date(),
-          notes: notes || `Copy belongs to different library (Library ID: ${copy.libraryId})`
-        });
+        // Check if there's already an item for this copy (shouldn't be, but check)
+        const existingItem = await storage.getInventoryItemBySessionAndCopy(sessionId, copy.id);
+        let item;
+        if (existingItem) {
+          item = await storage.updateInventoryItem(existingItem.id, {
+            status: 'DISCREPANCY',
+            scannedLocation: shelfLocation || null,
+            condition: condition || copy.condition || null,
+            scannedAt: new Date(),
+            notes: notes || `Copy belongs to different library (Library ID: ${copy.libraryId})`
+          });
+        } else {
+          item = await storage.createInventoryItem({
+            auditSessionId: sessionId,
+            bookCopyId: copy.id,
+            status: 'DISCREPANCY',
+            scannedLocation: shelfLocation || null,
+            expectedLocation: copy.shelfLocation || null,
+            condition: condition || copy.condition || null,
+            scannedAt: new Date(),
+            notes: notes || `Copy belongs to different library (Library ID: ${copy.libraryId})`
+          });
+        }
         
         return res.json({
           item,
           copy,
+          book,
           warning: "Copy belongs to a different library"
         });
       }
       
-      // Check if already scanned in this session
+      // Check if there's a pending item for this copy (should exist from session creation)
       const existing = await storage.getInventoryItemBySessionAndCopy(sessionId, copy.id);
-      if (existing) {
+      
+      if (existing && existing.status !== 'PENDING') {
+        // Already scanned
         return res.json({
           item: existing,
           copy,
+          book,
           duplicate: true,
           message: "This copy was already scanned in this session"
         });
@@ -896,18 +936,31 @@ export async function registerRoutes(
       const locationMatch = !scannedLoc || scannedLoc === copy.shelfLocation;
       const status = locationMatch ? 'VERIFIED' : 'DISCREPANCY';
       
-      const item = await storage.createInventoryItem({
-        auditSessionId: sessionId,
-        bookCopyId: copy.id,
-        status,
-        scannedLocation: scannedLoc,
-        expectedLocation: copy.shelfLocation || null,
-        condition: condition || copy.condition || null,
-        scannedAt: new Date(),
-        notes: notes || (locationMatch ? null : `Location mismatch: expected ${copy.shelfLocation}, found at ${scannedLoc}`)
-      });
+      let item;
+      if (existing) {
+        // Update existing pending item to verified
+        item = await storage.updateInventoryItem(existing.id, {
+          status,
+          scannedLocation: scannedLoc,
+          condition: condition || copy.condition || null,
+          scannedAt: new Date(),
+          notes: notes || (locationMatch ? null : `Location mismatch: expected ${copy.shelfLocation}, found at ${scannedLoc}`)
+        });
+      } else {
+        // Create new item (for copies not in the original scope)
+        item = await storage.createInventoryItem({
+          auditSessionId: sessionId,
+          bookCopyId: copy.id,
+          status,
+          scannedLocation: scannedLoc,
+          expectedLocation: copy.shelfLocation || null,
+          condition: condition || copy.condition || null,
+          scannedAt: new Date(),
+          notes: notes || (locationMatch ? null : `Location mismatch: expected ${copy.shelfLocation}, found at ${scannedLoc}`)
+        });
+      }
       
-      res.json({ item, copy });
+      res.json({ item, copy, book });
     } catch (error) {
       console.error("Error scanning item:", error);
       res.status(500).json({ error: "Failed to scan item" });
