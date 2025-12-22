@@ -566,7 +566,7 @@ function CopyDetailsSheet({
   const { format: formatCurrency } = useCurrency();
 
   const updateCopyMutation = useMutation({
-    mutationFn: ({ id, updates }: { id: number; updates: { shelfLocation?: string | null; userDefinedSSN?: string | null } }) =>
+    mutationFn: ({ id, updates }: { id: number; updates: { shelfLocation?: string | null; userDefinedSSN?: string | null; status?: 'AVAILABLE' | 'CHECKED_OUT' | 'RESERVED' | 'DAMAGED' | 'LOST' | 'IN_TRANSIT' } }) =>
       bookCopiesApi.update(id, updates),
     onSuccess: (updatedCopy) => {
       queryClient.invalidateQueries({ queryKey: ["book-copies", resource?.bookId, libraryId] });
@@ -1226,9 +1226,31 @@ function CopyDetailsSheet({
                             )}
                           </TableCell>
                           <TableCell>
-                            <Badge variant={getStatusBadgeVariant(copy.status)}>
-                              {copy.status.replace("_", " ")}
-                            </Badge>
+                            {copy.status === 'CHECKED_OUT' ? (
+                              <Badge variant={getStatusBadgeVariant(copy.status)}>
+                                {copy.status.replace("_", " ")}
+                              </Badge>
+                            ) : (
+                              <Select
+                                value={copy.status}
+                                onValueChange={(newStatus: 'AVAILABLE' | 'RESERVED' | 'DAMAGED' | 'LOST' | 'IN_TRANSIT') => {
+                                  if (newStatus !== copy.status) {
+                                    updateCopyMutation.mutate({ id: copy.id, updates: { status: newStatus } });
+                                  }
+                                }}
+                              >
+                                <SelectTrigger className="h-7 w-[120px] text-xs" data-testid={`select-status-${copy.id}`}>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="AVAILABLE">Available</SelectItem>
+                                  <SelectItem value="RESERVED">Reserved</SelectItem>
+                                  <SelectItem value="DAMAGED">Damaged</SelectItem>
+                                  <SelectItem value="LOST">Lost</SelectItem>
+                                  <SelectItem value="IN_TRANSIT">In Transit</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            )}
                           </TableCell>
                           <TableCell className="text-muted-foreground">
                             {copy.shelfLocation || "-"}

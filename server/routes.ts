@@ -522,6 +522,27 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Book is not available for checkout" });
       }
       
+      // Check book copy status if a specific copy is being checked out
+      if (validated.bookCopyId) {
+        const copy = await storage.getBookCopy(validated.bookCopyId);
+        if (!copy) {
+          return res.status(404).json({ error: "Book copy not found" });
+        }
+        
+        // Prevent checkout for non-available copies
+        const nonIssuableStatuses = ['RESERVED', 'DAMAGED', 'LOST', 'IN_TRANSIT', 'CHECKED_OUT'];
+        if (nonIssuableStatuses.includes(copy.status)) {
+          const statusMessages: Record<string, string> = {
+            'RESERVED': 'This copy is reserved for in-library use only and cannot be issued',
+            'DAMAGED': 'This copy is marked as damaged and cannot be issued',
+            'LOST': 'This copy is marked as lost and cannot be issued',
+            'IN_TRANSIT': 'This copy is in transit and cannot be issued',
+            'CHECKED_OUT': 'This copy is already checked out'
+          };
+          return res.status(400).json({ error: statusMessages[copy.status] || 'This copy cannot be issued' });
+        }
+      }
+      
       // Check for active circulation
       const activeCirc = await storage.getActiveCirculationByBook(validated.bookId);
       if (activeCirc) {
