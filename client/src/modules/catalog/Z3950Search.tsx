@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Search, Globe, Download, Loader2 } from "lucide-react";
+import { formatIsbn } from "@/lib/isbn";
 
 interface SearchResult {
   id: string;
@@ -128,7 +129,7 @@ export function Z3950Search() {
                         <span className="text-xs text-muted-foreground">{result.author}</span>
                       </div>
                     </TableCell>
-                    <TableCell className="font-mono text-xs">{result.isbn}</TableCell>
+                    <TableCell className="font-mono text-xs">{formatIsbn(result.isbn)}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {result.publisher}, {result.year}
                     </TableCell>

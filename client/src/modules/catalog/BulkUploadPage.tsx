@@ -40,6 +40,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { resourceTypesApi } from "@/lib/api";
+import { formatIsbn } from "@/lib/isbn";
 
 type TemplateMode = "search" | "manual";
 type UploadStep = "template" | "upload" | "review" | "complete";
@@ -526,7 +527,7 @@ export default function BulkUploadPage() {
                             </Badge>
                           )}
                         </TableCell>
-                        <TableCell className="font-mono text-xs whitespace-nowrap">{row.isbn}</TableCell>
+                        <TableCell className="font-mono text-xs whitespace-nowrap">{formatIsbn(row.isbn)}</TableCell>
                         <TableCell>
                           <Input
                             value={row.title}

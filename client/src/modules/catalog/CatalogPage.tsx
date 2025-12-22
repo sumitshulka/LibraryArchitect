@@ -44,6 +44,7 @@ import type { Book, Circulation } from "@shared/schema";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { useCurrency } from "@/lib/useCurrency";
+import { formatIsbn } from "@/lib/isbn";
 
 function BookDetailsSheet({
   open,
@@ -206,7 +207,7 @@ function BookDetailsSheet({
                     </div>
                     <div>
                       <span className="text-muted-foreground">ISBN:</span>
-                      <span className="ml-2 font-mono">{dashboard.book.isbn}</span>
+                      <span className="ml-2 font-mono">{formatIsbn(dashboard.book.isbn)}</span>
                     </div>
                     <div>
                       <span className="text-muted-foreground">Category:</span>
@@ -629,7 +630,7 @@ export default function CatalogPage() {
                         </Badge>
                       </TableCell>
                       <TableCell className="hidden md:table-cell font-mono text-xs text-muted-foreground">
-                        {book.isbn}
+                        {formatIsbn(book.isbn)}
                       </TableCell>
                       <TableCell>
                         <Badge className={getStatusColor(book.status) + " border-none"} data-testid={`status-${book.id}`}>

@@ -73,6 +73,7 @@ import {
 } from "@/components/ui/dialog";
 import { librariesApi, bookCopiesApi, type LibraryResourceStats } from "@/lib/api";
 import type { BookCopy, Circulation } from "@shared/schema";
+import { formatIsbn } from "@/lib/isbn";
 import { useCurrency } from "@/lib/useCurrency";
 import { format } from "date-fns";
 
@@ -126,8 +127,8 @@ function ResourceCard({
               {resource.author}
             </p>
             <div className="flex flex-wrap gap-2 mt-2">
-              <Badge variant="outline" className="text-xs">
-                {resource.isbn}
+              <Badge variant="outline" className="text-xs font-mono">
+                {formatIsbn(resource.isbn)}
               </Badge>
               <Badge variant="secondary" className="text-xs">
                 {resource.category}
@@ -639,7 +640,7 @@ function CopyDetailsSheet({
     const cardData: CatalogCardData = {
       title: resource.title,
       author: resource.author,
-      isbn: resource.isbn,
+      isbn: formatIsbn(resource.isbn),
       category: resource.category,
       ssn: copy.internalSSN,
       barcode: copy.barcode,
@@ -656,7 +657,7 @@ function CopyDetailsSheet({
       .map((copy, index) => ({
         title: resource.title,
         author: resource.author,
-        isbn: resource.isbn,
+        isbn: formatIsbn(resource.isbn),
         category: resource.category,
         ssn: copy.internalSSN!,
         barcode: copy.barcode,

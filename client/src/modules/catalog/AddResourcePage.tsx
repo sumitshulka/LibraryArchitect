@@ -35,6 +35,7 @@ import { booksApi, resourceTypesApi, categoriesApi, z3950Api, type Z3950SearchRe
 import { toast } from "sonner";
 import { Link } from "wouter";
 import { useCurrency } from "@/lib/useCurrency";
+import { formatIsbn } from "@/lib/isbn";
 
 export default function AddResourcePage() {
   const [, setLocation] = useLocation();
@@ -301,7 +302,7 @@ export default function AddResourcePage() {
                                 <span className="text-xs text-muted-foreground">{result.author}</span>
                               </div>
                             </TableCell>
-                            <TableCell className="font-mono text-xs">{result.isbn}</TableCell>
+                            <TableCell className="font-mono text-xs">{formatIsbn(result.isbn)}</TableCell>
                             <TableCell className="text-sm text-muted-foreground">
                               {result.publisher}, {result.year}
                             </TableCell>

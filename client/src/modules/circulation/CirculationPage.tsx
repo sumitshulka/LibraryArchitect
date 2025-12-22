@@ -21,6 +21,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Search, QrCode, RefreshCw, AlertCircle, CheckCircle2 } from "lucide-react";
+import { formatIsbn } from "@/lib/isbn";
 
 export default function CirculationPage() {
   const [checkoutIsbn, setCheckoutIsbn] = useState("");
@@ -131,7 +132,7 @@ export default function CirculationPage() {
                   <TableCell>
                     <div className="flex flex-col">
                       <span className="font-medium">{book?.title}</span>
-                      <span className="text-xs text-muted-foreground">ISBN: {book?.isbn}</span>
+                      <span className="text-xs text-muted-foreground">ISBN: {book?.isbn ? formatIsbn(book.isbn) : '-'}</span>
                     </div>
                   </TableCell>
                   <TableCell>
