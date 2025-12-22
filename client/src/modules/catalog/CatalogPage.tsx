@@ -36,7 +36,7 @@ import { Separator } from "@/components/ui/separator";
 import { 
   Search, MoreHorizontal, Filter, Download, Database, FileText, Plus, Upload, Camera, Loader2,
   Book as BookIcon, Library, CheckCircle2, Clock, AlertTriangle, Truck, XCircle, History,
-  DollarSign, ShoppingCart, Receipt, ImageIcon
+  DollarSign, ShoppingCart, Receipt, ImageIcon, Globe
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { booksApi, type BookDashboard, type BookLibraryAllocation } from "@/lib/api";
@@ -56,6 +56,7 @@ function BookDetailsSheet({
 }) {
   const queryClient = useQueryClient();
   const [isUploading, setIsUploading] = useState(false);
+  const [isSearchingCover, setIsSearchingCover] = useState(false);
   const { format: formatCurrency } = useCurrency();
   
   const { data: dashboard, isLoading } = useQuery({
@@ -90,6 +91,30 @@ function BookDetailsSheet({
       toast.error(error.message);
     } finally {
       setIsUploading(false);
+    }
+  };
+
+  const handleSearchCover = async () => {
+    if (!bookId) return;
+    
+    setIsSearchingCover(true);
+    try {
+      const res = await fetch(`/api/books/${bookId}/cover/fetch`, {
+        method: "POST",
+      });
+      
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to find cover");
+      }
+      
+      queryClient.invalidateQueries({ queryKey: ["book-dashboard", bookId] });
+      queryClient.invalidateQueries({ queryKey: ["books"] });
+      toast.success("Cover image found and saved!");
+    } catch (error: any) {
+      toast.error(error.message);
+    } finally {
+      setIsSearchingCover(false);
     }
   };
 
@@ -136,7 +161,7 @@ function BookDetailsSheet({
                         accept="image/jpeg,image/png,image/webp,image/gif"
                         onChange={handleCoverUpload}
                         className="hidden"
-                        disabled={isUploading}
+                        disabled={isUploading || isSearchingCover}
                         data-testid="input-cover-upload"
                       />
                       {isUploading ? (
@@ -149,9 +174,26 @@ function BookDetailsSheet({
                       )}
                     </label>
                   </div>
-                  <p className="text-xs text-muted-foreground text-center mt-2">
-                    Hover to upload
-                  </p>
+                  <div className="flex flex-col gap-1 mt-2">
+                    <p className="text-xs text-muted-foreground text-center">
+                      Hover to upload
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full text-xs gap-1"
+                      onClick={handleSearchCover}
+                      disabled={isSearchingCover || isUploading || !dashboard?.book.isbn}
+                      data-testid="button-search-cover"
+                    >
+                      {isSearchingCover ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Globe className="h-3 w-3" />
+                      )}
+                      Search Online
+                    </Button>
+                  </div>
                 </div>
 
                 {/* Book Info */}

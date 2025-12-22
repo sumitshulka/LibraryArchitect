@@ -331,6 +331,81 @@ export async function registerRoutes(
     }
   });
 
+  // Fetch cover from Open Library by ISBN
+  app.post("/api/books/:id/cover/fetch", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const book = await storage.getBook(id);
+      
+      if (!book) {
+        return res.status(404).json({ error: "Book not found" });
+      }
+      
+      if (!book.isbn) {
+        return res.status(400).json({ error: "Book has no ISBN to search with" });
+      }
+      
+      // Clean ISBN (remove dashes/spaces)
+      const cleanIsbn = book.isbn.replace(/[-\s]/g, '');
+      
+      // Try Open Library first
+      const openLibraryUrl = `https://covers.openlibrary.org/b/isbn/${cleanIsbn}-L.jpg?default=false`;
+      
+      let imageBuffer: Buffer | null = null;
+      let contentType = 'image/jpeg';
+      
+      // Fetch from Open Library
+      const olResponse = await fetch(openLibraryUrl);
+      if (olResponse.ok && olResponse.headers.get('content-type')?.startsWith('image/')) {
+        imageBuffer = Buffer.from(await olResponse.arrayBuffer());
+        contentType = olResponse.headers.get('content-type') || 'image/jpeg';
+      }
+      
+      // If not found, try Google Books API
+      if (!imageBuffer) {
+        const googleBooksUrl = `https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`;
+        const gbResponse = await fetch(googleBooksUrl);
+        if (gbResponse.ok) {
+          const gbData = await gbResponse.json();
+          if (gbData.items?.[0]?.volumeInfo?.imageLinks?.thumbnail) {
+            let thumbnailUrl = gbData.items[0].volumeInfo.imageLinks.thumbnail;
+            // Get larger image by modifying zoom parameter
+            thumbnailUrl = thumbnailUrl.replace('zoom=1', 'zoom=2');
+            const imgResponse = await fetch(thumbnailUrl);
+            if (imgResponse.ok) {
+              imageBuffer = Buffer.from(await imgResponse.arrayBuffer());
+              contentType = imgResponse.headers.get('content-type') || 'image/jpeg';
+            }
+          }
+        }
+      }
+      
+      if (!imageBuffer) {
+        return res.status(404).json({ error: "No cover image found for this ISBN" });
+      }
+      
+      // Save the image to disk
+      const fs = await import('fs');
+      const path = await import('path');
+      
+      const ext = contentType.includes('png') ? 'png' : 'jpg';
+      const filename = `book-${id}-${Date.now()}.${ext}`;
+      const filepath = path.join('uploads', 'covers', filename);
+      
+      // Ensure directory exists
+      await fs.promises.mkdir(path.join('uploads', 'covers'), { recursive: true });
+      await fs.promises.writeFile(filepath, imageBuffer);
+      
+      const coverUrl = `/uploads/covers/${filename}`;
+      const updatedBook = await storage.updateBook(id, { coverUrl });
+      
+      res.json({ coverUrl, book: updatedBook, source: 'online' });
+    } catch (error: any) {
+      console.error("Error fetching cover:", error);
+      res.status(500).json({ error: error.message || "Failed to fetch cover" });
+    }
+  });
+
   // ===== Users API =====
   app.get("/api/users", async (req, res) => {
     try {
