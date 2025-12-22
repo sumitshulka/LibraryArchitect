@@ -69,6 +69,24 @@ type AuditSession = {
   notes: string | null;
 };
 
+type BookCopy = {
+  id: number;
+  bookId: number;
+  libraryId: number;
+  internalSSN: string;
+  userDefinedSSN: string | null;
+  shelfLocation: string | null;
+  condition: string;
+  status: string;
+};
+
+type Book = {
+  id: number;
+  title: string;
+  author: string;
+  isbn: string;
+};
+
 type InventoryItem = {
   id: number;
   auditSessionId: number;
@@ -80,17 +98,8 @@ type InventoryItem = {
   notes: string | null;
   scannedAt: Date | null;
   createdAt: Date;
-};
-
-type BookCopy = {
-  id: number;
-  bookId: number;
-  libraryId: number;
-  internalSSN: string;
-  userDefinedSSN: string | null;
-  shelfLocation: string | null;
-  condition: string;
-  status: string;
+  copy?: BookCopy;
+  book?: Book;
 };
 
 type SessionStats = {
@@ -124,11 +133,6 @@ export default function InventoryPage() {
 
   const { data: libraries = [] } = useQuery<Library[]>({
     queryKey: ["/api/libraries"],
-    staleTime: 60000,
-  });
-
-  const { data: copies = [] } = useQuery<BookCopy[]>({
-    queryKey: ["/api/book-copies"],
     staleTime: 60000,
   });
 
@@ -287,11 +291,13 @@ export default function InventoryPage() {
     }
   };
 
-  const getCopyDetails = (copyId: number) => {
-    return copies.find(c => c.id === copyId);
-  };
-
-  const totalAssets = copies.length;
+  // Split inventory items into verified and pending
+  const verifiedItems = inventoryItems.filter(item => 
+    item.status === 'VERIFIED' || item.status === 'FOUND' || item.status === 'DISCREPANCY'
+  );
+  const pendingItems = inventoryItems.filter(item => item.status === 'PENDING');
+  
+  const totalAssets = sessionStats?.total || 0;
   const currentSession = sessions.find(s => s.id === currentSessionId);
 
   return (
@@ -507,41 +513,91 @@ export default function InventoryPage() {
             <p className="text-sm mt-1">Scan book copy SSN barcodes to verify inventory items.</p>
           </div>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>SSN</TableHead>
-                <TableHead>Expected Location</TableHead>
-                <TableHead>Scanned Location</TableHead>
-                <TableHead>Condition</TableHead>
-                <TableHead>Scanned At</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Notes</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {inventoryItems.map((item) => {
-                const copy = getCopyDetails(item.bookCopyId);
-                return (
-                  <TableRow key={item.id} data-testid={`row-item-${item.id}`}>
-                    <TableCell className="font-mono text-xs">{copy?.userDefinedSSN || copy?.internalSSN || '-'}</TableCell>
-                    <TableCell className="text-muted-foreground">{item.expectedLocation || copy?.shelfLocation || '-'}</TableCell>
-                    <TableCell>{item.scannedLocation || '-'}</TableCell>
-                    <TableCell>{item.condition || copy?.condition || '-'}</TableCell>
-                    <TableCell>
-                      {item.scannedAt 
-                        ? format(new Date(item.scannedAt), 'MMM d, h:mm a')
-                        : format(new Date(item.createdAt), 'MMM d, h:mm a')}
-                    </TableCell>
-                    <TableCell>{getStatusBadge(item.status)}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">
-                      {item.notes || '-'}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+          <div className="divide-y">
+            {/* Verified Items Section */}
+            <div className="p-4">
+              <h4 className="font-medium text-green-700 flex items-center gap-2 mb-3">
+                <CheckCircle className="h-4 w-4" />
+                Verified ({verifiedItems.length})
+              </h4>
+              {verifiedItems.length === 0 ? (
+                <p className="text-sm text-muted-foreground italic">No items verified yet. Scan SSN barcodes to verify.</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Book Title</TableHead>
+                      <TableHead>SSN</TableHead>
+                      <TableHead>Expected Location</TableHead>
+                      <TableHead>Scanned Location</TableHead>
+                      <TableHead>Scanned At</TableHead>
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {verifiedItems.map((item) => (
+                      <TableRow key={item.id} data-testid={`row-verified-${item.id}`}>
+                        <TableCell className="font-medium">
+                          {item.book?.title || 'Unknown Book'}
+                          {item.book?.author && (
+                            <span className="text-xs text-muted-foreground block">{item.book.author}</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="font-mono text-xs">{item.copy?.userDefinedSSN || item.copy?.internalSSN || '-'}</TableCell>
+                        <TableCell className="text-muted-foreground">{item.expectedLocation || item.copy?.shelfLocation || '-'}</TableCell>
+                        <TableCell>{item.scannedLocation || '-'}</TableCell>
+                        <TableCell>
+                          {item.scannedAt 
+                            ? format(new Date(item.scannedAt), 'MMM d, h:mm a')
+                            : '-'}
+                        </TableCell>
+                        <TableCell>{getStatusBadge(item.status)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </div>
+            
+            {/* Pending Verification Section */}
+            <div className="p-4">
+              <h4 className="font-medium text-amber-700 flex items-center gap-2 mb-3">
+                <Clock className="h-4 w-4" />
+                Pending Verification ({pendingItems.length})
+              </h4>
+              {pendingItems.length === 0 ? (
+                <p className="text-sm text-muted-foreground italic">All items have been verified!</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Book Title</TableHead>
+                      <TableHead>SSN</TableHead>
+                      <TableHead>Expected Location</TableHead>
+                      <TableHead>Condition</TableHead>
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {pendingItems.map((item) => (
+                      <TableRow key={item.id} data-testid={`row-pending-${item.id}`}>
+                        <TableCell className="font-medium">
+                          {item.book?.title || 'Unknown Book'}
+                          {item.book?.author && (
+                            <span className="text-xs text-muted-foreground block">{item.book.author}</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="font-mono text-xs">{item.copy?.userDefinedSSN || item.copy?.internalSSN || '-'}</TableCell>
+                        <TableCell className="text-muted-foreground">{item.expectedLocation || item.copy?.shelfLocation || '-'}</TableCell>
+                        <TableCell>{item.copy?.condition || '-'}</TableCell>
+                        <TableCell>{getStatusBadge(item.status)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </div>
+          </div>
         )}
       </div>
 
