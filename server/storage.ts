@@ -162,7 +162,7 @@ export interface IStorage {
   getBookCopy(id: number): Promise<BookCopy | undefined>;
   getBookCopyByBarcode(barcode: string): Promise<BookCopy | undefined>;
   createBookCopy(bookCopy: InsertBookCopy): Promise<BookCopy>;
-  createBookCopies(bookId: number, quantity: number, shelfLocation?: string, acquisitionDate?: Date): Promise<BookCopy[]>;
+  createBookCopies(bookId: number, quantity: number, shelfLocation?: string, acquisitionDate?: Date, acquisitionSource?: string, price?: number): Promise<BookCopy[]>;
   updateBookCopy(id: number, bookCopy: Partial<InsertBookCopy>): Promise<BookCopy | undefined>;
   deleteBookCopy(id: number): Promise<boolean>;
   getAllBookCopies(): Promise<BookCopy[]>;
@@ -757,7 +757,7 @@ export class DBStorage implements IStorage {
     return bookCopy;
   }
 
-  async createBookCopies(bookId: number, quantity: number, shelfLocation?: string, acquisitionDate?: Date): Promise<BookCopy[]> {
+  async createBookCopies(bookId: number, quantity: number, shelfLocation?: string, acquisitionDate?: Date, acquisitionSource?: string, price?: number): Promise<BookCopy[]> {
     const copies: BookCopy[] = [];
     const timestamp = Date.now();
     
@@ -771,6 +771,8 @@ export class DBStorage implements IStorage {
         status: 'AVAILABLE',
         condition: 'GOOD',
         acquisitionDate: acquisitionDate || null,
+        acquisitionSource: acquisitionSource || null,
+        price: price || null,
       }).returning();
       copies.push(bookCopy);
     }

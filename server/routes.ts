@@ -213,10 +213,13 @@ export async function registerRoutes(
 
   app.post("/api/books", async (req, res) => {
     try {
-      const { quantity, acquisitionDate, ...bookData } = req.body;
+      const { quantity, acquisitionDate, acquisitionSource, unitPrice, ...bookData } = req.body;
       
       // Convert acquisitionDate string to Date object if provided
       const parsedAcquisitionDate = acquisitionDate ? new Date(acquisitionDate) : null;
+      
+      // Convert unit price to cents (integer) if provided
+      const priceInCents = unitPrice ? Math.round(parseFloat(unitPrice) * 100) : null;
       
       const validated = insertBookSchema.parse({
         ...bookData,
@@ -234,7 +237,14 @@ export async function registerRoutes(
       // Create unallocated copies if quantity is specified
       const copyCount = Math.min(Math.max(1, parseInt(quantity) || 1), 1000);
       if (copyCount > 0) {
-        await storage.createBookCopies(book.id, copyCount, validated.shelfLocation || undefined, parsedAcquisitionDate || undefined);
+        await storage.createBookCopies(
+          book.id, 
+          copyCount, 
+          validated.shelfLocation || undefined, 
+          parsedAcquisitionDate || undefined,
+          acquisitionSource || undefined,
+          priceInCents || undefined
+        );
       }
       
       res.status(201).json({ ...book, copiesCreated: copyCount });

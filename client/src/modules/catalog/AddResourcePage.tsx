@@ -34,10 +34,12 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { booksApi, resourceTypesApi, categoriesApi, z3950Api, type Z3950SearchResult } from "@/lib/api";
 import { toast } from "sonner";
 import { Link } from "wouter";
+import { useCurrency } from "@/lib/useCurrency";
 
 export default function AddResourcePage() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
+  const { currency } = useCurrency();
   
   const [isbn, setIsbn] = useState("");
   const [showZ3950Search, setShowZ3950Search] = useState(false);
@@ -75,6 +77,8 @@ export default function AddResourcePage() {
     marcRecord: null as string | null,
     quantity: 1,
     acquisitionDate: new Date().toISOString().split('T')[0],
+    acquisitionSource: "",
+    unitPrice: "" as string,
   });
 
   const { data: resourceTypes = [], isLoading: loadingTypes } = useQuery({
@@ -484,6 +488,33 @@ export default function AddResourcePage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
+                <Label htmlFor="acquisitionSource">Acquisition Source</Label>
+                <Input
+                  id="acquisitionSource"
+                  placeholder="e.g., Publisher, Vendor, Donation"
+                  value={formData.acquisitionSource}
+                  onChange={(e) => setFormData({ ...formData, acquisitionSource: e.target.value })}
+                  data-testid="input-acquisition-source"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="unitPrice">Unit Price ({currency.symbol})</Label>
+                <Input
+                  id="unitPrice"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="Price per unit"
+                  value={formData.unitPrice}
+                  onChange={(e) => setFormData({ ...formData, unitPrice: e.target.value })}
+                  data-testid="input-unit-price"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
                 <Label htmlFor="quantity">Quantity (Copies) *</Label>
                 <Input
                   id="quantity"
@@ -499,6 +530,20 @@ export default function AddResourcePage() {
                   Copies will be created as unallocated and can be assigned to libraries later.
                 </p>
               </div>
+
+              {formData.unitPrice && parseFloat(formData.unitPrice) > 0 && (
+                <div className="space-y-2">
+                  <Label>Total Acquisition Cost</Label>
+                  <div className="p-3 bg-muted rounded-md border">
+                    <p className="text-lg font-semibold">
+                      {currency.symbol}{(parseFloat(formData.unitPrice) * formData.quantity).toFixed(2)}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {currency.symbol}{parseFloat(formData.unitPrice).toFixed(2)} × {formData.quantity} {formData.quantity === 1 ? 'copy' : 'copies'}
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
