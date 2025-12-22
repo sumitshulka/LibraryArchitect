@@ -1412,25 +1412,6 @@ function PullEndpointDialog({
 }
 
 function ErpIntegrationsTab() {
-              Inactive endpoints won't be used for data sync
-            </p>
-          </div>
-          <Switch checked={isActive} onCheckedChange={setIsActive} />
-        </div>
-      </div>
-      <DialogFooter>
-        <Button type="button" variant="outline" onClick={onClose}>
-          Cancel
-        </Button>
-        <Button type="submit" disabled={isPending} data-testid="button-save-endpoint">
-          {isPending ? "Saving..." : "Save"}
-        </Button>
-      </DialogFooter>
-    </form>
-  );
-}
-
-function ErpIntegrationsTab() {
   const queryClient = useQueryClient();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [selectedIntegration, setSelectedIntegration] = useState<ErpIntegrationPublic | null>(null);
