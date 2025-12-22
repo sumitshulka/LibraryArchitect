@@ -563,6 +563,7 @@ function CopyDetailsSheet({
   const [showCardSizeDialog, setShowCardSizeDialog] = useState(false);
   const [inlineEditCopyId, setInlineEditCopyId] = useState<number | null>(null);
   const [inlineSSNValue, setInlineSSNValue] = useState("");
+  const [pendingStatusChange, setPendingStatusChange] = useState<{ copyId: number; newStatus: 'DAMAGED' | 'LOST' } | null>(null);
   const { format: formatCurrency } = useCurrency();
 
   const updateCopyMutation = useMutation({
@@ -1241,7 +1242,11 @@ function CopyDetailsSheet({
                                 value={copy.status}
                                 onValueChange={(newStatus: 'AVAILABLE' | 'RESERVED' | 'DAMAGED' | 'LOST' | 'IN_TRANSIT') => {
                                   if (newStatus !== copy.status) {
-                                    updateCopyMutation.mutate({ id: copy.id, updates: { status: newStatus } });
+                                    if (newStatus === 'DAMAGED' || newStatus === 'LOST') {
+                                      setPendingStatusChange({ copyId: copy.id, newStatus });
+                                    } else {
+                                      updateCopyMutation.mutate({ id: copy.id, updates: { status: newStatus } });
+                                    }
                                   }
                                 }}
                               >
@@ -1311,6 +1316,52 @@ function CopyDetailsSheet({
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCardSizeDialog(false)}>
               Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Final Status Confirmation Dialog */}
+      <Dialog open={!!pendingStatusChange} onOpenChange={(open) => !open && setPendingStatusChange(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-5 w-5" />
+              Confirm Final Status Change
+            </DialogTitle>
+            <DialogDescription>
+              You are about to mark this book copy as <strong>{pendingStatusChange?.newStatus}</strong>.
+              <br /><br />
+              <span className="text-destructive font-medium">
+                This is a final status and cannot be changed later.
+              </span>
+              <br /><br />
+              Are you sure you want to proceed?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button 
+              variant="outline" 
+              onClick={() => setPendingStatusChange(null)}
+              data-testid="button-cancel-status-change"
+            >
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive"
+              onClick={() => {
+                if (pendingStatusChange) {
+                  updateCopyMutation.mutate({ 
+                    id: pendingStatusChange.copyId, 
+                    updates: { status: pendingStatusChange.newStatus } 
+                  });
+                  setPendingStatusChange(null);
+                }
+              }}
+              disabled={updateCopyMutation.isPending}
+              data-testid="button-confirm-status-change"
+            >
+              Yes, Mark as {pendingStatusChange?.newStatus}
             </Button>
           </DialogFooter>
         </DialogContent>
