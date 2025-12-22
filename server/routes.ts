@@ -783,6 +783,129 @@ export async function registerRoutes(
     }
   });
 
+  // Download audit report as Excel
+  app.get("/api/audit-sessions/:id/report", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const session = await storage.getAuditSession(id);
+      
+      if (!session) {
+        return res.status(404).json({ error: "Audit session not found" });
+      }
+      
+      const items = await storage.getInventoryItemsBySession(id);
+      
+      // Enrich items with book and copy details
+      const enrichedItems = await Promise.all(items.map(async (item) => {
+        const copy = await storage.getBookCopy(item.bookCopyId);
+        const book = copy ? await storage.getBook(copy.bookId) : null;
+        const library = copy?.libraryId ? await storage.getLibrary(copy.libraryId) : null;
+        return { item, copy, book, library };
+      }));
+      
+      // Separate into verified, pending, and missing
+      const verifiedItems = enrichedItems.filter(e => 
+        e.item.status === 'VERIFIED' || e.item.status === 'FOUND' || e.item.status === 'DISCREPANCY'
+      );
+      const pendingItems = enrichedItems.filter(e => e.item.status === 'PENDING');
+      const missingItems = enrichedItems.filter(e => e.item.status === 'MISSING');
+      
+      // Create workbook with multiple sheets
+      const workbook = XLSX.utils.book_new();
+      
+      // Summary sheet
+      const stats = await storage.getInventorySessionStats(id);
+      const summaryData = [
+        ['Audit Session Report'],
+        ['Session Code', session.sessionCode],
+        ['Status', session.status],
+        ['Started', session.startedAt ? new Date(session.startedAt).toLocaleString() : '-'],
+        ['Completed', session.completedAt ? new Date(session.completedAt).toLocaleString() : '-'],
+        [],
+        ['Summary'],
+        ['Total Items', stats.total],
+        ['Verified', stats.verified],
+        ['Pending', stats.pending],
+        ['Missing', stats.missing],
+        ['Discrepancies', stats.discrepancy],
+      ];
+      const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
+      XLSX.utils.book_append_sheet(workbook, summarySheet, 'Summary');
+      
+      // Verified items sheet
+      const verifiedData = [
+        ['Book Title', 'Author', 'ISBN', 'SSN', 'User Defined SSN', 'Library', 'Expected Location', 'Scanned Location', 'Condition', 'Status', 'Scanned At', 'Notes']
+      ];
+      verifiedItems.forEach(({ item, copy, book, library }) => {
+        verifiedData.push([
+          book?.title || '-',
+          book?.author || '-',
+          book?.isbn || '-',
+          copy?.internalSSN || '-',
+          copy?.userDefinedSSN || '-',
+          library?.name || '-',
+          item.expectedLocation || copy?.shelfLocation || '-',
+          item.scannedLocation || '-',
+          item.condition || copy?.condition || '-',
+          item.status,
+          item.scannedAt ? new Date(item.scannedAt).toLocaleString() : '-',
+          item.notes || '-',
+        ]);
+      });
+      const verifiedSheet = XLSX.utils.aoa_to_sheet(verifiedData);
+      XLSX.utils.book_append_sheet(workbook, verifiedSheet, 'Verified');
+      
+      // Pending items sheet (not verified yet - potentially missing)
+      const pendingData = [
+        ['Book Title', 'Author', 'ISBN', 'SSN', 'User Defined SSN', 'Library', 'Expected Location', 'Condition', 'Status']
+      ];
+      pendingItems.forEach(({ item, copy, book, library }) => {
+        pendingData.push([
+          book?.title || '-',
+          book?.author || '-',
+          book?.isbn || '-',
+          copy?.internalSSN || '-',
+          copy?.userDefinedSSN || '-',
+          library?.name || '-',
+          item.expectedLocation || copy?.shelfLocation || '-',
+          copy?.condition || '-',
+          item.status,
+        ]);
+      });
+      const pendingSheet = XLSX.utils.aoa_to_sheet(pendingData);
+      XLSX.utils.book_append_sheet(workbook, pendingSheet, 'Pending (Not Verified)');
+      
+      // Missing items sheet (always included)
+      const missingData = [
+        ['Book Title', 'Author', 'ISBN', 'SSN', 'User Defined SSN', 'Library', 'Expected Location', 'Condition', 'Status', 'Notes']
+      ];
+      missingItems.forEach(({ item, copy, book, library }) => {
+        missingData.push([
+          book?.title || '-',
+          book?.author || '-',
+          book?.isbn || '-',
+          copy?.internalSSN || '-',
+          copy?.userDefinedSSN || '-',
+          library?.name || '-',
+          item.expectedLocation || copy?.shelfLocation || '-',
+          copy?.condition || '-',
+          item.status,
+          item.notes || '-',
+        ]);
+      });
+      const missingSheet = XLSX.utils.aoa_to_sheet(missingData);
+      XLSX.utils.book_append_sheet(workbook, missingSheet, 'Missing');
+      
+      const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename=audit_report_${session.sessionCode}.xlsx`);
+      res.send(buffer);
+    } catch (error) {
+      console.error("Error generating audit report:", error);
+      res.status(500).json({ error: "Failed to generate audit report" });
+    }
+  });
+
   // ===== Inventory Items API =====
   app.get("/api/inventory-items", async (req, res) => {
     try {

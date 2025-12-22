@@ -51,7 +51,8 @@ import {
   FileText,
   Plus,
   Play,
-  Square
+  Square,
+  Download
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -291,11 +292,12 @@ export default function InventoryPage() {
     }
   };
 
-  // Split inventory items into verified and pending
+  // Split inventory items into verified, pending, and missing
   const verifiedItems = inventoryItems.filter(item => 
     item.status === 'VERIFIED' || item.status === 'FOUND' || item.status === 'DISCREPANCY'
   );
   const pendingItems = inventoryItems.filter(item => item.status === 'PENDING');
+  const missingItems = inventoryItems.filter(item => item.status === 'MISSING');
   
   const totalAssets = sessionStats?.total || 0;
   const currentSession = sessions.find(s => s.id === currentSessionId);
@@ -310,6 +312,18 @@ export default function InventoryPage() {
           <p className="text-muted-foreground mt-1">Stock verification and asset management.</p>
         </div>
         <div className="flex gap-2">
+          {currentSessionId && (
+            <Button 
+              size="sm" 
+              variant="outline"
+              className="gap-2"
+              onClick={() => window.open(`/api/audit-sessions/${currentSessionId}/report`, '_blank')}
+              data-testid="button-download-report"
+            >
+              <Download className="h-4 w-4" />
+              Download Report
+            </Button>
+          )}
           {activeSession ? (
             <Button 
               size="sm" 
@@ -591,6 +605,49 @@ export default function InventoryPage() {
                         <TableCell className="text-muted-foreground">{item.expectedLocation || item.copy?.shelfLocation || '-'}</TableCell>
                         <TableCell>{item.copy?.condition || '-'}</TableCell>
                         <TableCell>{getStatusBadge(item.status)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </div>
+            
+            {/* Missing Items Section */}
+            <div className="p-4">
+              <h4 className="font-medium text-red-700 flex items-center gap-2 mb-3">
+                <AlertTriangle className="h-4 w-4" />
+                Missing ({missingItems.length})
+              </h4>
+              {missingItems.length === 0 ? (
+                <p className="text-sm text-muted-foreground italic">No missing items detected.</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Book Title</TableHead>
+                      <TableHead>SSN</TableHead>
+                      <TableHead>Expected Location</TableHead>
+                      <TableHead>Condition</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Notes</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {missingItems.map((item) => (
+                      <TableRow key={item.id} data-testid={`row-missing-${item.id}`}>
+                        <TableCell className="font-medium">
+                          {item.book?.title || 'Unknown Book'}
+                          {item.book?.author && (
+                            <span className="text-xs text-muted-foreground block">{item.book.author}</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="font-mono text-xs">{item.copy?.userDefinedSSN || item.copy?.internalSSN || '-'}</TableCell>
+                        <TableCell className="text-muted-foreground">{item.expectedLocation || item.copy?.shelfLocation || '-'}</TableCell>
+                        <TableCell>{item.copy?.condition || '-'}</TableCell>
+                        <TableCell>{getStatusBadge(item.status)}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">
+                          {item.notes || '-'}
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
