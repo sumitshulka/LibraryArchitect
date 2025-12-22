@@ -1050,12 +1050,41 @@ function PullEndpointDialog({
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState("basic");
   const [name, setName] = useState(endpoint?.name || "");
   const [endpointType, setEndpointType] = useState(endpoint?.endpointType || "ALL_STUDENTS");
   const [urlPath, setUrlPath] = useState(endpoint?.urlPath || "");
   const [httpMethod, setHttpMethod] = useState(endpoint?.httpMethod || "GET");
   const [description, setDescription] = useState(endpoint?.description || "");
   const [isActive, setIsActive] = useState(endpoint?.isActive ?? true);
+  const [requestHeaders, setRequestHeaders] = useState(
+    endpoint?.requestHeaders ? JSON.stringify(endpoint.requestHeaders, null, 2) : ""
+  );
+  const [requestBodyTemplate, setRequestBodyTemplate] = useState(
+    endpoint?.requestBodyTemplate ? JSON.stringify(endpoint.requestBodyTemplate, null, 2) : ""
+  );
+  const [queryParameters, setQueryParameters] = useState(
+    endpoint?.queryParameters ? JSON.stringify(endpoint.queryParameters, null, 2) : ""
+  );
+  const [responseRootPath, setResponseRootPath] = useState(endpoint?.responseRootPath || "");
+  const [paginationConfig, setPaginationConfig] = useState(
+    endpoint?.paginationConfig ? JSON.stringify(endpoint.paginationConfig, null, 2) : ""
+  );
+
+  const { data: testLogs = [] } = useQuery({
+    queryKey: ["erp-test-logs", endpoint?.id],
+    queryFn: () => endpoint ? erpIntegrationsApi.getTestLogs(endpoint.id, 5) : Promise.resolve([]),
+    enabled: !!endpoint,
+  });
+
+  const parseJsonField = (value: string): Record<string, unknown> | null => {
+    if (!value.trim()) return null;
+    try {
+      return JSON.parse(value);
+    } catch {
+      return null;
+    }
+  };
 
   const createMutation = useMutation({
     mutationFn: (data: Parameters<typeof erpIntegrationsApi.createPullEndpoint>[1]) =>
@@ -1083,6 +1112,22 @@ function PullEndpointDialog({
     },
   });
 
+  const testMutation = useMutation({
+    mutationFn: erpIntegrationsApi.testPullEndpoint,
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["erp-pull-endpoints", integrationId] });
+      queryClient.invalidateQueries({ queryKey: ["erp-test-logs", endpoint?.id] });
+      if (result.success) {
+        toast.success(`Test successful (${result.responseTimeMs}ms)`);
+      } else {
+        toast.error(`Test failed: ${result.error || 'Unknown error'}`);
+      }
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !urlPath.trim()) {
@@ -1097,6 +1142,11 @@ function PullEndpointDialog({
       httpMethod,
       description: description || null,
       isActive,
+      requestHeaders: parseJsonField(requestHeaders),
+      requestBodyTemplate: parseJsonField(requestBodyTemplate),
+      queryParameters: parseJsonField(queryParameters),
+      responseRootPath: responseRootPath || null,
+      paginationConfig: parseJsonField(paginationConfig),
     };
 
     if (endpoint) {
@@ -1106,7 +1156,28 @@ function PullEndpointDialog({
     }
   };
 
+  const handleTest = () => {
+    if (endpoint) {
+      testMutation.mutate(endpoint.id);
+    }
+  };
+
   const isPending = createMutation.isPending || updateMutation.isPending;
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case "SUCCESS":
+        return <Badge variant="default" className="bg-green-500">Success</Badge>;
+      case "FAILED":
+        return <Badge variant="destructive">Failed</Badge>;
+      case "ERROR":
+        return <Badge variant="destructive">Error</Badge>;
+      case "TIMEOUT":
+        return <Badge variant="secondary">Timeout</Badge>;
+      default:
+        return <Badge variant="outline">{status}</Badge>;
+    }
+  };
 
   return (
     <form onSubmit={handleSubmit}>
@@ -1116,78 +1187,231 @@ function PullEndpointDialog({
           Configure an API endpoint to pull data from the ERP system.
         </DialogDescription>
       </DialogHeader>
-      <div className="grid gap-4 py-4 max-h-[60vh] overflow-y-auto">
-        <div className="grid gap-2">
-          <Label htmlFor="endpoint-name">Name *</Label>
-          <Input
-            id="endpoint-name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g., Get All Students"
-            data-testid="input-endpoint-name"
-          />
-        </div>
-        <div className="grid grid-cols-2 gap-4">
+      
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-4">
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="basic">Basic</TabsTrigger>
+          <TabsTrigger value="advanced">Advanced</TabsTrigger>
+          {endpoint && <TabsTrigger value="logs">Test Logs</TabsTrigger>}
+        </TabsList>
+
+        <TabsContent value="basic" className="space-y-4 max-h-[50vh] overflow-y-auto">
           <div className="grid gap-2">
-            <Label>Endpoint Type *</Label>
-            <Select value={endpointType} onValueChange={setEndpointType}>
-              <SelectTrigger data-testid="select-endpoint-type">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL_STUDENTS">All Students</SelectItem>
-                <SelectItem value="SINGLE_STUDENT">Single Student</SelectItem>
-                <SelectItem value="LIBRARY_EMPLOYEES">Library Employees</SelectItem>
-                <SelectItem value="PROGRAMS">Programs</SelectItem>
-                <SelectItem value="PROGRAM_DEPARTMENTS">Program Departments</SelectItem>
-                <SelectItem value="COURSES">Courses</SelectItem>
-                <SelectItem value="PROGRAM_COURSES">Program Courses</SelectItem>
-              </SelectContent>
-            </Select>
+            <Label htmlFor="endpoint-name">Name *</Label>
+            <Input
+              id="endpoint-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g., Get All Students"
+              data-testid="input-endpoint-name"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-2">
+              <Label>Endpoint Type *</Label>
+              <Select value={endpointType} onValueChange={setEndpointType}>
+                <SelectTrigger data-testid="select-endpoint-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL_STUDENTS">All Students</SelectItem>
+                  <SelectItem value="SINGLE_STUDENT">Single Student</SelectItem>
+                  <SelectItem value="ALL_EMPLOYEES">All Employees</SelectItem>
+                  <SelectItem value="SINGLE_EMPLOYEE">Single Employee</SelectItem>
+                  <SelectItem value="PROGRAMS">Programs</SelectItem>
+                  <SelectItem value="DEPARTMENTS">Departments</SelectItem>
+                  <SelectItem value="COURSES">Courses</SelectItem>
+                  <SelectItem value="STUDENT_PROGRAM_MAPPING">Student-Program Mapping</SelectItem>
+                  <SelectItem value="EMPLOYEE_DEPARTMENT_MAPPING">Employee-Department Mapping</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label>HTTP Method</Label>
+              <Select value={httpMethod} onValueChange={setHttpMethod}>
+                <SelectTrigger data-testid="select-http-method">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="GET">GET</SelectItem>
+                  <SelectItem value="POST">POST</SelectItem>
+                  <SelectItem value="PUT">PUT</SelectItem>
+                  <SelectItem value="PATCH">PATCH</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <div className="grid gap-2">
-            <Label>HTTP Method</Label>
-            <Select value={httpMethod} onValueChange={setHttpMethod}>
-              <SelectTrigger data-testid="select-http-method">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="GET">GET</SelectItem>
-                <SelectItem value="POST">POST</SelectItem>
-                <SelectItem value="PUT">PUT</SelectItem>
-                <SelectItem value="PATCH">PATCH</SelectItem>
-                <SelectItem value="DELETE">DELETE</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-        <div className="grid gap-2">
-          <Label htmlFor="url-path">URL Path *</Label>
-          <Input
-            id="url-path"
-            value={urlPath}
-            onChange={(e) => setUrlPath(e.target.value)}
-            placeholder="/api/students"
-            data-testid="input-url-path"
-          />
-          <p className="text-xs text-muted-foreground">
-            Path relative to the ERP base URL
-          </p>
-        </div>
-        <div className="grid gap-2">
-          <Label htmlFor="endpoint-description">Description</Label>
-          <Input
-            id="endpoint-description"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Optional description"
-            data-testid="input-endpoint-description"
-          />
-        </div>
-        <div className="flex items-center justify-between">
-          <div className="space-y-0.5">
-            <Label>Active</Label>
+            <Label htmlFor="url-path">URL Path *</Label>
+            <Input
+              id="url-path"
+              value={urlPath}
+              onChange={(e) => setUrlPath(e.target.value)}
+              placeholder="/api/students"
+              data-testid="input-url-path"
+            />
             <p className="text-xs text-muted-foreground">
+              Path relative to the ERP base URL
+            </p>
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="endpoint-description">Description</Label>
+            <Input
+              id="endpoint-description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Optional description"
+              data-testid="input-endpoint-description"
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label>Active</Label>
+              <p className="text-xs text-muted-foreground">
+                Inactive endpoints won't be used for data sync
+              </p>
+            </div>
+            <Switch checked={isActive} onCheckedChange={setIsActive} />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="advanced" className="space-y-4 max-h-[50vh] overflow-y-auto">
+          <div className="grid gap-2">
+            <Label htmlFor="request-headers">Request Headers (JSON)</Label>
+            <textarea
+              id="request-headers"
+              className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              value={requestHeaders}
+              onChange={(e) => setRequestHeaders(e.target.value)}
+              placeholder='{"Authorization": "Bearer {{token}}"}'
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="query-params">Query Parameters (JSON)</Label>
+            <textarea
+              id="query-params"
+              className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              value={queryParameters}
+              onChange={(e) => setQueryParameters(e.target.value)}
+              placeholder='{"page": 1, "limit": 100}'
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="request-body">Request Body Template (JSON)</Label>
+            <textarea
+              id="request-body"
+              className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              value={requestBodyTemplate}
+              onChange={(e) => setRequestBodyTemplate(e.target.value)}
+              placeholder='{"filter": {"status": "active"}}'
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="response-root">Response Root Path</Label>
+            <Input
+              id="response-root"
+              value={responseRootPath}
+              onChange={(e) => setResponseRootPath(e.target.value)}
+              placeholder="data.students"
+            />
+            <p className="text-xs text-muted-foreground">
+              JSON path to the array of records in the response
+            </p>
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="pagination-config">Pagination Config (JSON)</Label>
+            <textarea
+              id="pagination-config"
+              className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              value={paginationConfig}
+              onChange={(e) => setPaginationConfig(e.target.value)}
+              placeholder='{"type": "offset", "pageParam": "page", "limitParam": "limit"}'
+            />
+          </div>
+        </TabsContent>
+
+        {endpoint && (
+          <TabsContent value="logs" className="space-y-4 max-h-[50vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">Recent test results</p>
+              <Button 
+                type="button" 
+                size="sm" 
+                variant="outline"
+                onClick={handleTest}
+                disabled={testMutation.isPending}
+              >
+                <Play className="h-4 w-4 mr-2" />
+                {testMutation.isPending ? "Testing..." : "Run Test"}
+              </Button>
+            </div>
+            {testLogs.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground border rounded-lg border-dashed">
+                <Clock className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                <p>No test logs yet</p>
+                <p className="text-sm">Run a test to see results here.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {testLogs.map((log) => (
+                  <div key={log.id} className="border rounded-lg p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        {getStatusBadge(log.status)}
+                        {log.responseStatus && (
+                          <Badge variant="outline">HTTP {log.responseStatus}</Badge>
+                        )}
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        {log.responseTimeMs && <span>{log.responseTimeMs}ms</span>}
+                        <span className="ml-2">{new Date(log.createdAt).toLocaleString()}</span>
+                      </div>
+                    </div>
+                    {log.errorMessage && (
+                      <p className="text-sm text-red-500">{log.errorMessage}</p>
+                    )}
+                    <details className="text-xs">
+                      <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                        View Details
+                      </summary>
+                      <div className="mt-2 space-y-2">
+                        <div>
+                          <p className="font-medium">Request:</p>
+                          <code className="block p-2 bg-muted rounded text-xs overflow-auto max-h-24">
+                            {log.requestMethod} {log.requestUrl}
+                          </code>
+                        </div>
+                        {log.responseBody && (
+                          <div>
+                            <p className="font-medium">Response:</p>
+                            <code className="block p-2 bg-muted rounded text-xs overflow-auto max-h-32">
+                              {JSON.stringify(log.responseBody, null, 2)}
+                            </code>
+                          </div>
+                        )}
+                      </div>
+                    </details>
+                  </div>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+        )}
+      </Tabs>
+
+      <DialogFooter className="mt-4">
+        <Button type="button" variant="outline" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={isPending} data-testid="button-save-endpoint">
+          {isPending ? "Saving..." : "Save"}
+        </Button>
+      </DialogFooter>
+    </form>
+  );
+}
+
+function ErpIntegrationsTab() {
               Inactive endpoints won't be used for data sync
             </p>
           </div>
