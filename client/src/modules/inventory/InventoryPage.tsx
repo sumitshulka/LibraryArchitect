@@ -147,7 +147,7 @@ export default function InventoryPage() {
   });
 
   const { data: inventoryItems = [] } = useQuery<InventoryItem[]>({
-    queryKey: ["/api/inventory-items", { sessionId: currentSessionId }],
+    queryKey: [`/api/audit-sessions/${currentSessionId}/items-enriched`],
     enabled: !!currentSessionId,
     staleTime: 10000,
   });
@@ -210,7 +210,7 @@ export default function InventoryPage() {
       return res.json();
     },
     onSuccess: (data: any) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/inventory-items"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/audit-sessions/${currentSessionId}/items-enriched`] });
       queryClient.invalidateQueries({ queryKey: [`/api/audit-sessions/${currentSessionId}/stats`] });
       setScanInput("");
       
