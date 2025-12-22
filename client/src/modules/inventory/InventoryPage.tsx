@@ -149,15 +149,13 @@ export default function InventoryPage() {
   const createSessionMutation = useMutation({
     mutationFn: async (data: { libraryId?: number; notes?: string }) => {
       const sessionCode = `AUD-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 999) + 1).padStart(3, '0')}`;
-      return apiRequest("/api/audit-sessions", {
-        method: "POST",
-        body: JSON.stringify({
-          sessionCode,
-          libraryId: data.libraryId || null,
-          status: "ACTIVE",
-          notes: data.notes || null,
-        }),
+      const res = await apiRequest("POST", "/api/audit-sessions", {
+        sessionCode,
+        libraryId: data.libraryId || null,
+        status: "ACTIVE",
+        notes: data.notes || null,
       });
+      return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/audit-sessions"] });
@@ -180,9 +178,8 @@ export default function InventoryPage() {
 
   const completeSessionMutation = useMutation({
     mutationFn: async (sessionId: number) => {
-      return apiRequest(`/api/audit-sessions/${sessionId}/complete`, {
-        method: "POST",
-      });
+      const res = await apiRequest("POST", `/api/audit-sessions/${sessionId}/complete`);
+      return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/audit-sessions"] });
@@ -203,10 +200,8 @@ export default function InventoryPage() {
   const scanMutation = useMutation({
     mutationFn: async (ssn: string) => {
       if (!currentSessionId) throw new Error("No active session");
-      return apiRequest(`/api/audit-sessions/${currentSessionId}/scan`, {
-        method: "POST",
-        body: JSON.stringify({ ssn }),
-      });
+      const res = await apiRequest("POST", `/api/audit-sessions/${currentSessionId}/scan`, { ssn });
+      return res.json();
     },
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/inventory-items"] });
