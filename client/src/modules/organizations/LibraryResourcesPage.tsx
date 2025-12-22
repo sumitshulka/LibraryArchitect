@@ -570,6 +570,7 @@ function CopyDetailsSheet({
       bookCopiesApi.update(id, updates),
     onSuccess: (updatedCopy) => {
       queryClient.invalidateQueries({ queryKey: ["book-copies", resource?.bookId, libraryId] });
+      queryClient.invalidateQueries({ queryKey: ["library-resources", libraryId] });
       if (selectedCopy?.id === updatedCopy.id) {
         setSelectedCopy(updatedCopy);
       }
