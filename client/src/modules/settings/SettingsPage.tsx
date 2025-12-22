@@ -45,12 +45,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { 
   Building2, Lock, Globe, Mail, Database, BookOpen, Plus, Pencil, Trash2, 
-  Key, RefreshCw, Shield, Copy, Eye, EyeOff, AlertTriangle, CheckCircle2, Link2, Coins
+  Key, RefreshCw, Shield, Copy, Eye, EyeOff, AlertTriangle, CheckCircle2, Link2, Coins,
+  ArrowDownToLine, Play, Clock, Settings2
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { resourceTypesApi, categoriesApi, erpIntegrationsApi, configApi, type ErpIntegrationPublic, type ErpCredentials } from "@/lib/api";
+import { resourceTypesApi, categoriesApi, erpIntegrationsApi, configApi, type ErpIntegrationPublic, type ErpCredentials, type ErpPullEndpoint } from "@/lib/api";
 import { toast } from "sonner";
 import type { ResourceType, Category, ErpWhitelist } from "@shared/schema";
+import { useLocation } from "wouter";
 import { CURRENCIES, getCurrencyByCode } from "@/lib/currency";
 import { useCurrency } from "@/lib/useCurrency";
 
@@ -828,7 +830,379 @@ function ErpIntegrationDetails({
           )}
         </CardContent>
       </Card>
+
+      <PullEndpointsCard integrationId={integration.id} />
     </div>
+  );
+}
+
+function PullEndpointsCard({ integrationId }: { integrationId: number }) {
+  const queryClient = useQueryClient();
+  const [, setLocation] = useLocation();
+  const [endpointDialogOpen, setEndpointDialogOpen] = useState(false);
+  const [editingEndpoint, setEditingEndpoint] = useState<ErpPullEndpoint | undefined>();
+
+  const { data: endpoints = [], isLoading } = useQuery({
+    queryKey: ["erp-pull-endpoints", integrationId],
+    queryFn: () => erpIntegrationsApi.getPullEndpoints(integrationId),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => erpIntegrationsApi.deletePullEndpoint(integrationId, id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["erp-pull-endpoints", integrationId] });
+      toast.success("Pull endpoint deleted");
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+
+  const testMutation = useMutation({
+    mutationFn: erpIntegrationsApi.testPullEndpoint,
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["erp-pull-endpoints", integrationId] });
+      if (result.success) {
+        toast.success(`Test successful (${result.responseTimeMs}ms)`);
+      } else {
+        toast.error(`Test failed: ${result.error || 'Unknown error'}`);
+      }
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+
+  const handleAddEndpoint = () => {
+    setEditingEndpoint(undefined);
+    setEndpointDialogOpen(true);
+  };
+
+  const handleEditEndpoint = (endpoint: ErpPullEndpoint) => {
+    setEditingEndpoint(endpoint);
+    setEndpointDialogOpen(true);
+  };
+
+  const handleDeleteEndpoint = (id: number) => {
+    if (confirm("Are you sure you want to delete this pull endpoint?")) {
+      deleteMutation.mutate(id);
+    }
+  };
+
+  const handleTestEndpoint = (id: number) => {
+    testMutation.mutate(id);
+  };
+
+  const getEndpointTypeLabel = (type: string) => {
+    const labels: Record<string, string> = {
+      ALL_STUDENTS: "All Students",
+      SINGLE_STUDENT: "Single Student",
+      LIBRARY_EMPLOYEES: "Library Employees",
+      PROGRAMS: "Programs",
+      PROGRAM_DEPARTMENTS: "Program Departments",
+      COURSES: "Courses",
+      PROGRAM_COURSES: "Program Courses",
+    };
+    return labels[type] || type;
+  };
+
+  const getStatusBadge = (status: string | null) => {
+    if (!status) return <Badge variant="outline">Not Tested</Badge>;
+    switch (status) {
+      case "SUCCESS":
+        return <Badge variant="default" className="bg-green-500">Success</Badge>;
+      case "FAILED":
+        return <Badge variant="destructive">Failed</Badge>;
+      case "ERROR":
+        return <Badge variant="destructive">Error</Badge>;
+      case "TIMEOUT":
+        return <Badge variant="secondary">Timeout</Badge>;
+      default:
+        return <Badge variant="outline">{status}</Badge>;
+    }
+  };
+
+  return (
+    <>
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <ArrowDownToLine className="h-5 w-5" />
+                Pull Endpoints (Data Import)
+              </CardTitle>
+              <CardDescription>
+                Configure API endpoints to pull data from the ERP system
+              </CardDescription>
+            </div>
+            <Button 
+              size="sm" 
+              className="gap-2" 
+              onClick={handleAddEndpoint}
+              data-testid="button-add-pull-endpoint"
+            >
+              <Plus className="h-4 w-4" />
+              Add Endpoint
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="text-center py-4 text-muted-foreground">Loading...</div>
+          ) : endpoints.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground border rounded-lg border-dashed">
+              <ArrowDownToLine className="h-8 w-8 mx-auto mb-2 opacity-50" />
+              <p>No pull endpoints configured</p>
+              <p className="text-sm">Add endpoints to import data from the ERP system.</p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Method</TableHead>
+                  <TableHead>URL Path</TableHead>
+                  <TableHead>Last Test</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {endpoints.map((endpoint) => (
+                  <TableRow key={endpoint.id}>
+                    <TableCell className="font-medium">{endpoint.name}</TableCell>
+                    <TableCell>{getEndpointTypeLabel(endpoint.endpointType)}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{endpoint.httpMethod}</Badge>
+                    </TableCell>
+                    <TableCell className="font-mono text-sm max-w-[200px] truncate">
+                      {endpoint.urlPath}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-col gap-1">
+                        {getStatusBadge(endpoint.lastTestStatus)}
+                        {endpoint.lastTestedAt && (
+                          <span className="text-xs text-muted-foreground">
+                            {new Date(endpoint.lastTestedAt).toLocaleString()}
+                          </span>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button 
+                        variant="ghost" 
+                        size="icon"
+                        onClick={() => handleTestEndpoint(endpoint.id)}
+                        disabled={testMutation.isPending}
+                        title="Test endpoint"
+                      >
+                        <Play className="h-4 w-4 text-green-500" />
+                      </Button>
+                      <Button 
+                        variant="ghost" 
+                        size="icon"
+                        onClick={() => handleEditEndpoint(endpoint)}
+                        title="Edit endpoint"
+                      >
+                        <Settings2 className="h-4 w-4" />
+                      </Button>
+                      <Button 
+                        variant="ghost" 
+                        size="icon"
+                        onClick={() => handleDeleteEndpoint(endpoint.id)}
+                        title="Delete endpoint"
+                      >
+                        <Trash2 className="h-4 w-4 text-red-500" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog open={endpointDialogOpen} onOpenChange={setEndpointDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <PullEndpointDialog 
+            integrationId={integrationId}
+            endpoint={editingEndpoint}
+            onClose={() => {
+              setEndpointDialogOpen(false);
+              setEditingEndpoint(undefined);
+            }}
+          />
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+function PullEndpointDialog({ 
+  integrationId,
+  endpoint,
+  onClose 
+}: { 
+  integrationId: number;
+  endpoint?: ErpPullEndpoint;
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [name, setName] = useState(endpoint?.name || "");
+  const [endpointType, setEndpointType] = useState(endpoint?.endpointType || "ALL_STUDENTS");
+  const [urlPath, setUrlPath] = useState(endpoint?.urlPath || "");
+  const [httpMethod, setHttpMethod] = useState(endpoint?.httpMethod || "GET");
+  const [description, setDescription] = useState(endpoint?.description || "");
+  const [isActive, setIsActive] = useState(endpoint?.isActive ?? true);
+
+  const createMutation = useMutation({
+    mutationFn: (data: Parameters<typeof erpIntegrationsApi.createPullEndpoint>[1]) =>
+      erpIntegrationsApi.createPullEndpoint(integrationId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["erp-pull-endpoints", integrationId] });
+      toast.success("Pull endpoint created");
+      onClose();
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: (data: Parameters<typeof erpIntegrationsApi.updatePullEndpoint>[2]) =>
+      erpIntegrationsApi.updatePullEndpoint(integrationId, endpoint!.id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["erp-pull-endpoints", integrationId] });
+      toast.success("Pull endpoint updated");
+      onClose();
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim() || !urlPath.trim()) {
+      toast.error("Name and URL path are required");
+      return;
+    }
+
+    const data = {
+      name,
+      endpointType,
+      urlPath,
+      httpMethod,
+      description: description || null,
+      isActive,
+    };
+
+    if (endpoint) {
+      updateMutation.mutate(data);
+    } else {
+      createMutation.mutate(data);
+    }
+  };
+
+  const isPending = createMutation.isPending || updateMutation.isPending;
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <DialogHeader>
+        <DialogTitle>{endpoint ? "Edit" : "Add"} Pull Endpoint</DialogTitle>
+        <DialogDescription>
+          Configure an API endpoint to pull data from the ERP system.
+        </DialogDescription>
+      </DialogHeader>
+      <div className="grid gap-4 py-4 max-h-[60vh] overflow-y-auto">
+        <div className="grid gap-2">
+          <Label htmlFor="endpoint-name">Name *</Label>
+          <Input
+            id="endpoint-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g., Get All Students"
+            data-testid="input-endpoint-name"
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="grid gap-2">
+            <Label>Endpoint Type *</Label>
+            <Select value={endpointType} onValueChange={setEndpointType}>
+              <SelectTrigger data-testid="select-endpoint-type">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL_STUDENTS">All Students</SelectItem>
+                <SelectItem value="SINGLE_STUDENT">Single Student</SelectItem>
+                <SelectItem value="LIBRARY_EMPLOYEES">Library Employees</SelectItem>
+                <SelectItem value="PROGRAMS">Programs</SelectItem>
+                <SelectItem value="PROGRAM_DEPARTMENTS">Program Departments</SelectItem>
+                <SelectItem value="COURSES">Courses</SelectItem>
+                <SelectItem value="PROGRAM_COURSES">Program Courses</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-2">
+            <Label>HTTP Method</Label>
+            <Select value={httpMethod} onValueChange={setHttpMethod}>
+              <SelectTrigger data-testid="select-http-method">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="GET">GET</SelectItem>
+                <SelectItem value="POST">POST</SelectItem>
+                <SelectItem value="PUT">PUT</SelectItem>
+                <SelectItem value="PATCH">PATCH</SelectItem>
+                <SelectItem value="DELETE">DELETE</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <div className="grid gap-2">
+          <Label htmlFor="url-path">URL Path *</Label>
+          <Input
+            id="url-path"
+            value={urlPath}
+            onChange={(e) => setUrlPath(e.target.value)}
+            placeholder="/api/students"
+            data-testid="input-url-path"
+          />
+          <p className="text-xs text-muted-foreground">
+            Path relative to the ERP base URL
+          </p>
+        </div>
+        <div className="grid gap-2">
+          <Label htmlFor="endpoint-description">Description</Label>
+          <Input
+            id="endpoint-description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Optional description"
+            data-testid="input-endpoint-description"
+          />
+        </div>
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <Label>Active</Label>
+            <p className="text-xs text-muted-foreground">
+              Inactive endpoints won't be used for data sync
+            </p>
+          </div>
+          <Switch checked={isActive} onCheckedChange={setIsActive} />
+        </div>
+      </div>
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={isPending} data-testid="button-save-endpoint">
+          {isPending ? "Saving..." : "Save"}
+        </Button>
+      </DialogFooter>
+    </form>
   );
 }
 

@@ -497,7 +497,256 @@ export const erpIntegrationsApi = {
       throw new Error(error.error || "Failed to delete whitelist entry");
     }
   },
+
+  // Pull Endpoints
+  getPullEndpoints: async (integrationId: number): Promise<ErpPullEndpoint[]> => {
+    const res = await fetch(`${API_BASE}/erp-integrations/${integrationId}/pull-endpoints`);
+    if (!res.ok) throw new Error("Failed to fetch pull endpoints");
+    return res.json();
+  },
+
+  getPullEndpoint: async (integrationId: number, id: number): Promise<ErpPullEndpoint> => {
+    const res = await fetch(`${API_BASE}/erp-integrations/${integrationId}/pull-endpoints/${id}`);
+    if (!res.ok) throw new Error("Failed to fetch pull endpoint");
+    return res.json();
+  },
+
+  createPullEndpoint: async (integrationId: number, data: {
+    name: string;
+    endpointType: string;
+    urlPath: string;
+    httpMethod?: string;
+    requestHeaders?: Record<string, unknown> | null;
+    requestBodyTemplate?: Record<string, unknown> | null;
+    pathParameters?: Record<string, unknown> | null;
+    queryParameters?: Record<string, unknown> | null;
+    responseRootPath?: string | null;
+    paginationConfig?: Record<string, unknown> | null;
+    isActive?: boolean;
+    description?: string | null;
+  }): Promise<ErpPullEndpoint> => {
+    const res = await fetch(`${API_BASE}/erp-integrations/${integrationId}/pull-endpoints`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to create pull endpoint");
+    }
+    return res.json();
+  },
+
+  updatePullEndpoint: async (integrationId: number, id: number, data: Partial<{
+    name: string;
+    endpointType: string;
+    urlPath: string;
+    httpMethod: string;
+    requestHeaders: Record<string, unknown> | null;
+    requestBodyTemplate: Record<string, unknown> | null;
+    pathParameters: Record<string, unknown> | null;
+    queryParameters: Record<string, unknown> | null;
+    responseRootPath: string | null;
+    paginationConfig: Record<string, unknown> | null;
+    isActive: boolean;
+    description: string | null;
+  }>): Promise<ErpPullEndpoint> => {
+    const res = await fetch(`${API_BASE}/erp-integrations/${integrationId}/pull-endpoints/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to update pull endpoint");
+    }
+    return res.json();
+  },
+
+  deletePullEndpoint: async (integrationId: number, id: number): Promise<void> => {
+    const res = await fetch(`${API_BASE}/erp-integrations/${integrationId}/pull-endpoints/${id}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to delete pull endpoint");
+    }
+  },
+
+  testPullEndpoint: async (endpointId: number): Promise<ErpTestResult> => {
+    const res = await fetch(`${API_BASE}/erp-pull-endpoints/${endpointId}/test`, {
+      method: "POST",
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to test endpoint");
+    }
+    return res.json();
+  },
+
+  getTestLogs: async (endpointId: number, limit?: number): Promise<ErpTestLog[]> => {
+    const url = limit 
+      ? `${API_BASE}/erp-pull-endpoints/${endpointId}/test-logs?limit=${limit}`
+      : `${API_BASE}/erp-pull-endpoints/${endpointId}/test-logs`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("Failed to fetch test logs");
+    return res.json();
+  },
+
+  // Field Mappings
+  getFieldMappings: async (endpointId: number): Promise<ErpFieldMapping[]> => {
+    const res = await fetch(`${API_BASE}/erp-pull-endpoints/${endpointId}/field-mappings`);
+    if (!res.ok) throw new Error("Failed to fetch field mappings");
+    return res.json();
+  },
+
+  createFieldMapping: async (endpointId: number, data: {
+    sourceField: string;
+    targetField: string;
+    targetTable: string;
+    transformationType?: string | null;
+    transformationConfig?: Record<string, unknown> | null;
+    isRequired?: boolean;
+    defaultValue?: string | null;
+    description?: string | null;
+    sortOrder?: number;
+  }): Promise<ErpFieldMapping> => {
+    const res = await fetch(`${API_BASE}/erp-pull-endpoints/${endpointId}/field-mappings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to create field mapping");
+    }
+    return res.json();
+  },
+
+  bulkCreateFieldMappings: async (endpointId: number, data: {
+    mappings: Array<{
+      sourceField: string;
+      targetField: string;
+      targetTable: string;
+      transformationType?: string | null;
+      transformationConfig?: Record<string, unknown> | null;
+      isRequired?: boolean;
+      defaultValue?: string | null;
+      description?: string | null;
+      sortOrder?: number;
+    }>;
+    replaceExisting?: boolean;
+  }): Promise<ErpFieldMapping[]> => {
+    const res = await fetch(`${API_BASE}/erp-pull-endpoints/${endpointId}/field-mappings/bulk`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to bulk create field mappings");
+    }
+    return res.json();
+  },
+
+  updateFieldMapping: async (endpointId: number, id: number, data: Partial<{
+    sourceField: string;
+    targetField: string;
+    targetTable: string;
+    transformationType: string | null;
+    transformationConfig: Record<string, unknown> | null;
+    isRequired: boolean;
+    defaultValue: string | null;
+    description: string | null;
+    sortOrder: number;
+  }>): Promise<ErpFieldMapping> => {
+    const res = await fetch(`${API_BASE}/erp-pull-endpoints/${endpointId}/field-mappings/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to update field mapping");
+    }
+    return res.json();
+  },
+
+  deleteFieldMapping: async (endpointId: number, id: number): Promise<void> => {
+    const res = await fetch(`${API_BASE}/erp-pull-endpoints/${endpointId}/field-mappings/${id}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to delete field mapping");
+    }
+  },
 };
+
+// ERP Types
+export interface ErpPullEndpoint {
+  id: number;
+  integrationId: number;
+  name: string;
+  endpointType: string;
+  httpMethod: string;
+  urlPath: string;
+  description: string | null;
+  requestHeaders: Record<string, unknown> | null;
+  requestBodyTemplate: Record<string, unknown> | null;
+  pathParameters: Record<string, unknown> | null;
+  queryParameters: Record<string, unknown> | null;
+  responseRootPath: string | null;
+  paginationConfig: Record<string, unknown> | null;
+  isActive: boolean;
+  lastTestedAt: string | null;
+  lastTestStatus: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ErpFieldMapping {
+  id: number;
+  endpointId: number;
+  sourceField: string;
+  targetField: string;
+  targetTable: string;
+  transformationType: string | null;
+  transformationConfig: Record<string, unknown> | null;
+  isRequired: boolean;
+  defaultValue: string | null;
+  description: string | null;
+  sortOrder: number | null;
+  createdAt: string;
+}
+
+export interface ErpTestLog {
+  id: number;
+  endpointId: number;
+  testedBy: number | null;
+  requestUrl: string;
+  requestMethod: string;
+  requestHeaders: Record<string, unknown> | null;
+  requestBody: Record<string, unknown> | null;
+  responseStatus: number | null;
+  responseHeaders: Record<string, unknown> | null;
+  responseBody: Record<string, unknown> | null;
+  status: string;
+  errorMessage: string | null;
+  responseTimeMs: number | null;
+  createdAt: string;
+}
+
+export interface ErpTestResult {
+  success: boolean;
+  status?: number;
+  statusText?: string;
+  headers?: Record<string, string>;
+  body?: unknown;
+  responseTimeMs: number;
+  error?: string;
+  log: ErpTestLog;
+}
 
 // Organizational Units API
 export const orgUnitsApi = {
