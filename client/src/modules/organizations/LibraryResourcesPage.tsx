@@ -561,6 +561,8 @@ function CopyDetailsSheet({
   const [userSSNValue, setUserSSNValue] = useState("");
   const [cardSize, setCardSize] = useState<CardSize>('A6');
   const [showCardSizeDialog, setShowCardSizeDialog] = useState(false);
+  const [inlineEditCopyId, setInlineEditCopyId] = useState<number | null>(null);
+  const [inlineSSNValue, setInlineSSNValue] = useState("");
   const { format: formatCurrency } = useCurrency();
 
   const updateCopyMutation = useMutation({
@@ -568,9 +570,13 @@ function CopyDetailsSheet({
       bookCopiesApi.update(id, updates),
     onSuccess: (updatedCopy) => {
       queryClient.invalidateQueries({ queryKey: ["book-copies", resource?.bookId, libraryId] });
-      setSelectedCopy(updatedCopy);
+      if (selectedCopy?.id === updatedCopy.id) {
+        setSelectedCopy(updatedCopy);
+      }
       setEditingLocation(false);
       setEditingUserSSN(false);
+      setInlineEditCopyId(null);
+      setInlineSSNValue("");
       toast.success("Copy updated successfully");
     },
     onError: (error: Error) => {
@@ -614,6 +620,8 @@ function CopyDetailsSheet({
     if (!value) {
       setSelectedCopy(null);
       setSelectedForPrint(new Set());
+      setInlineEditCopyId(null);
+      setInlineSSNValue("");
     }
   };
 
@@ -1144,18 +1152,77 @@ function CopyDetailsSheet({
                               />
                             )}
                           </TableCell>
-                          <TableCell className="font-mono text-sm">
-                            {copy.userDefinedSSN ? (
-                              <div className="flex flex-col">
-                                <span>{copy.userDefinedSSN}</span>
-                                {copy.internalSSN && (
-                                  <span className="text-xs text-muted-foreground">Sys: {copy.internalSSN}</span>
-                                )}
+                          <TableCell className="font-mono text-sm" onClick={(e) => e.stopPropagation()}>
+                            {inlineEditCopyId === copy.id ? (
+                              <div className="flex items-center gap-1">
+                                <Input
+                                  value={inlineSSNValue}
+                                  onChange={(e) => setInlineSSNValue(e.target.value)}
+                                  placeholder="User Defined SSN..."
+                                  className="h-7 w-32 text-xs font-mono"
+                                  autoFocus
+                                  data-testid={`input-inline-ssn-${copy.id}`}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      updateCopyMutation.mutate({ id: copy.id, updates: { userDefinedSSN: inlineSSNValue || null } });
+                                    } else if (e.key === 'Escape') {
+                                      setInlineEditCopyId(null);
+                                      setInlineSSNValue("");
+                                    }
+                                  }}
+                                />
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-7 w-7"
+                                  onClick={() => updateCopyMutation.mutate({ id: copy.id, updates: { userDefinedSSN: inlineSSNValue || null } })}
+                                  disabled={updateCopyMutation.isPending}
+                                  data-testid={`button-save-inline-ssn-${copy.id}`}
+                                >
+                                  <Check className="h-3 w-3" />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-7 w-7"
+                                  onClick={() => {
+                                    setInlineEditCopyId(null);
+                                    setInlineSSNValue("");
+                                  }}
+                                  data-testid={`button-cancel-inline-ssn-${copy.id}`}
+                                >
+                                  <X className="h-3 w-3" />
+                                </Button>
                               </div>
-                            ) : copy.internalSSN ? (
-                              copy.internalSSN
                             ) : (
-                              <span className="text-muted-foreground italic">No SSN</span>
+                              <div className="flex items-center gap-1 group">
+                                <div className="flex flex-col">
+                                  {copy.userDefinedSSN ? (
+                                    <>
+                                      <span>{copy.userDefinedSSN}</span>
+                                      {copy.internalSSN && (
+                                        <span className="text-xs text-muted-foreground">Sys: {copy.internalSSN}</span>
+                                      )}
+                                    </>
+                                  ) : copy.internalSSN ? (
+                                    <span>{copy.internalSSN}</span>
+                                  ) : (
+                                    <span className="text-muted-foreground italic">No SSN</span>
+                                  )}
+                                </div>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                                  onClick={() => {
+                                    setInlineEditCopyId(copy.id);
+                                    setInlineSSNValue(copy.userDefinedSSN || "");
+                                  }}
+                                  data-testid={`button-edit-inline-ssn-${copy.id}`}
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                </Button>
+                              </div>
                             )}
                           </TableCell>
                           <TableCell>
