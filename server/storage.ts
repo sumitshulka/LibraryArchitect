@@ -165,6 +165,7 @@ export interface IStorage {
   createBookCopies(bookId: number, quantity: number, shelfLocation?: string, acquisitionDate?: Date): Promise<BookCopy[]>;
   updateBookCopy(id: number, bookCopy: Partial<InsertBookCopy>): Promise<BookCopy | undefined>;
   deleteBookCopy(id: number): Promise<boolean>;
+  getAllBookCopies(): Promise<BookCopy[]>;
   getBookCopiesByBook(bookId: number): Promise<BookCopy[]>;
   getBookCopiesByLibrary(libraryId: number): Promise<BookCopy[]>;
   getBookCopiesByBookAndLibrary(bookId: number, libraryId: number): Promise<BookCopy[]>;
@@ -788,6 +789,10 @@ export class DBStorage implements IStorage {
   async deleteBookCopy(id: number): Promise<boolean> {
     await db.delete(bookCopies).where(eq(bookCopies.id, id));
     return true;
+  }
+
+  async getAllBookCopies(): Promise<BookCopy[]> {
+    return await db.select().from(bookCopies).orderBy(asc(bookCopies.barcode));
   }
 
   async getBookCopiesByBook(bookId: number): Promise<BookCopy[]> {
