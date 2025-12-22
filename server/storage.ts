@@ -27,6 +27,10 @@ import {
   type InsertBookTransfer,
   type LibraryMembership,
   type InsertLibraryMembership,
+  type AuditSession,
+  type InsertAuditSession,
+  type InventoryItem,
+  type InsertInventoryItem,
   users,
   books,
   circulation,
@@ -40,7 +44,9 @@ import {
   libraries,
   bookCopies,
   bookTransfers,
-  libraryMemberships
+  libraryMemberships,
+  auditSessions,
+  inventoryItems
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, or, like, desc, asc, sql, isNull, inArray } from "drizzle-orm";
@@ -87,11 +93,28 @@ export interface IStorage {
   getActiveCirculationByBook(bookId: number): Promise<Circulation | undefined>;
   getCirculationByUser(userId: number): Promise<Circulation[]>;
   
-  // Inventory
+  // Inventory (legacy)
   getInventory(id: number): Promise<Inventory | undefined>;
   createInventory(inv: InsertInventory): Promise<Inventory>;
   updateInventory(id: number, inv: Partial<InsertInventory>): Promise<Inventory | undefined>;
   getInventoryBySession(sessionId: string): Promise<Inventory[]>;
+  
+  // Audit Sessions
+  getAuditSession(id: number): Promise<AuditSession | undefined>;
+  getAuditSessionByCode(code: string): Promise<AuditSession | undefined>;
+  createAuditSession(session: InsertAuditSession): Promise<AuditSession>;
+  updateAuditSession(id: number, session: Partial<InsertAuditSession>): Promise<AuditSession | undefined>;
+  getAllAuditSessions(): Promise<AuditSession[]>;
+  getActiveAuditSessions(): Promise<AuditSession[]>;
+  getAuditSessionsByLibrary(libraryId: number): Promise<AuditSession[]>;
+  
+  // Inventory Items
+  getInventoryItem(id: number): Promise<InventoryItem | undefined>;
+  getInventoryItemBySessionAndCopy(sessionId: number, copyId: number): Promise<InventoryItem | undefined>;
+  createInventoryItem(item: InsertInventoryItem): Promise<InventoryItem>;
+  updateInventoryItem(id: number, item: Partial<InsertInventoryItem>): Promise<InventoryItem | undefined>;
+  getInventoryItemsBySession(sessionId: number): Promise<InventoryItem[]>;
+  getInventorySessionStats(sessionId: number): Promise<{ total: number; verified: number; missing: number; pending: number; discrepancy: number }>;
   
   // System Config
   getSystemConfig(key: string): Promise<SystemConfig | undefined>;
@@ -438,6 +461,80 @@ export class DBStorage implements IStorage {
 
   async getInventoryBySession(sessionId: string): Promise<Inventory[]> {
     return await db.select().from(inventory).where(eq(inventory.auditSessionId, sessionId));
+  }
+
+  // Audit Sessions
+  async getAuditSession(id: number): Promise<AuditSession | undefined> {
+    const [session] = await db.select().from(auditSessions).where(eq(auditSessions.id, id));
+    return session;
+  }
+
+  async getAuditSessionByCode(code: string): Promise<AuditSession | undefined> {
+    const [session] = await db.select().from(auditSessions).where(eq(auditSessions.sessionCode, code));
+    return session;
+  }
+
+  async createAuditSession(insertSession: InsertAuditSession): Promise<AuditSession> {
+    const [session] = await db.insert(auditSessions).values(insertSession).returning();
+    return session;
+  }
+
+  async updateAuditSession(id: number, updateData: Partial<InsertAuditSession>): Promise<AuditSession | undefined> {
+    const [session] = await db.update(auditSessions).set(updateData).where(eq(auditSessions.id, id)).returning();
+    return session;
+  }
+
+  async getAllAuditSessions(): Promise<AuditSession[]> {
+    return await db.select().from(auditSessions).orderBy(desc(auditSessions.startedAt));
+  }
+
+  async getActiveAuditSessions(): Promise<AuditSession[]> {
+    return await db.select().from(auditSessions).where(eq(auditSessions.status, 'ACTIVE')).orderBy(desc(auditSessions.startedAt));
+  }
+
+  async getAuditSessionsByLibrary(libraryId: number): Promise<AuditSession[]> {
+    return await db.select().from(auditSessions).where(eq(auditSessions.libraryId, libraryId)).orderBy(desc(auditSessions.startedAt));
+  }
+
+  // Inventory Items
+  async getInventoryItem(id: number): Promise<InventoryItem | undefined> {
+    const [item] = await db.select().from(inventoryItems).where(eq(inventoryItems.id, id));
+    return item;
+  }
+
+  async getInventoryItemBySessionAndCopy(sessionId: number, copyId: number): Promise<InventoryItem | undefined> {
+    const [item] = await db.select().from(inventoryItems).where(
+      and(
+        eq(inventoryItems.auditSessionId, sessionId),
+        eq(inventoryItems.bookCopyId, copyId)
+      )
+    );
+    return item;
+  }
+
+  async createInventoryItem(insertItem: InsertInventoryItem): Promise<InventoryItem> {
+    const [item] = await db.insert(inventoryItems).values(insertItem).returning();
+    return item;
+  }
+
+  async updateInventoryItem(id: number, updateData: Partial<InsertInventoryItem>): Promise<InventoryItem | undefined> {
+    const [item] = await db.update(inventoryItems).set(updateData).where(eq(inventoryItems.id, id)).returning();
+    return item;
+  }
+
+  async getInventoryItemsBySession(sessionId: number): Promise<InventoryItem[]> {
+    return await db.select().from(inventoryItems).where(eq(inventoryItems.auditSessionId, sessionId)).orderBy(desc(inventoryItems.createdAt));
+  }
+
+  async getInventorySessionStats(sessionId: number): Promise<{ total: number; verified: number; missing: number; pending: number; discrepancy: number }> {
+    const items = await db.select().from(inventoryItems).where(eq(inventoryItems.auditSessionId, sessionId));
+    return {
+      total: items.length,
+      verified: items.filter(i => i.status === 'VERIFIED' || i.status === 'FOUND').length,
+      missing: items.filter(i => i.status === 'MISSING').length,
+      pending: items.filter(i => i.status === 'PENDING').length,
+      discrepancy: items.filter(i => i.status === 'DISCREPANCY').length,
+    };
   }
 
   // System Config

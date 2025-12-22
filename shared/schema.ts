@@ -76,6 +76,36 @@ export const circulation = pgTable("circulation", {
   renewalCount: integer("renewal_count").default(0),
 });
 
+export const auditSessionStatusEnum = pgEnum('audit_session_status', ['ACTIVE', 'COMPLETED', 'CANCELLED']);
+export const inventoryItemStatusEnum = pgEnum('inventory_item_status', ['PENDING', 'VERIFIED', 'MISSING', 'FOUND', 'DISCREPANCY']);
+
+export const auditSessions = pgTable("audit_sessions", {
+  id: serial("id").primaryKey(),
+  sessionCode: text("session_code").notNull().unique(),
+  libraryId: integer("library_id").references(() => libraries.id),
+  status: auditSessionStatusEnum("status").notNull().default('ACTIVE'),
+  startedAt: timestamp("started_at").notNull().defaultNow(),
+  completedAt: timestamp("completed_at"),
+  conductedBy: integer("conducted_by").references(() => users.id),
+  totalScanned: integer("total_scanned"),
+  totalMissing: integer("total_missing"),
+  discrepancies: integer("discrepancies"),
+  notes: text("notes"),
+});
+
+export const inventoryItems = pgTable("inventory_items", {
+  id: serial("id").primaryKey(),
+  auditSessionId: integer("audit_session_id").notNull().references(() => auditSessions.id, { onDelete: 'cascade' }),
+  bookCopyId: integer("book_copy_id").notNull().references(() => bookCopies.id),
+  expectedLocation: text("expected_location"),
+  scannedLocation: text("scanned_location"),
+  status: inventoryItemStatusEnum("status").notNull().default('PENDING'),
+  condition: text("condition"),
+  scannedAt: timestamp("scanned_at"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const inventory = pgTable("inventory", {
   id: serial("id").primaryKey(),
   bookId: integer("book_id").notNull().references(() => books.id),
@@ -286,6 +316,16 @@ export const insertLibraryMembershipSchema = createInsertSchema(libraryMembershi
   joinedAt: true,
 });
 
+export const insertAuditSessionSchema = createInsertSchema(auditSessions).omit({
+  id: true,
+  startedAt: true,
+});
+
+export const insertInventoryItemSchema = createInsertSchema(inventoryItems).omit({
+  id: true,
+  createdAt: true,
+});
+
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 
@@ -327,3 +367,9 @@ export type BookTransfer = typeof bookTransfers.$inferSelect;
 
 export type InsertLibraryMembership = z.infer<typeof insertLibraryMembershipSchema>;
 export type LibraryMembership = typeof libraryMemberships.$inferSelect;
+
+export type InsertAuditSession = z.infer<typeof insertAuditSessionSchema>;
+export type AuditSession = typeof auditSessions.$inferSelect;
+
+export type InsertInventoryItem = z.infer<typeof insertInventoryItemSchema>;
+export type InventoryItem = typeof inventoryItems.$inferSelect;

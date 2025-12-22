@@ -15,7 +15,9 @@ import {
   insertLibrarySchema,
   insertBookCopySchema,
   insertBookTransferSchema,
-  insertLibraryMembershipSchema
+  insertLibraryMembershipSchema,
+  insertAuditSessionSchema,
+  insertInventoryItemSchema
 } from "@shared/schema";
 import { z } from "zod";
 import { fromZodError } from "zod-validation-error";
@@ -546,6 +548,284 @@ export async function registerRoutes(
       }
       console.error("Error updating inventory:", error);
       res.status(500).json({ error: "Failed to update inventory record" });
+    }
+  });
+
+  // ===== Audit Sessions API =====
+  app.get("/api/audit-sessions", async (req, res) => {
+    try {
+      const { libraryId, active } = req.query;
+      
+      if (active === 'true') {
+        const sessions = await storage.getActiveAuditSessions();
+        return res.json(sessions);
+      }
+      
+      if (libraryId && typeof libraryId === 'string') {
+        const sessions = await storage.getAuditSessionsByLibrary(parseInt(libraryId));
+        return res.json(sessions);
+      }
+      
+      const sessions = await storage.getAllAuditSessions();
+      res.json(sessions);
+    } catch (error) {
+      console.error("Error fetching audit sessions:", error);
+      res.status(500).json({ error: "Failed to fetch audit sessions" });
+    }
+  });
+
+  app.get("/api/audit-sessions/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const session = await storage.getAuditSession(id);
+      
+      if (!session) {
+        return res.status(404).json({ error: "Audit session not found" });
+      }
+      
+      res.json(session);
+    } catch (error) {
+      console.error("Error fetching audit session:", error);
+      res.status(500).json({ error: "Failed to fetch audit session" });
+    }
+  });
+
+  app.get("/api/audit-sessions/:id/stats", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const session = await storage.getAuditSession(id);
+      
+      if (!session) {
+        return res.status(404).json({ error: "Audit session not found" });
+      }
+      
+      const stats = await storage.getInventorySessionStats(id);
+      res.json(stats);
+    } catch (error) {
+      console.error("Error fetching audit session stats:", error);
+      res.status(500).json({ error: "Failed to fetch audit session stats" });
+    }
+  });
+
+  app.post("/api/audit-sessions", async (req, res) => {
+    try {
+      const validated = insertAuditSessionSchema.parse(req.body);
+      const session = await storage.createAuditSession({
+        ...validated,
+        totalScanned: 0,
+        totalMissing: 0,
+        discrepancies: 0,
+      });
+      res.status(201).json(session);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error creating audit session:", error);
+      res.status(500).json({ error: "Failed to create audit session" });
+    }
+  });
+
+  app.patch("/api/audit-sessions/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const validated = insertAuditSessionSchema.partial().parse(req.body);
+      
+      const session = await storage.updateAuditSession(id, validated);
+      
+      if (!session) {
+        return res.status(404).json({ error: "Audit session not found" });
+      }
+      
+      res.json(session);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error updating audit session:", error);
+      res.status(500).json({ error: "Failed to update audit session" });
+    }
+  });
+
+  app.post("/api/audit-sessions/:id/complete", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const session = await storage.getAuditSession(id);
+      
+      if (!session) {
+        return res.status(404).json({ error: "Audit session not found" });
+      }
+      
+      if (session.status !== 'ACTIVE') {
+        return res.status(400).json({ error: "Session is not active" });
+      }
+      
+      const stats = await storage.getInventorySessionStats(id);
+      
+      const updated = await storage.updateAuditSession(id, {
+        status: 'COMPLETED',
+        completedAt: new Date(),
+        totalScanned: stats.verified,
+        totalMissing: stats.missing,
+        discrepancies: stats.discrepancy
+      });
+      
+      res.json(updated);
+    } catch (error) {
+      console.error("Error completing audit session:", error);
+      res.status(500).json({ error: "Failed to complete audit session" });
+    }
+  });
+
+  // ===== Inventory Items API =====
+  app.get("/api/inventory-items", async (req, res) => {
+    try {
+      const { sessionId } = req.query;
+      
+      if (!sessionId || typeof sessionId !== 'string') {
+        return res.status(400).json({ error: "sessionId query parameter is required" });
+      }
+      
+      const items = await storage.getInventoryItemsBySession(parseInt(sessionId));
+      res.json(items);
+    } catch (error) {
+      console.error("Error fetching inventory items:", error);
+      res.status(500).json({ error: "Failed to fetch inventory items" });
+    }
+  });
+
+  app.post("/api/inventory-items", async (req, res) => {
+    try {
+      const validated = insertInventoryItemSchema.parse(req.body);
+      
+      // Check if item already exists for this session and copy
+      const existing = await storage.getInventoryItemBySessionAndCopy(
+        validated.auditSessionId,
+        validated.bookCopyId
+      );
+      
+      if (existing) {
+        // Update existing item
+        const updated = await storage.updateInventoryItem(existing.id, validated);
+        return res.json(updated);
+      }
+      
+      const item = await storage.createInventoryItem(validated);
+      res.status(201).json(item);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error creating inventory item:", error);
+      res.status(500).json({ error: "Failed to create inventory item" });
+    }
+  });
+
+  app.patch("/api/inventory-items/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const validated = insertInventoryItemSchema.partial().parse(req.body);
+      
+      const item = await storage.updateInventoryItem(id, validated);
+      
+      if (!item) {
+        return res.status(404).json({ error: "Inventory item not found" });
+      }
+      
+      res.json(item);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error updating inventory item:", error);
+      res.status(500).json({ error: "Failed to update inventory item" });
+    }
+  });
+
+  // Scan SSN endpoint - verifies a copy during inventory audit
+  app.post("/api/audit-sessions/:sessionId/scan", async (req, res) => {
+    try {
+      const sessionId = parseInt(req.params.sessionId);
+      const { ssn, shelfLocation, condition, notes } = req.body;
+      
+      if (!ssn) {
+        return res.status(400).json({ error: "SSN is required" });
+      }
+      
+      // Verify session exists and is active
+      const session = await storage.getAuditSession(sessionId);
+      if (!session) {
+        return res.status(404).json({ error: "Audit session not found" });
+      }
+      if (session.status !== 'ACTIVE') {
+        return res.status(400).json({ error: "Audit session is not active" });
+      }
+      
+      // Find copy by SSN
+      const copies = await storage.getAllBookCopies();
+      const copy = copies.find(c => c.internalSsn === ssn);
+      
+      if (!copy) {
+        // SSN not found in system
+        return res.status(404).json({ 
+          error: "Copy not found",
+          ssn,
+          message: "No book copy found with this SSN"
+        });
+      }
+      
+      // Check if copy belongs to this library
+      if (session.libraryId && copy.libraryId !== session.libraryId) {
+        // Create discrepancy record - copy from different library
+        const item = await storage.createInventoryItem({
+          auditSessionId: sessionId,
+          bookCopyId: copy.id,
+          status: 'DISCREPANCY',
+          scannedLocation: shelfLocation || null,
+          expectedLocation: copy.shelfLocation || null,
+          condition: condition || copy.condition || null,
+          scannedAt: new Date(),
+          notes: notes || `Copy belongs to different library (Library ID: ${copy.libraryId})`
+        });
+        
+        return res.json({
+          item,
+          copy,
+          warning: "Copy belongs to a different library"
+        });
+      }
+      
+      // Check if already scanned in this session
+      const existing = await storage.getInventoryItemBySessionAndCopy(sessionId, copy.id);
+      if (existing) {
+        return res.json({
+          item: existing,
+          copy,
+          duplicate: true,
+          message: "This copy was already scanned in this session"
+        });
+      }
+      
+      // Determine status based on location match
+      const scannedLoc = shelfLocation || null;
+      const locationMatch = !scannedLoc || scannedLoc === copy.shelfLocation;
+      const status = locationMatch ? 'VERIFIED' : 'DISCREPANCY';
+      
+      const item = await storage.createInventoryItem({
+        auditSessionId: sessionId,
+        bookCopyId: copy.id,
+        status,
+        scannedLocation: scannedLoc,
+        expectedLocation: copy.shelfLocation || null,
+        condition: condition || copy.condition || null,
+        scannedAt: new Date(),
+        notes: notes || (locationMatch ? null : `Location mismatch: expected ${copy.shelfLocation}, found at ${scannedLoc}`)
+      });
+      
+      res.json({ item, copy });
+    } catch (error) {
+      console.error("Error scanning item:", error);
+      res.status(500).json({ error: "Failed to scan item" });
     }
   });
 
