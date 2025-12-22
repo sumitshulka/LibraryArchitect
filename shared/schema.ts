@@ -200,6 +200,7 @@ export const bookCopies = pgTable("book_copies", {
   libraryId: integer("library_id").references(() => libraries.id),
   barcode: text("barcode").notNull().unique(),
   internalSSN: text("internal_ssn").unique(),
+  userDefinedSSN: text("user_defined_ssn"),
   callNumber: text("call_number"),
   shelfLocation: text("shelf_location"),
   status: copyStatusEnum("status").notNull().default('AVAILABLE'),
