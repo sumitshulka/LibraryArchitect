@@ -153,6 +153,74 @@ export const erpIntegrationWhitelist = pgTable("erp_integration_whitelist", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// ERP Pull Endpoint Types
+export const erpEndpointTypeEnum = pgEnum('erp_endpoint_type', [
+  'ALL_STUDENTS',
+  'SINGLE_STUDENT', 
+  'LIBRARY_EMPLOYEES',
+  'PROGRAMS',
+  'PROGRAM_DEPARTMENTS',
+  'COURSES',
+  'PROGRAM_COURSES'
+]);
+
+export const httpMethodEnum = pgEnum('http_method', ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
+
+export const erpPullEndpoints = pgTable("erp_pull_endpoints", {
+  id: serial("id").primaryKey(),
+  integrationId: integer("integration_id").notNull().references(() => erpIntegrations.id, { onDelete: 'cascade' }),
+  name: text("name").notNull(),
+  endpointType: erpEndpointTypeEnum("endpoint_type").notNull(),
+  httpMethod: httpMethodEnum("http_method").notNull().default('GET'),
+  urlPath: text("url_path").notNull(),
+  description: text("description"),
+  requestHeaders: jsonb("request_headers"),
+  requestBodyTemplate: jsonb("request_body_template"),
+  pathParameters: jsonb("path_parameters"),
+  queryParameters: jsonb("query_parameters"),
+  responseRootPath: text("response_root_path"),
+  paginationConfig: jsonb("pagination_config"),
+  isActive: boolean("is_active").notNull().default(true),
+  lastTestedAt: timestamp("last_tested_at"),
+  lastTestStatus: text("last_test_status"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const erpFieldMappings = pgTable("erp_field_mappings", {
+  id: serial("id").primaryKey(),
+  endpointId: integer("endpoint_id").notNull().references(() => erpPullEndpoints.id, { onDelete: 'cascade' }),
+  sourceField: text("source_field").notNull(),
+  targetField: text("target_field").notNull(),
+  targetTable: text("target_table").notNull(),
+  transformationType: text("transformation_type"),
+  transformationConfig: jsonb("transformation_config"),
+  isRequired: boolean("is_required").notNull().default(false),
+  defaultValue: text("default_value"),
+  description: text("description"),
+  sortOrder: integer("sort_order").default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const erpTestLogStatusEnum = pgEnum('erp_test_log_status', ['SUCCESS', 'FAILED', 'ERROR', 'TIMEOUT']);
+
+export const erpTestLogs = pgTable("erp_test_logs", {
+  id: serial("id").primaryKey(),
+  endpointId: integer("endpoint_id").notNull().references(() => erpPullEndpoints.id, { onDelete: 'cascade' }),
+  testedBy: integer("tested_by").references(() => users.id),
+  requestUrl: text("request_url").notNull(),
+  requestMethod: text("request_method").notNull(),
+  requestHeaders: jsonb("request_headers"),
+  requestBody: jsonb("request_body"),
+  responseStatus: integer("response_status"),
+  responseHeaders: jsonb("response_headers"),
+  responseBody: jsonb("response_body"),
+  status: erpTestLogStatusEnum("status").notNull(),
+  errorMessage: text("error_message"),
+  responseTimeMs: integer("response_time_ms"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // ===== Multi-Library Hierarchical Structure =====
 
 export const orgUnits = pgTable("org_units", {
@@ -288,6 +356,24 @@ export const insertErpWhitelistSchema = createInsertSchema(erpIntegrationWhiteli
   createdAt: true,
 });
 
+export const insertErpPullEndpointSchema = createInsertSchema(erpPullEndpoints).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  lastTestedAt: true,
+  lastTestStatus: true,
+});
+
+export const insertErpFieldMappingSchema = createInsertSchema(erpFieldMappings).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertErpTestLogSchema = createInsertSchema(erpTestLogs).omit({
+  id: true,
+  createdAt: true,
+});
+
 export const insertOrgUnitSchema = createInsertSchema(orgUnits).omit({
   id: true,
   createdAt: true,
@@ -353,6 +439,15 @@ export type ErpIntegration = typeof erpIntegrations.$inferSelect;
 
 export type InsertErpWhitelist = z.infer<typeof insertErpWhitelistSchema>;
 export type ErpWhitelist = typeof erpIntegrationWhitelist.$inferSelect;
+
+export type InsertErpPullEndpoint = z.infer<typeof insertErpPullEndpointSchema>;
+export type ErpPullEndpoint = typeof erpPullEndpoints.$inferSelect;
+
+export type InsertErpFieldMapping = z.infer<typeof insertErpFieldMappingSchema>;
+export type ErpFieldMapping = typeof erpFieldMappings.$inferSelect;
+
+export type InsertErpTestLog = z.infer<typeof insertErpTestLogSchema>;
+export type ErpTestLog = typeof erpTestLogs.$inferSelect;
 
 export type InsertOrgUnit = z.infer<typeof insertOrgUnitSchema>;
 export type OrgUnit = typeof orgUnits.$inferSelect;
