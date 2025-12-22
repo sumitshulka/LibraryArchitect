@@ -1974,6 +1974,471 @@ export async function registerRoutes(
     }
   });
 
+  // ===== ERP Pull Endpoints API =====
+  app.get("/api/erp-integrations/:id/pull-endpoints", async (req, res) => {
+    try {
+      const integrationId = parseInt(req.params.id);
+      const integration = await storage.getErpIntegration(integrationId);
+      
+      if (!integration) {
+        return res.status(404).json({ error: "ERP integration not found" });
+      }
+      
+      const endpoints = await storage.getErpPullEndpointsByIntegration(integrationId);
+      res.json(endpoints);
+    } catch (error) {
+      console.error("Error fetching ERP pull endpoints:", error);
+      res.status(500).json({ error: "Failed to fetch pull endpoints" });
+    }
+  });
+
+  app.get("/api/erp-integrations/:integrationId/pull-endpoints/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const integrationId = parseInt(req.params.integrationId);
+      
+      const endpoint = await storage.getErpPullEndpoint(id);
+      if (!endpoint || endpoint.integrationId !== integrationId) {
+        return res.status(404).json({ error: "Pull endpoint not found" });
+      }
+      
+      res.json(endpoint);
+    } catch (error) {
+      console.error("Error fetching pull endpoint:", error);
+      res.status(500).json({ error: "Failed to fetch pull endpoint" });
+    }
+  });
+
+  app.post("/api/erp-integrations/:id/pull-endpoints", async (req, res) => {
+    try {
+      const integrationId = parseInt(req.params.id);
+      const integration = await storage.getErpIntegration(integrationId);
+      
+      if (!integration) {
+        return res.status(404).json({ error: "ERP integration not found" });
+      }
+      
+      const createSchema = z.object({
+        name: z.string().min(1, "Name is required"),
+        endpointType: z.enum(["ALL_STUDENTS", "SINGLE_STUDENT", "LIBRARY_EMPLOYEES", "PROGRAMS", "PROGRAM_DEPARTMENTS", "COURSES", "PROGRAM_COURSES"]),
+        urlPath: z.string().min(1, "URL path is required"),
+        httpMethod: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]).default("GET"),
+        requestHeaders: z.record(z.any()).optional().nullable(),
+        requestBodyTemplate: z.record(z.any()).optional().nullable(),
+        pathParameters: z.record(z.any()).optional().nullable(),
+        queryParameters: z.record(z.any()).optional().nullable(),
+        responseRootPath: z.string().optional().nullable(),
+        paginationConfig: z.record(z.any()).optional().nullable(),
+        isActive: z.boolean().default(true),
+        description: z.string().optional().nullable(),
+      });
+      
+      const validated = createSchema.parse(req.body);
+      
+      const endpoint = await storage.createErpPullEndpoint({
+        ...validated,
+        integrationId,
+      });
+      
+      res.status(201).json(endpoint);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error creating pull endpoint:", error);
+      res.status(500).json({ error: "Failed to create pull endpoint" });
+    }
+  });
+
+  app.patch("/api/erp-integrations/:integrationId/pull-endpoints/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const integrationId = parseInt(req.params.integrationId);
+      
+      const endpoint = await storage.getErpPullEndpoint(id);
+      if (!endpoint || endpoint.integrationId !== integrationId) {
+        return res.status(404).json({ error: "Pull endpoint not found" });
+      }
+      
+      const updateSchema = z.object({
+        name: z.string().min(1).optional(),
+        endpointType: z.enum(["ALL_STUDENTS", "SINGLE_STUDENT", "LIBRARY_EMPLOYEES", "PROGRAMS", "PROGRAM_DEPARTMENTS", "COURSES", "PROGRAM_COURSES"]).optional(),
+        urlPath: z.string().min(1).optional(),
+        httpMethod: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]).optional(),
+        requestHeaders: z.record(z.any()).optional().nullable(),
+        requestBodyTemplate: z.record(z.any()).optional().nullable(),
+        pathParameters: z.record(z.any()).optional().nullable(),
+        queryParameters: z.record(z.any()).optional().nullable(),
+        responseRootPath: z.string().optional().nullable(),
+        paginationConfig: z.record(z.any()).optional().nullable(),
+        isActive: z.boolean().optional(),
+        description: z.string().optional().nullable(),
+      });
+      
+      const validated = updateSchema.parse(req.body);
+      const updated = await storage.updateErpPullEndpoint(id, validated);
+      
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error updating pull endpoint:", error);
+      res.status(500).json({ error: "Failed to update pull endpoint" });
+    }
+  });
+
+  app.delete("/api/erp-integrations/:integrationId/pull-endpoints/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const integrationId = parseInt(req.params.integrationId);
+      
+      const endpoint = await storage.getErpPullEndpoint(id);
+      if (!endpoint || endpoint.integrationId !== integrationId) {
+        return res.status(404).json({ error: "Pull endpoint not found" });
+      }
+      
+      // Delete associated field mappings first
+      await storage.deleteErpFieldMappingsByEndpoint(id);
+      await storage.deleteErpPullEndpoint(id);
+      
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting pull endpoint:", error);
+      res.status(500).json({ error: "Failed to delete pull endpoint" });
+    }
+  });
+
+  // ===== ERP Field Mappings API =====
+  app.get("/api/erp-pull-endpoints/:id/field-mappings", async (req, res) => {
+    try {
+      const endpointId = parseInt(req.params.id);
+      const endpoint = await storage.getErpPullEndpoint(endpointId);
+      
+      if (!endpoint) {
+        return res.status(404).json({ error: "Pull endpoint not found" });
+      }
+      
+      const mappings = await storage.getErpFieldMappingsByEndpoint(endpointId);
+      res.json(mappings);
+    } catch (error) {
+      console.error("Error fetching field mappings:", error);
+      res.status(500).json({ error: "Failed to fetch field mappings" });
+    }
+  });
+
+  app.post("/api/erp-pull-endpoints/:id/field-mappings", async (req, res) => {
+    try {
+      const endpointId = parseInt(req.params.id);
+      const endpoint = await storage.getErpPullEndpoint(endpointId);
+      
+      if (!endpoint) {
+        return res.status(404).json({ error: "Pull endpoint not found" });
+      }
+      
+      const createSchema = z.object({
+        sourceField: z.string().min(1, "Source field is required"),
+        targetField: z.string().min(1, "Target field is required"),
+        targetTable: z.string().min(1, "Target table is required"),
+        transformationType: z.string().optional().nullable(),
+        transformationConfig: z.record(z.any()).optional().nullable(),
+        isRequired: z.boolean().default(false),
+        defaultValue: z.string().optional().nullable(),
+        description: z.string().optional().nullable(),
+        sortOrder: z.number().int().default(0),
+      });
+      
+      const validated = createSchema.parse(req.body);
+      
+      const mapping = await storage.createErpFieldMapping({
+        ...validated,
+        endpointId,
+      });
+      
+      res.status(201).json(mapping);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error creating field mapping:", error);
+      res.status(500).json({ error: "Failed to create field mapping" });
+    }
+  });
+
+  app.post("/api/erp-pull-endpoints/:id/field-mappings/bulk", async (req, res) => {
+    try {
+      const endpointId = parseInt(req.params.id);
+      const endpoint = await storage.getErpPullEndpoint(endpointId);
+      
+      if (!endpoint) {
+        return res.status(404).json({ error: "Pull endpoint not found" });
+      }
+      
+      const bulkSchema = z.object({
+        mappings: z.array(z.object({
+          sourceField: z.string().min(1),
+          targetField: z.string().min(1),
+          targetTable: z.string().min(1),
+          transformationType: z.string().optional().nullable(),
+          transformationConfig: z.record(z.any()).optional().nullable(),
+          isRequired: z.boolean().default(false),
+          defaultValue: z.string().optional().nullable(),
+          description: z.string().optional().nullable(),
+          sortOrder: z.number().int().default(0),
+        })),
+        replaceExisting: z.boolean().default(true),
+      });
+      
+      const validated = bulkSchema.parse(req.body);
+      
+      // Delete existing mappings if replacing
+      if (validated.replaceExisting) {
+        await storage.deleteErpFieldMappingsByEndpoint(endpointId);
+      }
+      
+      // Create new mappings
+      const createdMappings = [];
+      for (let i = 0; i < validated.mappings.length; i++) {
+        const mapping = await storage.createErpFieldMapping({
+          ...validated.mappings[i],
+          endpointId,
+          sortOrder: validated.mappings[i].sortOrder ?? i,
+        });
+        createdMappings.push(mapping);
+      }
+      
+      res.status(201).json(createdMappings);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error bulk creating field mappings:", error);
+      res.status(500).json({ error: "Failed to bulk create field mappings" });
+    }
+  });
+
+  app.patch("/api/erp-pull-endpoints/:endpointId/field-mappings/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const endpointId = parseInt(req.params.endpointId);
+      
+      const mapping = await storage.getErpFieldMapping(id);
+      if (!mapping || mapping.endpointId !== endpointId) {
+        return res.status(404).json({ error: "Field mapping not found" });
+      }
+      
+      const updateSchema = z.object({
+        sourceField: z.string().min(1).optional(),
+        targetField: z.string().min(1).optional(),
+        targetTable: z.string().min(1).optional(),
+        transformationType: z.string().optional().nullable(),
+        transformationConfig: z.record(z.any()).optional().nullable(),
+        isRequired: z.boolean().optional(),
+        defaultValue: z.string().optional().nullable(),
+        description: z.string().optional().nullable(),
+        sortOrder: z.number().int().optional(),
+      });
+      
+      const validated = updateSchema.parse(req.body);
+      const updated = await storage.updateErpFieldMapping(id, validated);
+      
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error updating field mapping:", error);
+      res.status(500).json({ error: "Failed to update field mapping" });
+    }
+  });
+
+  app.delete("/api/erp-pull-endpoints/:endpointId/field-mappings/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const endpointId = parseInt(req.params.endpointId);
+      
+      const mapping = await storage.getErpFieldMapping(id);
+      if (!mapping || mapping.endpointId !== endpointId) {
+        return res.status(404).json({ error: "Field mapping not found" });
+      }
+      
+      await storage.deleteErpFieldMapping(id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting field mapping:", error);
+      res.status(500).json({ error: "Failed to delete field mapping" });
+    }
+  });
+
+  // ===== ERP Endpoint Testing API (Sandbox) =====
+  app.post("/api/erp-pull-endpoints/:id/test", async (req, res) => {
+    try {
+      const endpointId = parseInt(req.params.id);
+      const endpoint = await storage.getErpPullEndpoint(endpointId);
+      
+      if (!endpoint) {
+        return res.status(404).json({ error: "Pull endpoint not found" });
+      }
+      
+      const integration = await storage.getErpIntegration(endpoint.integrationId);
+      if (!integration) {
+        return res.status(404).json({ error: "ERP integration not found" });
+      }
+      
+      // Build the full URL from base URL + path
+      const baseUrl = integration.outboundBaseUrl || '';
+      const fullUrl = baseUrl + endpoint.urlPath;
+      
+      // Check if endpoint URL is in whitelist
+      const whitelist = await storage.getWhitelistByIntegration(integration.id);
+      const isWhitelisted = whitelist.some(entry => {
+        if (!entry.isActive) return false;
+        const pattern = entry.urlPattern.replace(/\*/g, '.*');
+        const regex = new RegExp(`^${pattern}$`);
+        return regex.test(fullUrl);
+      });
+      
+      if (!isWhitelisted) {
+        const logEntry = await storage.createErpTestLog({
+          endpointId,
+          requestUrl: fullUrl,
+          requestMethod: endpoint.httpMethod,
+          requestHeaders: endpoint.requestHeaders as Record<string, unknown> | null,
+          requestBody: endpoint.requestBodyTemplate as Record<string, unknown> | null,
+          responseStatus: 403,
+          responseBody: { error: "URL not in whitelist" },
+          status: "FAILED",
+          errorMessage: "Endpoint URL is not whitelisted for this integration",
+          responseTimeMs: 0,
+        });
+        
+        await storage.updateErpPullEndpointTestStatus(endpointId, "FAILED");
+        
+        return res.status(200).json({
+          success: false,
+          error: "Endpoint URL is not whitelisted for this integration",
+          log: logEntry,
+        });
+      }
+      
+      const startTime = Date.now();
+      
+      try {
+        // Build request headers
+        const headers: Record<string, string> = {
+          'Accept': 'application/json',
+          'X-App-Id': integration.appId,
+          ...(endpoint.requestHeaders as Record<string, string> || {}),
+        };
+        
+        // Build request body if needed
+        const bodyTemplate = endpoint.requestBodyTemplate as Record<string, unknown> | null;
+        const requestBody = bodyTemplate ? JSON.stringify(bodyTemplate) : undefined;
+        
+        // Make the actual HTTP request
+        const fetchOptions: RequestInit = {
+          method: endpoint.httpMethod,
+          headers,
+          ...(endpoint.httpMethod !== 'GET' && requestBody ? { body: requestBody } : {}),
+        };
+        
+        const response = await fetch(fullUrl, fetchOptions);
+        const responseTimeMs = Date.now() - startTime;
+        
+        let responseBody: string;
+        try {
+          responseBody = await response.text();
+        } catch {
+          responseBody = '';
+        }
+        
+        const isSuccess = response.ok;
+        const testStatus = isSuccess ? "SUCCESS" : "FAILED";
+        
+        // Parse response for storage
+        let parsedResponseBody: Record<string, unknown> | null = null;
+        try {
+          parsedResponseBody = JSON.parse(responseBody);
+        } catch {
+          parsedResponseBody = { raw: responseBody.substring(0, 10000) };
+        }
+        
+        // Log the test
+        const logEntry = await storage.createErpTestLog({
+          endpointId,
+          requestUrl: fullUrl,
+          requestMethod: endpoint.httpMethod,
+          requestHeaders: headers as Record<string, unknown>,
+          requestBody: bodyTemplate,
+          responseStatus: response.status,
+          responseHeaders: Object.fromEntries(response.headers.entries()) as Record<string, unknown>,
+          responseBody: parsedResponseBody,
+          status: testStatus,
+          errorMessage: isSuccess ? null : `HTTP ${response.status}: ${response.statusText}`,
+          responseTimeMs,
+        });
+        
+        // Update endpoint test status
+        await storage.updateErpPullEndpointTestStatus(endpointId, testStatus);
+        
+        res.json({
+          success: isSuccess,
+          status: response.status,
+          statusText: response.statusText,
+          headers: Object.fromEntries(response.headers.entries()),
+          body: parsedResponseBody || responseBody.substring(0, 5000),
+          responseTimeMs,
+          log: logEntry,
+        });
+      } catch (fetchError) {
+        const responseTimeMs = Date.now() - startTime;
+        const errorMessage = fetchError instanceof Error ? fetchError.message : 'Unknown error';
+        
+        const logEntry = await storage.createErpTestLog({
+          endpointId,
+          requestUrl: fullUrl,
+          requestMethod: endpoint.httpMethod,
+          requestHeaders: endpoint.requestHeaders as Record<string, unknown> | null,
+          requestBody: endpoint.requestBodyTemplate as Record<string, unknown> | null,
+          responseStatus: 0,
+          status: "ERROR",
+          errorMessage,
+          responseTimeMs,
+        });
+        
+        await storage.updateErpPullEndpointTestStatus(endpointId, "ERROR");
+        
+        res.json({
+          success: false,
+          error: errorMessage,
+          responseTimeMs,
+          log: logEntry,
+        });
+      }
+    } catch (error) {
+      console.error("Error testing pull endpoint:", error);
+      res.status(500).json({ error: "Failed to test pull endpoint" });
+    }
+  });
+
+  app.get("/api/erp-pull-endpoints/:id/test-logs", async (req, res) => {
+    try {
+      const endpointId = parseInt(req.params.id);
+      const limit = parseInt(req.query.limit as string) || 20;
+      
+      const endpoint = await storage.getErpPullEndpoint(endpointId);
+      if (!endpoint) {
+        return res.status(404).json({ error: "Pull endpoint not found" });
+      }
+      
+      const logs = await storage.getErpTestLogsByEndpoint(endpointId, limit);
+      res.json(logs);
+    } catch (error) {
+      console.error("Error fetching test logs:", error);
+      res.status(500).json({ error: "Failed to fetch test logs" });
+    }
+  });
+
   // ===== Organizational Units API =====
   app.get("/api/org-units", async (req, res) => {
     try {
