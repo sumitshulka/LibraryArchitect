@@ -334,6 +334,20 @@ export const libraryMemberships = pgTable("library_memberships", {
   isActive: boolean("is_active").notNull().default(true),
 });
 
+// Staff allocation action type enum
+export const staffAllocationActionEnum = pgEnum('staff_allocation_action', ['ALLOCATED', 'DEALLOCATED']);
+
+// Audit log for staff library allocations
+export const staffAllocationLogs = pgTable("staff_allocation_logs", {
+  id: serial("id").primaryKey(),
+  staffUserId: integer("staff_user_id").notNull().references(() => users.id),
+  libraryId: integer("library_id").notNull().references(() => libraries.id),
+  action: staffAllocationActionEnum("action").notNull(),
+  performedByUserId: integer("performed_by_user_id").notNull().references(() => users.id),
+  reason: text("reason"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
   joinedDate: true,
@@ -432,6 +446,11 @@ export const insertLibraryMembershipSchema = createInsertSchema(libraryMembershi
   joinedAt: true,
 });
 
+export const insertStaffAllocationLogSchema = createInsertSchema(staffAllocationLogs).omit({
+  id: true,
+  createdAt: true,
+});
+
 export const insertAuditSessionSchema = createInsertSchema(auditSessions).omit({
   id: true,
   startedAt: true,
@@ -495,6 +514,9 @@ export type BookTransfer = typeof bookTransfers.$inferSelect;
 
 export type InsertLibraryMembership = z.infer<typeof insertLibraryMembershipSchema>;
 export type LibraryMembership = typeof libraryMemberships.$inferSelect;
+
+export type InsertStaffAllocationLog = z.infer<typeof insertStaffAllocationLogSchema>;
+export type StaffAllocationLog = typeof staffAllocationLogs.$inferSelect;
 
 export type InsertAuditSession = z.infer<typeof insertAuditSessionSchema>;
 export type AuditSession = typeof auditSessions.$inferSelect;
