@@ -1929,6 +1929,56 @@ export async function registerRoutes(
     }
   });
 
+  // Get current authenticated user
+  app.get("/api/auth/me", async (req, res) => {
+    try {
+      const sessionId = req.cookies?.session_id;
+      
+      if (!sessionId) {
+        return res.status(401).json({ authenticated: false });
+      }
+
+      const result = await storage.getSessionWithUser(sessionId);
+      
+      if (!result || result.session.expiresAt < new Date()) {
+        res.clearCookie('session_id');
+        return res.status(401).json({ authenticated: false });
+      }
+
+      res.json({
+        authenticated: true,
+        user: {
+          id: result.user.id,
+          username: result.user.username,
+          name: result.user.name,
+          email: result.user.email,
+          role: result.user.role,
+          category: result.user.category,
+        },
+      });
+    } catch (error) {
+      console.error("Auth check error:", error);
+      res.status(500).json({ error: "Failed to check authentication" });
+    }
+  });
+
+  // Logout endpoint
+  app.post("/api/auth/logout", async (req, res) => {
+    try {
+      const sessionId = req.cookies?.session_id;
+      
+      if (sessionId) {
+        await storage.deleteSession(sessionId);
+        res.clearCookie('session_id');
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Logout error:", error);
+      res.status(500).json({ error: "Logout failed" });
+    }
+  });
+
   // Local Authentication Login
   app.post("/api/auth/login", async (req, res) => {
     try {
