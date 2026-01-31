@@ -111,7 +111,7 @@ export function verifySecretKey(
   salt: string
 ): boolean {
   const hashToVerify = crypto
-    .pbkdf2Sync(providedSecret, salt, 10000, 64, 'sha512')
+    .pbkdf2Sync(providedSecret, salt, 100000, 64, 'sha512')
     .toString('hex');
   return crypto.timingSafeEqual(
     Buffer.from(hashToVerify),
@@ -122,7 +122,7 @@ export function verifySecretKey(
 export function hashSecretKey(secretKey: string): { hash: string; salt: string } {
   const salt = crypto.randomBytes(32).toString('hex');
   const hash = crypto
-    .pbkdf2Sync(secretKey, salt, 10000, 64, 'sha512')
+    .pbkdf2Sync(secretKey, salt, 100000, 64, 'sha512')
     .toString('hex');
   return { hash, salt };
 }
