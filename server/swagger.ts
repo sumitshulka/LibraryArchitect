@@ -415,6 +415,208 @@ Handles SSO authentication from ERP systems. The token should be Base64URL encod
           },
         },
       },
+      '/api/sso/test/generate-token': {
+        post: {
+          tags: ['SSO'],
+          summary: 'Generate SSO token for testing',
+          description: `
+Generates a valid signed SSO token for testing purposes. Use this to create tokens that can be used with the SSO callback endpoint.
+
+**Steps to test SSO:**
+1. Call this endpoint with your appId, secretKey, and user details
+2. Copy the generated token from the response
+3. Use the token with /api/sso/callback or the callbackUrl provided
+          `,
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['appId', 'secretKey', 'userId', 'userType', 'name', 'email'],
+                  properties: {
+                    appId: { type: 'string', description: 'ERP integration App ID', example: 'LIB-9ACF6E312F2455467B57D62D7F3BFC70' },
+                    secretKey: { type: 'string', description: 'ERP integration secret key', example: 'your-secret-key-here' },
+                    userId: { type: 'string', description: 'User ID in ERP system', example: 'EMP001' },
+                    userType: { type: 'string', enum: ['EMPLOYEE', 'STUDENT'], description: 'User type in ERP', example: 'EMPLOYEE' },
+                    role: { type: 'string', enum: ['LIBRARY_ADMIN', 'LIBRARIAN', 'STUDENT', 'FACULTY'], description: 'Role for staff users', example: 'LIBRARIAN' },
+                    name: { type: 'string', example: 'John Doe' },
+                    email: { type: 'string', format: 'email', example: 'john.doe@university.edu' },
+                    department: { type: 'string', nullable: true, example: 'Library Services' },
+                  },
+                },
+                examples: {
+                  staff: {
+                    summary: 'Generate token for staff user',
+                    value: {
+                      appId: 'LIB-9ACF6E312F2455467B57D62D7F3BFC70',
+                      secretKey: 'your-secret-key-here',
+                      userId: 'EMP001',
+                      userType: 'EMPLOYEE',
+                      role: 'LIBRARIAN',
+                      name: 'Jane Librarian',
+                      email: 'jane@university.edu',
+                      department: 'Library Services',
+                    },
+                  },
+                  student: {
+                    summary: 'Generate token for student',
+                    value: {
+                      appId: 'LIB-9ACF6E312F2455467B57D62D7F3BFC70',
+                      secretKey: 'your-secret-key-here',
+                      userId: 'STU12345',
+                      userType: 'STUDENT',
+                      role: 'STUDENT',
+                      name: 'John Student',
+                      email: 'john.student@university.edu',
+                      department: 'Computer Science',
+                    },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': {
+              description: 'Token generated successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      token: { type: 'string', description: 'Base64URL encoded signed token' },
+                      callbackUrl: { type: 'string', description: 'Full URL to call for SSO login' },
+                      expiresIn: { type: 'integer', description: 'Token expiry in seconds', example: 300 },
+                      instructions: {
+                        type: 'object',
+                        properties: {
+                          method: { type: 'string', example: 'GET' },
+                          url: { type: 'string' },
+                          headers: { type: 'object' },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            '401': {
+              description: 'Invalid secret key',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/Error' },
+                },
+              },
+            },
+            '404': {
+              description: 'ERP integration not found',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/Error' },
+                },
+              },
+            },
+          },
+        },
+      },
+      '/api/sso/test/simulate-login': {
+        post: {
+          tags: ['SSO'],
+          summary: 'Simulate complete SSO login',
+          description: `
+Simulates a complete SSO login flow without redirects. This is useful for testing the full authentication process programmatically.
+
+**What this does:**
+1. Generates a signed token
+2. Verifies the token signature
+3. Creates or finds the user (auto-provisions patrons)
+4. Creates a session
+5. Returns user and session details
+
+**Note:** Staff users (LIBRARY_ADMIN, LIBRARIAN) must be pre-provisioned via /api/erp/library-users before SSO login.
+          `,
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['appId', 'secretKey', 'userId', 'userType', 'name', 'email'],
+                  properties: {
+                    appId: { type: 'string', description: 'ERP integration App ID', example: 'LIB-9ACF6E312F2455467B57D62D7F3BFC70' },
+                    secretKey: { type: 'string', description: 'ERP integration secret key', example: 'your-secret-key-here' },
+                    userId: { type: 'string', description: 'User ID in ERP system', example: 'STU12345' },
+                    userType: { type: 'string', enum: ['EMPLOYEE', 'STUDENT'], description: 'User type in ERP', example: 'STUDENT' },
+                    role: { type: 'string', enum: ['LIBRARY_ADMIN', 'LIBRARIAN', 'STUDENT', 'FACULTY'], description: 'Role', example: 'STUDENT' },
+                    name: { type: 'string', example: 'John Student' },
+                    email: { type: 'string', format: 'email', example: 'john.student@university.edu' },
+                    department: { type: 'string', nullable: true, example: 'Computer Science' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': {
+              description: 'SSO login successful',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean', example: true },
+                      userCreated: { type: 'boolean', description: 'Whether user was newly created', example: true },
+                      user: {
+                        type: 'object',
+                        properties: {
+                          id: { type: 'integer', example: 5 },
+                          name: { type: 'string', example: 'John Student' },
+                          email: { type: 'string', example: 'john.student@university.edu' },
+                          category: { type: 'string', example: 'PATRON' },
+                          role: { type: 'string', example: 'STUDENT' },
+                          department: { type: 'string', nullable: true },
+                        },
+                      },
+                      session: {
+                        type: 'object',
+                        properties: {
+                          id: { type: 'string' },
+                          expiresAt: { type: 'string', format: 'date-time' },
+                        },
+                      },
+                      tokenDetails: {
+                        type: 'object',
+                        properties: {
+                          signatureValid: { type: 'boolean', example: true },
+                          mappedRole: { type: 'string', example: 'STUDENT' },
+                          mappedCategory: { type: 'string', example: 'PATRON' },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            '401': {
+              description: 'Invalid secret key',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/Error' },
+                },
+              },
+            },
+            '403': {
+              description: 'Staff user not pre-provisioned',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/Error' },
+                  example: { error: 'Staff user must be pre-provisioned before SSO login' },
+                },
+              },
+            },
+          },
+        },
+      },
       '/api/erp/library-users': {
         post: {
           tags: ['ERP User Provisioning'],
