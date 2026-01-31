@@ -1427,39 +1427,30 @@ export class DBStorage implements IStorage {
   }
 
   async getLibraryStaff(libraryId: number): Promise<LibraryStaffMember[]> {
-    const memberships = await db.select({
-      id: libraryMemberships.id,
-      userId: libraryMemberships.userId,
+    // Join memberships with users to filter by user category = STAFF
+    const results = await db.select({
+      membershipId: libraryMemberships.id,
+      userId: users.id,
+      name: users.name,
+      email: users.email,
+      role: users.role,
       createdAt: libraryMemberships.createdAt,
     }).from(libraryMemberships)
+      .innerJoin(users, eq(libraryMemberships.userId, users.id))
       .where(and(
         eq(libraryMemberships.libraryId, libraryId),
         eq(libraryMemberships.isActive, true),
-        or(
-          eq(libraryMemberships.role, 'ADMIN'),
-          eq(libraryMemberships.role, 'LIBRARIAN')
-        )
+        eq(users.category, 'STAFF')
       ));
     
-    if (memberships.length === 0) return [];
-    
-    const userIds = memberships.map(m => m.userId);
-    const staffUsers = await db.select().from(users)
-      .where(sql`${users.id} IN (${sql.join(userIds.map(id => sql`${id}`), sql`, `)})`);
-    
-    const userMap = new Map(staffUsers.map(u => [u.id, u]));
-    
-    return memberships.map(m => {
-      const user = userMap.get(m.userId);
-      return {
-        id: m.id,
-        userId: m.userId,
-        name: user?.name || 'Unknown',
-        email: user?.email || '',
-        role: user?.role === 'ADMIN' ? 'Library Admin' : 'Librarian',
-        allocatedAt: m.createdAt,
-      };
-    });
+    return results.map(r => ({
+      id: r.membershipId,
+      userId: r.userId,
+      name: r.name,
+      email: r.email || '',
+      role: r.role === 'ADMIN' ? 'Library Admin' : 'Librarian',
+      allocatedAt: r.createdAt,
+    }));
   }
 
   // Library Dashboard
