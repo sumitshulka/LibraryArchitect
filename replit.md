@@ -82,6 +82,70 @@ The system uses PostgreSQL enums and tables for:
 4. **Circulation** - Book checkout/return records with due dates and fine tracking
 5. **Inventory** - Physical inventory management and tracking
 6. **System Config** - Application-wide configuration settings with support for local, ERP, or hybrid authentication modes
+7. **ERP Integrations** - External ERP system configurations for SSO authentication
+8. **Sessions** - User session management with token-based authentication
+
+## SSO Authentication & User Provisioning
+
+### Authentication Modes
+The system supports three authentication modes configured via System Config:
+- **LOCAL** - Traditional username/password authentication
+- **ERP** - SSO-only authentication via configured ERP integrations
+- **HYBRID** - Both local and SSO authentication available
+
+### User Categories
+Users are categorized into two types:
+- **STAFF** - Library administrators and librarians (roles: ADMIN, LIBRARIAN)
+- **PATRON** - Library users (roles: STUDENT, FACULTY)
+
+### SSO Token Flow
+1. ERP system generates a signed token with user data
+2. Token includes: externalId, name, email, erpRole, timestamp, signature
+3. Token is Base64URL encoded and sent to `/api/sso/callback`
+4. Library system verifies signature using HMAC-SHA256
+5. Token expires after 5 minutes; sessions last 24 hours
+
+### User Provisioning Rules
+**Library Staff (Admin/Librarian):**
+- Must be pre-provisioned via API before SSO login is allowed
+- ERP calls `POST /api/erp/library-users` to create staff accounts
+- SSO login will be rejected if staff user is not pre-provisioned
+- Role mapping: LIBRARY_ADMIN → ADMIN, LIBRARIAN → LIBRARIAN
+
+**Library Patrons (Students/Faculty):**
+- Auto-provisioned on first SSO login
+- No pre-provisioning required
+- Role mapping: STUDENT → STUDENT, FACULTY → FACULTY
+
+### ERP Provisioning API Endpoints
+All endpoints require `X-Secret-Key` header matching the ERP integration's secret.
+
+**POST /api/erp/library-users**
+Creates or updates a library staff user.
+```json
+{
+  "appId": "ERP_APP_ID",
+  "externalId": "EMP001",
+  "name": "Jane Doe",
+  "email": "jane@example.edu",
+  "role": "LIBRARIAN",
+  "department": "Library Services"
+}
+```
+
+**GET /api/erp/library-users?appId=...**
+Lists all library staff users for an ERP integration.
+
+**DELETE /api/erp/library-users/:externalId?appId=...**
+Deactivates a library staff user (soft delete to INACTIVE status).
+
+### Security Features
+- Token signature verification with length validation
+- Timestamp expiration check (5-minute window)
+- Origin/Referer whitelist validation
+- Secret key hash/salt verification
+- HTTP-only session cookies
+- Secure cookies in production
 
 **Storage Layer**
 - Storage interface defined in `server/storage.ts` providing abstraction over database operations
