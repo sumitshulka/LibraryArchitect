@@ -29,6 +29,7 @@ import {
   Shield,
   Clock,
   User,
+  Users,
   Code2,
   ExternalLink,
   ChevronRight
@@ -780,6 +781,55 @@ Headers:
                           </div>
                         </div>
                       </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="border-primary/20">
+                  <CardHeader>
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Users className="h-5 w-5" />
+                      Library User Provisioning API
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      <div className="p-3 bg-amber-50 dark:bg-amber-950/30 rounded-lg border border-amber-200 dark:border-amber-800">
+                        <p className="text-sm font-medium text-amber-800 dark:text-amber-200">Important</p>
+                        <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
+                          Library Staff (Admin/Librarian) must be pre-provisioned via API before they can log in via SSO.
+                          Patrons (Students/Faculty) are auto-provisioned on first login.
+                        </p>
+                      </div>
+                      
+                      <div className="space-y-3">
+                        <div className="p-3 bg-muted rounded-lg">
+                          <p className="font-mono text-xs text-green-600 dark:text-green-400">POST /api/erp/library-users</p>
+                          <p className="text-xs text-muted-foreground mt-1">Create/update a library staff user</p>
+                          <pre className="mt-2 text-xs bg-background p-2 rounded overflow-x-auto">{`{
+  "appId": "ERP_APP_ID",
+  "externalId": "EMP001",
+  "name": "Jane Doe",
+  "email": "jane@example.edu",
+  "role": "LIBRARIAN", // or LIBRARY_ADMIN
+  "department": "Library Services"
+}`}</pre>
+                        </div>
+                        
+                        <div className="p-3 bg-muted rounded-lg">
+                          <p className="font-mono text-xs text-blue-600 dark:text-blue-400">GET /api/erp/library-users?appId=...</p>
+                          <p className="text-xs text-muted-foreground mt-1">List all library staff users</p>
+                        </div>
+                        
+                        <div className="p-3 bg-muted rounded-lg">
+                          <p className="font-mono text-xs text-red-600 dark:text-red-400">DELETE /api/erp/library-users/:externalId?appId=...</p>
+                          <p className="text-xs text-muted-foreground mt-1">Deactivate a library staff user</p>
+                        </div>
+                      </div>
+                      
+                      <p className="text-xs text-muted-foreground">
+                        All endpoints require <code className="px-1 py-0.5 bg-muted rounded">X-Secret-Key</code> header.
+                      </p>
                     </div>
                   </CardContent>
                 </Card>

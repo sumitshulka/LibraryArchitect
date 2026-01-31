@@ -2067,7 +2067,7 @@ export async function registerRoutes(
           role: u.role,
           status: u.status,
           department: u.department,
-          createdAt: u.createdAt,
+          joinedDate: u.joinedDate,
         }))
       });
     } catch (error) {
