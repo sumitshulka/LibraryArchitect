@@ -1250,3 +1250,77 @@ export const allocationsApi = {
     return res.json();
   },
 };
+
+// Staff Library Allocation API
+export interface StaffAllocationLogWithDetails {
+  id: number;
+  staffUserId: number;
+  libraryId: number;
+  action: 'ALLOCATED' | 'DEALLOCATED';
+  performedByUserId: number;
+  reason: string | null;
+  createdAt: string;
+  staffUserName: string;
+  staffUserRole: string;
+  libraryName: string;
+  performedByName: string;
+}
+
+export interface StaffAllocationWithLibrary {
+  id: number;
+  userId: number;
+  libraryId: number;
+  role: string;
+  isPrimaryLibrary: boolean;
+  joinedAt: string;
+  expiresAt: string | null;
+  isActive: boolean;
+  library?: {
+    id: number;
+    name: string;
+    code: string;
+  };
+}
+
+export const staffAllocationsApi = {
+  getStaffAllocations: async (staffUserId: number): Promise<StaffAllocationWithLibrary[]> => {
+    const res = await fetch(`${API_BASE}/staff-allocations/${staffUserId}`);
+    if (!res.ok) throw new Error("Failed to fetch staff allocations");
+    return res.json();
+  },
+
+  allocateStaff: async (staffUserId: number, libraryId: number, reason?: string): Promise<{ success: boolean; message: string }> => {
+    const res = await fetch(`${API_BASE}/staff-allocations/${staffUserId}/allocate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ libraryId, reason }),
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to allocate staff");
+    }
+    return res.json();
+  },
+
+  deallocateStaff: async (staffUserId: number, libraryId: number, reason?: string): Promise<{ success: boolean; message: string }> => {
+    const res = await fetch(`${API_BASE}/staff-allocations/${staffUserId}/deallocate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ libraryId, reason }),
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to deallocate staff");
+    }
+    return res.json();
+  },
+
+  getAllocationLogs: async (staffUserId?: number): Promise<StaffAllocationLogWithDetails[]> => {
+    const url = staffUserId 
+      ? `${API_BASE}/staff-allocation-logs?staffUserId=${staffUserId}`
+      : `${API_BASE}/staff-allocation-logs`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("Failed to fetch allocation logs");
+    return res.json();
+  },
+};

@@ -5,8 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { usersApi } from "@/lib/api";
-import type { User } from "@shared/schema";
+import { usersApi, librariesApi, staffAllocationsApi, type StaffAllocationLogWithDetails, type StaffAllocationWithLibrary } from "@/lib/api";
+import type { User, Library } from "@shared/schema";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import {
@@ -41,13 +41,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Search, MoreHorizontal, Mail, Shield, Users, UserCog, Pencil, Trash2, Building2, RefreshCw } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Plus, Search, MoreHorizontal, Mail, Shield, Users, UserCog, Pencil, Trash2, Building2, RefreshCw, Library as LibraryIcon, X, History, PlusCircle, MinusCircle } from "lucide-react";
+import { useAuth } from "@/lib/auth";
 
 export default function UsersPage() {
+  const { user: currentUser } = useAuth();
   const [activeTab, setActiveTab] = useState<'STAFF' | 'PATRON'>('STAFF');
   const [searchQuery, setSearchQuery] = useState("");
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [allocatingUser, setAllocatingUser] = useState<User | null>(null);
 
   const queryClient = useQueryClient();
 
@@ -254,10 +260,15 @@ export default function UsersPage() {
                           <DropdownMenuItem>
                             <Mail className="mr-2 h-4 w-4" /> Email
                           </DropdownMenuItem>
-                          {activeTab === 'STAFF' && (
-                            <DropdownMenuItem>
-                              <Shield className="mr-2 h-4 w-4" /> Permissions
-                            </DropdownMenuItem>
+                          {activeTab === 'STAFF' && currentUser?.role === 'ADMIN' && (
+                            <>
+                              <DropdownMenuItem onClick={() => setAllocatingUser(user)}>
+                                <LibraryIcon className="mr-2 h-4 w-4" /> Manage Libraries
+                              </DropdownMenuItem>
+                              <DropdownMenuItem>
+                                <Shield className="mr-2 h-4 w-4" /> Permissions
+                              </DropdownMenuItem>
+                            </>
                           )}
                           <DropdownMenuSeparator />
                           <DropdownMenuItem 
@@ -287,6 +298,17 @@ export default function UsersPage() {
               setEditingUser(null);
             }}
           />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!allocatingUser} onOpenChange={(open) => !open && setAllocatingUser(null)}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-hidden">
+          {allocatingUser && (
+            <StaffAllocationDialog 
+              staff={allocatingUser}
+              onClose={() => setAllocatingUser(null)}
+            />
+          )}
         </DialogContent>
       </Dialog>
     </MainLayout>
@@ -525,5 +547,225 @@ function UserDialog({
         </Button>
       </DialogFooter>
     </form>
+  );
+}
+
+function StaffAllocationDialog({ 
+  staff, 
+  onClose 
+}: { 
+  staff: User; 
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [activeView, setActiveView] = useState<'allocations' | 'logs'>('allocations');
+  const [selectedLibraryId, setSelectedLibraryId] = useState<string>('');
+  const [reason, setReason] = useState('');
+
+  const { data: allocations = [], isLoading: loadingAllocations } = useQuery({
+    queryKey: ['staff-allocations', staff.id],
+    queryFn: () => staffAllocationsApi.getStaffAllocations(staff.id),
+  });
+
+  const { data: allLibraries = [] } = useQuery({
+    queryKey: ['libraries'],
+    queryFn: librariesApi.getAll,
+  });
+
+  const { data: allocationLogs = [], isLoading: loadingLogs } = useQuery({
+    queryKey: ['staff-allocation-logs', staff.id],
+    queryFn: () => staffAllocationsApi.getAllocationLogs(staff.id),
+    enabled: activeView === 'logs',
+  });
+
+  const allocatedLibraryIds = new Set(allocations.map(a => a.libraryId));
+  const availableLibraries = allLibraries.filter(lib => !allocatedLibraryIds.has(lib.id));
+
+  const allocateMutation = useMutation({
+    mutationFn: () => staffAllocationsApi.allocateStaff(staff.id, parseInt(selectedLibraryId), reason || undefined),
+    onSuccess: (data) => {
+      toast.success(data.message);
+      queryClient.invalidateQueries({ queryKey: ['staff-allocations', staff.id] });
+      queryClient.invalidateQueries({ queryKey: ['staff-allocation-logs', staff.id] });
+      setSelectedLibraryId('');
+      setReason('');
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const deallocateMutation = useMutation({
+    mutationFn: (libraryId: number) => staffAllocationsApi.deallocateStaff(staff.id, libraryId, reason || undefined),
+    onSuccess: (data) => {
+      toast.success(data.message);
+      queryClient.invalidateQueries({ queryKey: ['staff-allocations', staff.id] });
+      queryClient.invalidateQueries({ queryKey: ['staff-allocation-logs', staff.id] });
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle className="flex items-center gap-2">
+          <LibraryIcon className="h-5 w-5" />
+          Manage Library Access for {staff.name}
+        </DialogTitle>
+        <DialogDescription>
+          Allocate or remove {staff.name} ({staff.role}) from libraries. Changes are logged for audit purposes.
+        </DialogDescription>
+      </DialogHeader>
+
+      <Tabs value={activeView} onValueChange={(v) => setActiveView(v as 'allocations' | 'logs')}>
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="allocations" className="gap-2">
+            <LibraryIcon className="h-4 w-4" /> Allocations
+          </TabsTrigger>
+          <TabsTrigger value="logs" className="gap-2">
+            <History className="h-4 w-4" /> Audit Log
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="allocations" className="space-y-4">
+          <Card>
+            <CardHeader className="py-3">
+              <CardTitle className="text-sm">Current Library Allocations</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {loadingAllocations ? (
+                <p className="text-sm text-muted-foreground">Loading...</p>
+              ) : allocations.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Not allocated to any libraries yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {allocations.map((allocation) => (
+                    <div key={allocation.id} className="flex items-center justify-between p-2 border rounded-md">
+                      <div className="flex items-center gap-2">
+                        <LibraryIcon className="h-4 w-4 text-muted-foreground" />
+                        <span className="font-medium">{allocation.library?.name || 'Unknown Library'}</span>
+                        <Badge variant="outline" className="text-xs">{allocation.library?.code}</Badge>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                        onClick={() => deallocateMutation.mutate(allocation.libraryId)}
+                        disabled={deallocateMutation.isPending}
+                        data-testid={`button-deallocate-${allocation.libraryId}`}
+                      >
+                        <X className="h-4 w-4 mr-1" /> Remove
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="py-3">
+              <CardTitle className="text-sm">Add Library Allocation</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid gap-2">
+                <Label>Select Library</Label>
+                <Select value={selectedLibraryId} onValueChange={setSelectedLibraryId}>
+                  <SelectTrigger data-testid="select-library">
+                    <SelectValue placeholder="Choose a library to allocate..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableLibraries.length === 0 ? (
+                      <SelectItem value="none" disabled>No libraries available</SelectItem>
+                    ) : (
+                      availableLibraries.map((lib) => (
+                        <SelectItem key={lib.id} value={lib.id.toString()}>
+                          {lib.name} ({lib.code})
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label>Reason (optional)</Label>
+                <Textarea
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  placeholder="Provide a reason for this allocation..."
+                  rows={2}
+                  data-testid="input-allocation-reason"
+                />
+              </div>
+              <Button
+                onClick={() => allocateMutation.mutate()}
+                disabled={!selectedLibraryId || allocateMutation.isPending}
+                className="w-full"
+                data-testid="button-allocate"
+              >
+                <PlusCircle className="h-4 w-4 mr-2" />
+                {allocateMutation.isPending ? 'Allocating...' : 'Allocate to Library'}
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="logs">
+          <Card>
+            <CardHeader className="py-3">
+              <CardTitle className="text-sm">Allocation History</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {loadingLogs ? (
+                <p className="text-sm text-muted-foreground">Loading logs...</p>
+              ) : allocationLogs.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No allocation history yet.</p>
+              ) : (
+                <ScrollArea className="h-[300px]">
+                  <div className="space-y-3">
+                    {allocationLogs.map((log) => (
+                      <div key={log.id} className="flex items-start gap-3 p-3 border rounded-md">
+                        <div className={`mt-0.5 p-1 rounded-full ${
+                          log.action === 'ALLOCATED' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'
+                        }`}>
+                          {log.action === 'ALLOCATED' ? (
+                            <PlusCircle className="h-4 w-4" />
+                          ) : (
+                            <MinusCircle className="h-4 w-4" />
+                          )}
+                        </div>
+                        <div className="flex-1 space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className={`text-sm font-medium ${
+                              log.action === 'ALLOCATED' ? 'text-green-700' : 'text-red-700'
+                            }`}>
+                              {log.action}
+                            </span>
+                            <span className="text-sm">to</span>
+                            <Badge variant="outline">{log.libraryName}</Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            By {log.performedByName} on {new Date(log.createdAt).toLocaleString()}
+                          </p>
+                          {log.reason && (
+                            <p className="text-xs text-muted-foreground italic">
+                              Reason: {log.reason}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      <DialogFooter>
+        <Button variant="outline" onClick={onClose}>
+          Close
+        </Button>
+      </DialogFooter>
+    </>
   );
 }

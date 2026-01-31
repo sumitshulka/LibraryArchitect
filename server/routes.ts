@@ -4150,10 +4150,13 @@ export async function registerRoutes(
   // ===== Staff Library Allocation API (Super Admin Only) =====
   app.get("/api/staff-allocations/:staffUserId", async (req, res) => {
     try {
-      // Check if requester is super admin (user ID 1 or first ADMIN user)
-      const session = await getSession(req, res);
-      if (!session) {
+      const sessionId = req.cookies.session_id;
+      if (!sessionId) {
         return res.status(401).json({ error: "Authentication required" });
+      }
+      const session = await storage.getSession(sessionId);
+      if (!session) {
+        return res.status(401).json({ error: "Invalid session" });
       }
       
       const currentUser = await storage.getUser(session.userId);
@@ -4183,9 +4186,13 @@ export async function registerRoutes(
 
   app.post("/api/staff-allocations/:staffUserId/allocate", async (req, res) => {
     try {
-      const session = await getSession(req, res);
-      if (!session) {
+      const sessionId = req.cookies.session_id;
+      if (!sessionId) {
         return res.status(401).json({ error: "Authentication required" });
+      }
+      const session = await storage.getSession(sessionId);
+      if (!session) {
+        return res.status(401).json({ error: "Invalid session" });
       }
       
       const currentUser = await storage.getUser(session.userId);
@@ -4235,9 +4242,13 @@ export async function registerRoutes(
 
   app.post("/api/staff-allocations/:staffUserId/deallocate", async (req, res) => {
     try {
-      const session = await getSession(req, res);
-      if (!session) {
+      const sessionId = req.cookies.session_id;
+      if (!sessionId) {
         return res.status(401).json({ error: "Authentication required" });
+      }
+      const session = await storage.getSession(sessionId);
+      if (!session) {
+        return res.status(401).json({ error: "Invalid session" });
       }
       
       const currentUser = await storage.getUser(session.userId);
@@ -4278,9 +4289,13 @@ export async function registerRoutes(
 
   app.get("/api/staff-allocation-logs", async (req, res) => {
     try {
-      const session = await getSession(req, res);
-      if (!session) {
+      const sessionId = req.cookies.session_id;
+      if (!sessionId) {
         return res.status(401).json({ error: "Authentication required" });
+      }
+      const session = await storage.getSession(sessionId);
+      if (!session) {
+        return res.status(401).json({ error: "Invalid session" });
       }
       
       const currentUser = await storage.getUser(session.userId);
