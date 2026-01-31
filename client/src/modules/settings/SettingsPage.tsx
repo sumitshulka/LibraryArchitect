@@ -846,6 +846,12 @@ function OutboundAuthCard({ integration }: { integration: ErpIntegrationPublic &
   const [showSecret, setShowSecret] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
 
+  // Sync state when integration data changes (after save/refetch)
+  useEffect(() => {
+    setTokenTtl(String(integration.authTokenTtlSeconds || 3600));
+    setLoginUrlOverride(integration.authLoginUrl || "");
+  }, [integration.authTokenTtlSeconds, integration.authLoginUrl]);
+
   const defaultLoginUrl = integration.outboundBaseUrl 
     ? `${integration.outboundBaseUrl.replace(/\/$/, '')}/auth/login`
     : '';
