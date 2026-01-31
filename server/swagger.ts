@@ -866,6 +866,212 @@ Creates or updates a library staff user (Admin or Librarian). This endpoint must
           },
         },
       },
+      '/api/erp-integrations/{id}/auth-config': {
+        put: {
+          tags: ['ERP Integrations'],
+          summary: 'Configure ERP authentication settings',
+          description: 'Configure authentication settings for fetching user details from ERP (login URL, client credentials, token TTL).',
+          security: [{ cookieAuth: [] }],
+          parameters: [
+            {
+              name: 'id',
+              in: 'path',
+              required: true,
+              schema: { type: 'integer' },
+              description: 'ERP Integration ID',
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    authLoginUrl: { type: 'string', example: 'https://erp.university.edu/api/auth/login' },
+                    authClientId: { type: 'string', example: 'library_client' },
+                    authClientSecret: { type: 'string', example: 'secret123' },
+                    authTokenTtlSeconds: { type: 'integer', example: 3600, description: 'Token TTL in seconds (default: 3600)' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': {
+              description: 'Authentication configuration updated',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      authLoginUrl: { type: 'string' },
+                      authTokenTtlSeconds: { type: 'integer' },
+                    },
+                  },
+                },
+              },
+            },
+            '404': { description: 'ERP integration not found' },
+          },
+        },
+      },
+      '/api/erp-integrations/{id}/test-connection': {
+        post: {
+          tags: ['ERP Integrations'],
+          summary: 'Test ERP connection',
+          description: 'Test connection to the ERP system by attempting to authenticate and obtain a token.',
+          security: [{ cookieAuth: [] }],
+          parameters: [
+            {
+              name: 'id',
+              in: 'path',
+              required: true,
+              schema: { type: 'integer' },
+              description: 'ERP Integration ID',
+            },
+          ],
+          responses: {
+            '200': {
+              description: 'Connection test result',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      message: { type: 'string' },
+                      tokenExpiry: { type: 'string', format: 'date-time', nullable: true },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      '/api/erp-integrations/{id}/lookup/{userType}/{identifier}': {
+        get: {
+          tags: ['ERP Integrations'],
+          summary: 'Fetch user details from ERP',
+          description: 'Fetch student or faculty details from the ERP system on demand. Uses configured pull endpoints and authentication.',
+          security: [{ cookieAuth: [] }],
+          parameters: [
+            {
+              name: 'id',
+              in: 'path',
+              required: true,
+              schema: { type: 'integer' },
+              description: 'ERP Integration ID',
+            },
+            {
+              name: 'userType',
+              in: 'path',
+              required: true,
+              schema: { type: 'string', enum: ['student', 'faculty'] },
+              description: 'Type of user to look up',
+            },
+            {
+              name: 'identifier',
+              in: 'path',
+              required: true,
+              schema: { type: 'string' },
+              description: 'User identifier (registration number, employee ID, etc.)',
+              example: 'STU2024001',
+            },
+          ],
+          responses: {
+            '200': {
+              description: 'User details from ERP',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean' },
+                      userType: { type: 'string' },
+                      identifier: { type: 'string' },
+                      details: {
+                        type: 'object',
+                        properties: {
+                          registrationNumber: { type: 'string' },
+                          name: { type: 'string' },
+                          email: { type: 'string' },
+                          programName: { type: 'string' },
+                          batchName: { type: 'string' },
+                          session: { type: 'string' },
+                          department: { type: 'string' },
+                          userType: { type: 'string' },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            '400': { description: 'Invalid userType (must be STUDENT or FACULTY)' },
+            '404': { description: 'User not found in ERP system' },
+          },
+        },
+      },
+      '/api/erp/verify-user': {
+        post: {
+          tags: ['ERP User Provisioning'],
+          summary: 'Verify user exists in ERP',
+          description: 'Verify a student or faculty member exists in the ERP system. Used for circulation and fine verification.',
+          security: [{ erpSecretKey: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['appId', 'userType', 'identifier'],
+                  properties: {
+                    appId: { type: 'string', example: 'UNIV_ERP_001' },
+                    userType: { type: 'string', enum: ['STUDENT', 'FACULTY'] },
+                    identifier: { type: 'string', example: 'STU2024001' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': {
+              description: 'Verification result',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      verified: { type: 'boolean' },
+                      user: {
+                        type: 'object',
+                        nullable: true,
+                        properties: {
+                          registrationNumber: { type: 'string' },
+                          name: { type: 'string' },
+                          email: { type: 'string' },
+                          program: { type: 'string' },
+                          batch: { type: 'string' },
+                          session: { type: 'string' },
+                          department: { type: 'string' },
+                          userType: { type: 'string' },
+                        },
+                      },
+                      message: { type: 'string', nullable: true },
+                    },
+                  },
+                },
+              },
+            },
+            '400': { description: 'Missing required fields' },
+            '404': { description: 'ERP integration not found' },
+          },
+        },
+      },
       '/api/system-config': {
         get: {
           tags: ['System Configuration'],
