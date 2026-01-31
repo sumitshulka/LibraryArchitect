@@ -19,11 +19,14 @@ import { LibraryDashboardPage } from "@/modules/organizations/LibraryDashboardPa
 import { LibraryResourcesPage } from "@/modules/organizations/LibraryResourcesPage";
 import ReportsPage from "@/modules/reports/ReportsPage";
 import SettingsPage from "@/modules/settings/SettingsPage";
+import SSOTestingPage from "./modules/settings/SSOTestingPage";
+import PublicHomePage from "./pages/PublicHomePage";
 
 function AppRouter() {
   return (
     <Switch>
       <Route path="/" component={DashboardPage} />
+      <Route path="/home" component={PublicHomePage} />
       <Route path="/catalog" component={CatalogPage} />
       <Route path="/catalog/new" component={AddResourcePage} />
       <Route path="/catalog/bulk-upload" component={BulkUploadPage} />
@@ -36,6 +39,7 @@ function AppRouter() {
       <Route path="/organizations/libraries/:libraryId/resources" component={LibraryResourcesPage} />
       <Route path="/reports" component={ReportsPage} />
       <Route path="/settings" component={SettingsPage} />
+      <Route path="/settings/sso-testing" component={SSOTestingPage} />
       <Route component={NotFound} />
     </Switch>
   );
