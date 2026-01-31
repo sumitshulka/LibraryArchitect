@@ -688,6 +688,7 @@ function ErpIntegrationDetails({
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="flex items-center gap-2">
+                <span className="text-muted-foreground font-mono text-base">#{integration.id}</span>
                 {integration.name}
                 <Badge variant={integration.isActive ? "default" : "secondary"}>
                   {integration.isActive ? "Active" : "Inactive"}
@@ -2015,6 +2016,7 @@ function ErpIntegrationsTab() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-16">ID</TableHead>
                   <TableHead>Name</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Mode</TableHead>
@@ -2026,6 +2028,9 @@ function ErpIntegrationsTab() {
               <TableBody>
                 {integrations.map((integration) => (
                   <TableRow key={integration.id} data-testid={`row-erp-${integration.id}`}>
+                    <TableCell className="font-mono text-sm font-medium text-muted-foreground">
+                      #{integration.id}
+                    </TableCell>
                     <TableCell className="font-medium">
                       <button 
                         className="hover:underline text-left"
