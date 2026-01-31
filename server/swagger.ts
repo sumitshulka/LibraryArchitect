@@ -68,7 +68,22 @@ The system supports three authentication modes:
       },
       {
         name: 'ERP Integrations',
-        description: 'Manage ERP integration configurations',
+        description: `Manage ERP integration configurations and outbound communication.
+
+**Outbound Integration Flow (Library → ERP):**
+1. **Configure Auth Settings** - Set API secret, login URL override (optional), and token TTL
+2. **Test Connection** - Authenticates with ERP using App ID + API Secret, obtains JWT token, and stores it
+3. **Lookup User** - Uses stored JWT token in Authorization header to fetch user details from ERP
+
+**Authentication Mechanism:**
+- Library sends POST to ERP login endpoint with App ID and API Secret
+- ERP returns JWT token with expiration time
+- Library caches token and uses it for subsequent API calls
+- Token is automatically refreshed when expired
+
+**Token Usage:**
+- All outbound API calls include: \`Authorization: Bearer <jwt_token>\`
+- Pull endpoints use the cached token to fetch student/faculty data on demand`,
       },
       {
         name: 'System Configuration',
@@ -869,8 +884,17 @@ Creates or updates a library staff user (Admin or Librarian). This endpoint must
       '/api/erp-integrations/{id}/auth-config': {
         put: {
           tags: ['ERP Integrations'],
-          summary: 'Configure ERP authentication settings',
-          description: 'Configure authentication settings for fetching user details from ERP (login URL, client credentials, token TTL).',
+          summary: 'Step 1: Configure outbound authentication settings',
+          description: `Configure authentication settings for outbound ERP communication.
+
+**Required Settings:**
+- **authClientSecret**: API secret provided by ERP for authentication (required for outbound calls)
+- **authTokenTtlSeconds**: How long to cache the JWT token before refreshing (default: 3600 seconds)
+
+**Optional Settings:**
+- **authLoginUrl**: Override the login endpoint URL. If not set, defaults to \`{outboundBaseUrl}/auth/login\`
+
+The Library uses these credentials to authenticate with ERP and obtain a JWT token for API calls.`,
           security: [{ cookieAuth: [] }],
           parameters: [
             {
@@ -920,8 +944,32 @@ Creates or updates a library staff user (Admin or Librarian). This endpoint must
       '/api/erp-integrations/{id}/test-connection': {
         post: {
           tags: ['ERP Integrations'],
-          summary: 'Test ERP connection',
-          description: 'Test connection to the ERP system by attempting to authenticate and obtain a token.',
+          summary: 'Step 2: Test connection and obtain JWT token',
+          description: `Tests the outbound connection to ERP by performing the full authentication flow:
+
+1. Sends POST request to ERP login endpoint with App ID and API Secret
+2. Receives JWT token from ERP response
+3. Stores the token for subsequent API calls
+4. Reports token expiration time
+
+**Request sent to ERP:**
+\`\`\`json
+POST {loginUrl}
+{
+  "appId": "{integration.appId}",
+  "secret": "{authClientSecret}"
+}
+\`\`\`
+
+**Expected ERP Response:**
+\`\`\`json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIs...",
+  "expires_in": 3600
+}
+\`\`\`
+
+Use this endpoint to verify your authentication configuration is correct before using lookup endpoints.`,
           security: [{ cookieAuth: [] }],
           parameters: [
             {
@@ -954,8 +1002,26 @@ Creates or updates a library staff user (Admin or Librarian). This endpoint must
       '/api/erp-integrations/{id}/lookup/{userType}/{identifier}': {
         get: {
           tags: ['ERP Integrations'],
-          summary: 'Fetch user details from ERP',
-          description: 'Fetch student or faculty details from the ERP system on demand. Uses configured pull endpoints and authentication.',
+          summary: 'Step 3: Fetch user details from ERP using JWT token',
+          description: `Fetches student or faculty details from ERP on demand.
+
+**Authentication Flow:**
+1. Uses cached JWT token (obtained via test-connection or auto-refresh)
+2. If token expired, automatically authenticates and gets new token
+3. Sends request to configured pull endpoint with Authorization header
+
+**Request sent to ERP:**
+\`\`\`
+GET {pullEndpoint.url}?{identifier_param}={identifier}
+Authorization: Bearer {jwt_token}
+\`\`\`
+
+**Response Mapping:**
+The response from ERP is mapped using the configured field mappings in pull endpoints.
+
+**Prerequisites:**
+- Outbound authentication must be configured (auth-config)
+- A pull endpoint must be configured for the user type (student/faculty)`,
           security: [{ cookieAuth: [] }],
           parameters: [
             {
