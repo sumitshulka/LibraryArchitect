@@ -1811,6 +1811,15 @@ export async function registerRoutes(
       let user = await storage.getUserByExternalId(mappedUser.externalId, integration.id);
       
       if (!user) {
+        // Staff users (Library Admin, Librarian) must be pre-provisioned via API
+        if (mappedUser.category === 'STAFF') {
+          return res.status(403).json({ 
+            error: "Access denied", 
+            details: "Library staff users must be pre-provisioned by the ERP system. Please contact your administrator to request library access."
+          });
+        }
+        
+        // Patrons (Students, Faculty) can be auto-provisioned on first login
         const username = `${mappedUser.externalId}_${integration.id}`;
         user = await storage.createUser({
           username,
@@ -1826,6 +1835,15 @@ export async function registerRoutes(
           erpIntegrationId: integration.id,
         });
       } else {
+        // Check if staff user is still active
+        if (mappedUser.category === 'STAFF' && user.status !== 'ACTIVE') {
+          return res.status(403).json({ 
+            error: "Access denied", 
+            details: "Your library staff account has been deactivated. Please contact your administrator."
+          });
+        }
+        
+        // Update user info on login
         await storage.updateUser(user.id, {
           name: mappedUser.name,
           email: mappedUser.email,
@@ -1911,6 +1929,207 @@ export async function registerRoutes(
     }
   });
 
+  // ERP Library User Provisioning APIs
+  // These endpoints allow ERP systems to pre-provision library staff users
+
+  // Create a library staff user (Admin or Librarian)
+  app.post("/api/erp/library-users", async (req, res) => {
+    try {
+      const { appId, externalId, name, email, role, department } = req.body;
+      const secretKey = req.headers['x-secret-key'] as string;
+      
+      if (!appId || !externalId || !name || !email || !role) {
+        return res.status(400).json({ 
+          error: "Required fields: appId, externalId, name, email, role (LIBRARY_ADMIN or LIBRARIAN)" 
+        });
+      }
+
+      if (!secretKey) {
+        return res.status(401).json({ error: "X-Secret-Key header required" });
+      }
+
+      const normalizedRole = role.toUpperCase();
+      if (normalizedRole !== 'LIBRARY_ADMIN' && normalizedRole !== 'LIBRARIAN') {
+        return res.status(400).json({ 
+          error: "Role must be LIBRARY_ADMIN or LIBRARIAN" 
+        });
+      }
+
+      const integration = await storage.getErpIntegrationByAppId(appId);
+      if (!integration) {
+        return res.status(404).json({ error: "ERP integration not found with this App ID" });
+      }
+
+      const { verifySecretKey } = await import('./sso');
+      
+      if (!verifySecretKey(secretKey, integration.secretHash, integration.secretSalt)) {
+        return res.status(401).json({ error: "Invalid secret key" });
+      }
+
+      // Check if user already exists
+      let user = await storage.getUserByExternalId(externalId, integration.id);
+      
+      if (user) {
+        // Update existing user
+        await storage.updateUser(user.id, {
+          name,
+          email,
+          role: normalizedRole === 'LIBRARY_ADMIN' ? 'ADMIN' : 'LIBRARIAN',
+          department: department || null,
+        });
+        user = await storage.getUser(user.id);
+        return res.json({ 
+          message: "Library user updated successfully",
+          user: {
+            id: user!.id,
+            externalId: user!.externalId,
+            name: user!.name,
+            email: user!.email,
+            role: user!.role,
+            category: user!.category,
+            status: user!.status,
+          }
+        });
+      }
+
+      // Create new library staff user
+      const username = `${externalId}_${integration.id}`;
+      const libraryRole = normalizedRole === 'LIBRARY_ADMIN' ? 'ADMIN' : 'LIBRARIAN';
+      
+      const newUser = await storage.createUser({
+        username,
+        email,
+        name,
+        category: 'STAFF',
+        role: libraryRole,
+        status: 'ACTIVE',
+        department: department || null,
+        employeeId: externalId,
+        studentId: null,
+        externalId,
+        erpIntegrationId: integration.id,
+      });
+
+      res.status(201).json({ 
+        message: "Library user created successfully",
+        user: {
+          id: newUser.id,
+          externalId: newUser.externalId,
+          name: newUser.name,
+          email: newUser.email,
+          role: newUser.role,
+          category: newUser.category,
+          status: newUser.status,
+        }
+      });
+    } catch (error) {
+      console.error("Library user creation error:", error);
+      res.status(500).json({ error: "Failed to create library user" });
+    }
+  });
+
+  // List library staff users for an ERP integration
+  app.get("/api/erp/library-users", async (req, res) => {
+    try {
+      const appId = req.query.appId as string;
+      const secretKey = req.headers['x-secret-key'] as string;
+      
+      if (!appId) {
+        return res.status(400).json({ error: "appId query parameter required" });
+      }
+
+      if (!secretKey) {
+        return res.status(401).json({ error: "X-Secret-Key header required" });
+      }
+
+      const integration = await storage.getErpIntegrationByAppId(appId);
+      if (!integration) {
+        return res.status(404).json({ error: "ERP integration not found with this App ID" });
+      }
+
+      const { verifySecretKey } = await import('./sso');
+      
+      if (!verifySecretKey(secretKey, integration.secretHash, integration.secretSalt)) {
+        return res.status(401).json({ error: "Invalid secret key" });
+      }
+
+      const users = await storage.getUsersByErpIntegration(integration.id);
+      const staffUsers = users.filter(u => u.category === 'STAFF');
+
+      res.json({ 
+        integrationId: integration.id,
+        integrationName: integration.name,
+        users: staffUsers.map(u => ({
+          id: u.id,
+          externalId: u.externalId,
+          name: u.name,
+          email: u.email,
+          role: u.role,
+          status: u.status,
+          department: u.department,
+          createdAt: u.createdAt,
+        }))
+      });
+    } catch (error) {
+      console.error("Library users list error:", error);
+      res.status(500).json({ error: "Failed to list library users" });
+    }
+  });
+
+  // Remove a library staff user
+  app.delete("/api/erp/library-users/:externalId", async (req, res) => {
+    try {
+      const { externalId } = req.params;
+      const appId = req.query.appId as string;
+      const secretKey = req.headers['x-secret-key'] as string;
+      
+      if (!appId) {
+        return res.status(400).json({ error: "appId query parameter required" });
+      }
+
+      if (!secretKey) {
+        return res.status(401).json({ error: "X-Secret-Key header required" });
+      }
+
+      const integration = await storage.getErpIntegrationByAppId(appId);
+      if (!integration) {
+        return res.status(404).json({ error: "ERP integration not found with this App ID" });
+      }
+
+      const { verifySecretKey } = await import('./sso');
+      
+      if (!verifySecretKey(secretKey, integration.secretHash, integration.secretSalt)) {
+        return res.status(401).json({ error: "Invalid secret key" });
+      }
+
+      const user = await storage.getUserByExternalId(externalId, integration.id);
+      if (!user) {
+        return res.status(404).json({ error: "Library user not found" });
+      }
+
+      if (user.category !== 'STAFF') {
+        return res.status(400).json({ error: "Can only remove library staff users via this endpoint" });
+      }
+
+      // Soft delete - set status to INACTIVE
+      await storage.updateUser(user.id, { status: 'INACTIVE' });
+
+      res.json({ 
+        message: "Library user deactivated successfully",
+        user: {
+          id: user.id,
+          externalId: user.externalId,
+          name: user.name,
+          status: 'INACTIVE',
+        }
+      });
+    } catch (error) {
+      console.error("Library user removal error:", error);
+      res.status(500).json({ error: "Failed to remove library user" });
+    }
+  });
+
+  // SSO Test Endpoints (for development/testing only)
   app.post("/api/sso/test/generate-token", async (req, res) => {
     try {
       const { appId, secretKey, userId, userType, role, name, email, department } = req.body;
@@ -2020,33 +2239,65 @@ export async function registerRoutes(
       
       let user = await storage.getUserByExternalId(mappedUser.externalId, integration.id);
       let userCreated = false;
+      let preProvisioningRequired = false;
       
       if (!user) {
-        const username = `${mappedUser.externalId}_${integration.id}`;
-        user = await storage.createUser({
-          username,
-          email: mappedUser.email,
-          name: mappedUser.name,
-          category: mappedUser.category,
-          role: mappedUser.role,
-          status: 'ACTIVE',
-          department: mappedUser.department || null,
-          employeeId: mappedUser.employeeId || null,
-          studentId: mappedUser.studentId || null,
-          externalId: mappedUser.externalId,
-          erpIntegrationId: integration.id,
+        // Staff users (Library Admin, Librarian) must be pre-provisioned via API
+        if (mappedUser.category === 'STAFF') {
+          preProvisioningRequired = true;
+        } else {
+          // Patrons (Students, Faculty) can be auto-provisioned on first login
+          const username = `${mappedUser.externalId}_${integration.id}`;
+          user = await storage.createUser({
+            username,
+            email: mappedUser.email,
+            name: mappedUser.name,
+            category: mappedUser.category,
+            role: mappedUser.role,
+            status: 'ACTIVE',
+            department: mappedUser.department || null,
+            employeeId: mappedUser.employeeId || null,
+            studentId: mappedUser.studentId || null,
+            externalId: mappedUser.externalId,
+            erpIntegrationId: integration.id,
+          });
+          userCreated = true;
+        }
+      } else if (mappedUser.category === 'STAFF' && user.status !== 'ACTIVE') {
+        return res.status(403).json({ 
+          error: "Access denied", 
+          details: "Your library staff account has been deactivated."
         });
-        userCreated = true;
       }
 
-      await storage.updateUserLastLogin(user.id);
+      if (preProvisioningRequired) {
+        return res.status(403).json({ 
+          success: false,
+          error: "Access denied - Pre-provisioning required",
+          details: "Library staff users must be pre-provisioned via POST /api/erp/library-users before they can log in.",
+          preProvisioningRequired: true,
+          tokenDetails: {
+            token,
+            payload,
+            signatureValid,
+          },
+          roleMapping: {
+            erpUserType: payload.userType,
+            erpRole: payload.role,
+            libraryCategory: mappedUser.category,
+            libraryRole: mappedUser.role,
+          }
+        });
+      }
+
+      await storage.updateUserLastLogin(user!.id);
 
       const sessionId = generateSessionId();
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
       
       const session = await storage.createSession({
         id: sessionId,
-        userId: user.id,
+        userId: user!.id,
         erpIntegrationId: integration.id,
         expiresAt,
         ipAddress: req.ip || null,
@@ -2061,7 +2312,7 @@ export async function registerRoutes(
         path: '/'
       });
 
-      const { password, ...safeUser } = user;
+      const { password, ...safeUser } = user!;
       
       res.json({
         success: true,

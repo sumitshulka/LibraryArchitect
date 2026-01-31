@@ -74,6 +74,7 @@ export interface IStorage {
   getUsersByCategory(category: 'STAFF' | 'PATRON'): Promise<User[]>;
   deleteUser(id: number): Promise<boolean>;
   getUserByExternalId(externalId: string, erpIntegrationId: number): Promise<User | undefined>;
+  getUsersByErpIntegration(erpIntegrationId: number): Promise<User[]>;
   updateUserLastLogin(id: number): Promise<void>;
   
   // Sessions
@@ -372,6 +373,10 @@ export class DBStorage implements IStorage {
       )
     );
     return user;
+  }
+
+  async getUsersByErpIntegration(erpIntegrationId: number): Promise<User[]> {
+    return db.select().from(users).where(eq(users.erpIntegrationId, erpIntegrationId));
   }
 
   async updateUserLastLogin(id: number): Promise<void> {
