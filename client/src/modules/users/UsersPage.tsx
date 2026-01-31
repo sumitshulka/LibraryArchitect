@@ -41,7 +41,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Search, MoreHorizontal, Mail, Shield, Users, UserCog, Pencil, Trash2 } from "lucide-react";
+import { Plus, Search, MoreHorizontal, Mail, Shield, Users, UserCog, Pencil, Trash2, Building2 } from "lucide-react";
 
 export default function UsersPage() {
   const [activeTab, setActiveTab] = useState<'STAFF' | 'PATRON'>('STAFF');
@@ -190,7 +190,17 @@ export default function UsersPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col">
-                        <span className="font-medium">{user.name}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{user.name}</span>
+                          {user.erpIntegrationId ? (
+                            <Badge variant="secondary" className="text-xs flex items-center gap-1">
+                              <Building2 className="h-3 w-3" />
+                              ERP
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-xs">Local</Badge>
+                          )}
+                        </div>
                         <span className="text-xs text-muted-foreground">{user.email}</span>
                       </div>
                     </TableCell>
@@ -347,11 +357,35 @@ function UserDialog({
   return (
     <form onSubmit={handleSubmit}>
       <DialogHeader>
-        <DialogTitle>{user ? "Edit" : "Add"} {category === 'STAFF' ? 'Staff Member' : 'Library User'}</DialogTitle>
+        <DialogTitle className="flex items-center gap-2">
+          {user ? "Edit" : "Add"} {category === 'STAFF' ? 'Staff Member' : 'Library User'}
+          {user && (
+            user.erpIntegrationId ? (
+              <Badge variant="secondary" className="text-xs flex items-center gap-1">
+                <Building2 className="h-3 w-3" />
+                ERP User
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="text-xs">Local User</Badge>
+            )
+          )}
+        </DialogTitle>
         <DialogDescription>
-          {category === 'STAFF' 
-            ? "Add or edit library staff members (administrators, librarians)."
-            : "Add or edit library patrons (students, faculty)."}
+          {user ? (
+            user.erpIntegrationId 
+              ? "This user is managed by ERP. Some fields may not be editable."
+              : "Edit local user account details."
+          ) : (
+            <>
+              {category === 'STAFF' 
+                ? "Add a new local staff member. ERP staff users should be provisioned via the ERP system."
+                : "Add a new local library user. ERP users are provisioned automatically via SSO."}
+              <span className="block mt-1 text-xs">
+                <Badge variant="outline" className="text-xs mr-1">Local</Badge>
+                This will create a local user account.
+              </span>
+            </>
+          )}
         </DialogDescription>
       </DialogHeader>
       <div className="grid gap-4 py-4 max-h-[60vh] overflow-y-auto">

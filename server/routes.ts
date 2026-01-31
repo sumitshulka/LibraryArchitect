@@ -1954,11 +1954,69 @@ export async function registerRoutes(
           email: result.user.email,
           role: result.user.role,
           category: result.user.category,
+          isLocalUser: !result.user.erpIntegrationId && !!result.user.password,
         },
       });
     } catch (error) {
       console.error("Auth check error:", error);
       res.status(500).json({ error: "Failed to check authentication" });
+    }
+  });
+
+  // Change password endpoint (only for local users)
+  app.post("/api/auth/change-password", async (req, res) => {
+    try {
+      const sessionId = req.cookies?.session_id;
+      
+      if (!sessionId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const result = await storage.getSessionWithUser(sessionId);
+      
+      if (!result || result.session.expiresAt < new Date()) {
+        return res.status(401).json({ error: "Session expired" });
+      }
+
+      const user = result.user;
+
+      // Check if user is a local user (has password and no ERP integration)
+      if (user.erpIntegrationId) {
+        return res.status(403).json({ 
+          error: "ERP users cannot change password here. Please use your organization's portal." 
+        });
+      }
+
+      if (!user.password) {
+        return res.status(403).json({ 
+          error: "This account uses SSO authentication." 
+        });
+      }
+
+      const { currentPassword, newPassword } = req.body;
+      
+      if (!currentPassword || !newPassword) {
+        return res.status(400).json({ error: "Current and new password are required" });
+      }
+
+      if (newPassword.length < 6) {
+        return res.status(400).json({ error: "New password must be at least 6 characters" });
+      }
+
+      // Verify current password
+      const { verifyPassword, hashPassword } = await import('./sso');
+      if (!verifyPassword(currentPassword, user.password)) {
+        return res.status(401).json({ error: "Current password is incorrect" });
+      }
+
+      // Update password
+      const hashedNewPassword = hashPassword(newPassword);
+      await storage.updateUser(user.id, { password: hashedNewPassword });
+
+      res.json({ success: true, message: "Password changed successfully" });
+    } catch (error) {
+      console.error("Change password error:", error);
+      res.status(500).json({ error: "Failed to change password" });
     }
   });
 
@@ -2051,6 +2109,7 @@ export async function registerRoutes(
           email: user.email,
           role: user.role,
           category: user.category,
+          isLocalUser: !user.erpIntegrationId && !!user.password,
         },
       });
     } catch (error) {
