@@ -3,6 +3,7 @@ import { pgTable, text, varchar, serial, timestamp, integer, boolean, pgEnum, js
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 
+export const userCategoryEnum = pgEnum('user_category', ['STAFF', 'PATRON']);
 export const userRoleEnum = pgEnum('user_role', ['ADMIN', 'LIBRARIAN', 'STUDENT', 'FACULTY']);
 export const userStatusEnum = pgEnum('user_status', ['ACTIVE', 'INACTIVE', 'SUSPENDED']);
 export const bookStatusEnum = pgEnum('book_status', ['AVAILABLE', 'CHECKED_OUT', 'LOST', 'MAINTENANCE', 'RESERVED']);
@@ -21,10 +22,15 @@ export const users = pgTable("users", {
   email: text("email").notNull().unique(),
   password: text("password"),
   name: text("name").notNull(),
+  category: userCategoryEnum("category").notNull().default('PATRON'),
   role: userRoleEnum("role").notNull().default('STUDENT'),
   status: userStatusEnum("status").notNull().default('ACTIVE'),
   joinedDate: timestamp("joined_date").notNull().defaultNow(),
   avatarUrl: text("avatar_url"),
+  phone: text("phone"),
+  department: text("department"),
+  employeeId: text("employee_id"),
+  studentId: text("student_id"),
 });
 
 export const resourceTypes = pgTable("resource_types", {

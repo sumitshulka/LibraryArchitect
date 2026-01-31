@@ -102,6 +102,12 @@ export const usersApi = {
     return res.json();
   },
 
+  getByCategory: async (category: 'STAFF' | 'PATRON'): Promise<User[]> => {
+    const res = await fetch(`${API_BASE}/users?category=${category}`);
+    if (!res.ok) throw new Error("Failed to fetch users");
+    return res.json();
+  },
+
   getById: async (id: number): Promise<User> => {
     const res = await fetch(`${API_BASE}/users/${id}`);
     if (!res.ok) throw new Error("Failed to fetch user");
@@ -129,6 +135,13 @@ export const usersApi = {
     });
     if (!res.ok) throw new Error("Failed to update user");
     return res.json();
+  },
+
+  delete: async (id: number): Promise<void> => {
+    const res = await fetch(`${API_BASE}/users/${id}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new Error("Failed to delete user");
   },
 };
 

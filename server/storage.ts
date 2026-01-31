@@ -68,6 +68,8 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: number, user: Partial<InsertUser>): Promise<User | undefined>;
   getAllUsers(): Promise<User[]>;
+  getUsersByCategory(category: 'STAFF' | 'PATRON'): Promise<User[]>;
+  deleteUser(id: number): Promise<boolean>;
   
   // Resource Types
   getResourceType(id: number): Promise<ResourceType | undefined>;
@@ -336,6 +338,17 @@ export class DBStorage implements IStorage {
 
   async getAllUsers(): Promise<User[]> {
     return await db.select().from(users).orderBy(asc(users.name));
+  }
+
+  async getUsersByCategory(category: 'STAFF' | 'PATRON'): Promise<User[]> {
+    return await db.select().from(users)
+      .where(eq(users.category, category))
+      .orderBy(asc(users.name));
+  }
+
+  async deleteUser(id: number): Promise<boolean> {
+    const result = await db.delete(users).where(eq(users.id, id));
+    return (result.rowCount ?? 0) > 0;
   }
 
   // Resource Types
