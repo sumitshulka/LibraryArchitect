@@ -41,7 +41,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Search, MoreHorizontal, Mail, Shield, Users, UserCog, Pencil, Trash2, Building2 } from "lucide-react";
+import { Plus, Search, MoreHorizontal, Mail, Shield, Users, UserCog, Pencil, Trash2, Building2, RefreshCw } from "lucide-react";
 
 export default function UsersPage() {
   const [activeTab, setActiveTab] = useState<'STAFF' | 'PATRON'>('STAFF');
@@ -115,10 +115,22 @@ export default function UsersPage() {
           <h1 className="text-3xl font-bold tracking-tight text-foreground">User Management</h1>
           <p className="text-muted-foreground mt-1">Manage library staff and patrons separately.</p>
         </div>
-        <Button size="sm" className="gap-2" onClick={handleAddUser} data-testid="button-add-user">
-          <Plus className="h-4 w-4" />
-          Add {activeTab === 'STAFF' ? 'Staff Member' : 'Library User'}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="gap-2" 
+            onClick={() => queryClient.invalidateQueries({ queryKey: ["users"] })}
+            data-testid="button-refresh-users"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Refresh
+          </Button>
+          <Button size="sm" className="gap-2" onClick={handleAddUser} data-testid="button-add-user">
+            <Plus className="h-4 w-4" />
+            Add {activeTab === 'STAFF' ? 'Staff Member' : 'Library User'}
+          </Button>
+        </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'STAFF' | 'PATRON')} className="mt-4">
