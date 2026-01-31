@@ -838,24 +838,35 @@ function ErpIntegrationDetails({
   );
 }
 
-function OutboundAuthCard({ integration }: { integration: ErpIntegrationPublic }) {
+function OutboundAuthCard({ integration }: { integration: ErpIntegrationPublic & { hasApiSecret?: boolean } }) {
   const queryClient = useQueryClient();
   const [apiSecret, setApiSecret] = useState("");
-  const [tokenTtl, setTokenTtl] = useState("3600");
-  const [loginUrlOverride, setLoginUrlOverride] = useState("");
+  const [tokenTtl, setTokenTtl] = useState(String(integration.authTokenTtlSeconds || 3600));
+  const [loginUrlOverride, setLoginUrlOverride] = useState(integration.authLoginUrl || "");
   const [showSecret, setShowSecret] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
 
   const defaultLoginUrl = integration.outboundBaseUrl 
     ? `${integration.outboundBaseUrl.replace(/\/$/, '')}/auth/login`
     : '';
+  
+  const hasApiSecret = integration.hasApiSecret;
 
   const updateAuthMutation = useMutation({
-    mutationFn: () => erpIntegrationsApi.updateAuthConfig(integration.id, {
-      authLoginUrl: loginUrlOverride || null,
-      authClientSecret: apiSecret || null,
-      authTokenTtlSeconds: parseInt(tokenTtl) || 3600,
-    }),
+    mutationFn: () => {
+      const updates: Record<string, any> = {};
+      if (loginUrlOverride !== (integration.authLoginUrl || "")) {
+        updates.authLoginUrl = loginUrlOverride || null;
+      }
+      if (apiSecret) {
+        updates.authClientSecret = apiSecret;
+      }
+      const newTtl = parseInt(tokenTtl) || 3600;
+      if (newTtl !== (integration.authTokenTtlSeconds || 3600)) {
+        updates.authTokenTtlSeconds = newTtl;
+      }
+      return erpIntegrationsApi.updateAuthConfig(integration.id, updates);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["erp-integrations"] });
       toast.success("Outbound authentication settings saved");
@@ -953,7 +964,7 @@ function OutboundAuthCard({ integration }: { integration: ErpIntegrationPublic }
                   type={showSecret ? "text" : "password"}
                   value={apiSecret}
                   onChange={(e) => setApiSecret(e.target.value)}
-                  placeholder="Enter API secret provided by ERP"
+                  placeholder={hasApiSecret ? "Leave blank to keep existing" : "Enter API secret provided by ERP"}
                   data-testid="input-api-secret"
                 />
                 <Button
@@ -967,8 +978,18 @@ function OutboundAuthCard({ integration }: { integration: ErpIntegrationPublic }
                 </Button>
               </div>
             ) : (
-              <div className="p-2 bg-muted rounded text-sm">
-                ••••••••••••••••
+              <div className="p-2 bg-muted rounded text-sm flex items-center gap-2">
+                {hasApiSecret ? (
+                  <>
+                    <CheckCircle2 className="h-4 w-4 text-green-600" />
+                    <span>Configured (hidden)</span>
+                  </>
+                ) : (
+                  <>
+                    <AlertTriangle className="h-4 w-4 text-amber-600" />
+                    <span>Not configured</span>
+                  </>
+                )}
               </div>
             )}
             <p className="text-xs text-muted-foreground">

@@ -2342,25 +2342,32 @@ export async function registerRoutes(
       }
 
       const id = parseInt(req.params.id);
-      const { authLoginUrl, authClientId, authClientSecret, authTokenTtlSeconds } = req.body;
+      const { authLoginUrl, authClientSecret, authTokenTtlSeconds } = req.body;
 
       const integration = await storage.getErpIntegration(id);
       if (!integration) {
         return res.status(404).json({ error: "ERP integration not found" });
       }
 
-      const updated = await storage.updateErpIntegration(id, {
-        authLoginUrl,
-        authClientId,
-        authClientSecret,
-        authTokenTtlSeconds: authTokenTtlSeconds || 3600,
-      });
+      const updateData: Record<string, any> = {};
+      if (authLoginUrl !== undefined && authLoginUrl !== null) {
+        updateData.authLoginUrl = authLoginUrl;
+      }
+      if (authClientSecret !== undefined && authClientSecret !== null && authClientSecret !== '') {
+        updateData.authClientSecret = authClientSecret;
+      }
+      if (authTokenTtlSeconds !== undefined && authTokenTtlSeconds !== null) {
+        updateData.authTokenTtlSeconds = authTokenTtlSeconds > 0 ? authTokenTtlSeconds : 3600;
+      }
+
+      const updated = await storage.updateErpIntegration(id, updateData);
 
       res.json({ 
         success: true, 
         message: "Authentication configuration updated",
         authLoginUrl: updated?.authLoginUrl,
         authTokenTtlSeconds: updated?.authTokenTtlSeconds,
+        hasApiSecret: !!updated?.authClientSecret,
       });
     } catch (error) {
       console.error("Auth config update error:", error);
@@ -2730,7 +2737,10 @@ export async function registerRoutes(
   app.get("/api/erp-integrations", async (req, res) => {
     try {
       const integrations = await storage.getAllErpIntegrations();
-      const sanitized = integrations.map(({ secretHash, secretSalt, ...rest }) => rest);
+      const sanitized = integrations.map(({ secretHash, secretSalt, authClientSecret, cachedAuthToken, ...rest }) => ({
+        ...rest,
+        hasApiSecret: !!authClientSecret,
+      }));
       res.json(sanitized);
     } catch (error) {
       console.error("Error fetching ERP integrations:", error);
@@ -2747,8 +2757,11 @@ export async function registerRoutes(
         return res.status(404).json({ error: "ERP integration not found" });
       }
       
-      const { secretHash, secretSalt, ...sanitized } = integration;
-      res.json(sanitized);
+      const { secretHash, secretSalt, authClientSecret, cachedAuthToken, ...sanitized } = integration;
+      res.json({
+        ...sanitized,
+        hasApiSecret: !!authClientSecret,
+      });
     } catch (error) {
       console.error("Error fetching ERP integration:", error);
       res.status(500).json({ error: "Failed to fetch ERP integration" });

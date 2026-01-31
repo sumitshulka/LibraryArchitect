@@ -223,15 +223,21 @@ export class ERPClient {
     };
   }
 
-  async testConnection(): Promise<{ success: boolean; message: string; tokenObtained?: boolean }> {
+  async testConnection(): Promise<{ success: boolean; message: string; tokenObtained?: boolean; loginUrl?: string }> {
     try {
-      if (!this.integration.outboundBaseUrl) {
+      if (!this.integration.outboundBaseUrl && !this.integration.authLoginUrl) {
         return { success: false, message: "Outbound base URL not configured" };
       }
 
-      if (this.integration.authLoginUrl) {
+      if (this.integration.authClientSecret) {
+        const loginUrl = this.getLoginUrl();
         await this.getAuthToken();
-        return { success: true, message: "Successfully authenticated with ERP", tokenObtained: true };
+        return { 
+          success: true, 
+          message: "Successfully authenticated with ERP", 
+          tokenObtained: true,
+          loginUrl,
+        };
       }
 
       const response = await fetch(`${this.integration.outboundBaseUrl}/health`, {
@@ -241,7 +247,7 @@ export class ERPClient {
 
       return { 
         success: response.ok, 
-        message: response.ok ? "ERP is reachable" : `ERP returned status ${response.status}`,
+        message: response.ok ? "ERP is reachable (no auth credentials configured)" : `ERP returned status ${response.status}`,
         tokenObtained: false,
       };
     } catch (error) {

@@ -889,7 +889,6 @@ Creates or updates a library staff user (Admin or Librarian). This endpoint must
                   type: 'object',
                   properties: {
                     authLoginUrl: { type: 'string', example: 'https://erp.university.edu/api/auth/login' },
-                    authClientId: { type: 'string', example: 'library_client' },
                     authClientSecret: { type: 'string', example: 'secret123' },
                     authTokenTtlSeconds: { type: 'integer', example: 3600, description: 'Token TTL in seconds (default: 3600)' },
                   },
