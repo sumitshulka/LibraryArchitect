@@ -225,6 +225,8 @@ export function LibraryDashboardPage() {
               </div>
             </div>
 
+            <LibraryManagersSection libraryId={libraryId} />
+
             <Separator />
 
             <div className="grid gap-6 md:grid-cols-2">
@@ -343,8 +345,6 @@ export function LibraryDashboardPage() {
                 </CardContent>
               </Card>
             </div>
-
-            <LibraryManagersSection libraryId={libraryId} />
           </>
         )}
       </div>
