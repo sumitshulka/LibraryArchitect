@@ -831,8 +831,194 @@ function ErpIntegrationDetails({
         </CardContent>
       </Card>
 
+      <OutboundAuthCard integration={integration} />
+
       <PullEndpointsCard integrationId={integration.id} />
     </div>
+  );
+}
+
+function OutboundAuthCard({ integration }: { integration: ErpIntegrationPublic }) {
+  const queryClient = useQueryClient();
+  const [apiSecret, setApiSecret] = useState("");
+  const [tokenTtl, setTokenTtl] = useState("3600");
+  const [loginUrlOverride, setLoginUrlOverride] = useState("");
+  const [showSecret, setShowSecret] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+
+  const defaultLoginUrl = integration.outboundBaseUrl 
+    ? `${integration.outboundBaseUrl.replace(/\/$/, '')}/auth/login`
+    : '';
+
+  const updateAuthMutation = useMutation({
+    mutationFn: () => erpIntegrationsApi.updateAuthConfig(integration.id, {
+      authLoginUrl: loginUrlOverride || null,
+      authClientSecret: apiSecret || null,
+      authTokenTtlSeconds: parseInt(tokenTtl) || 3600,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["erp-integrations"] });
+      toast.success("Outbound authentication settings saved");
+      setIsEditing(false);
+      setApiSecret("");
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+
+  const testConnectionMutation = useMutation({
+    mutationFn: () => erpIntegrationsApi.testConnection(integration.id),
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success(data.message || "Connection successful");
+      } else {
+        toast.error(data.message || "Connection failed");
+      }
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Key className="h-5 w-5" />
+              Outbound Authentication
+            </CardTitle>
+            <CardDescription>
+              Configure credentials for Library to authenticate with ERP when fetching user data
+            </CardDescription>
+          </div>
+          <div className="flex gap-2">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="gap-2"
+              onClick={() => testConnectionMutation.mutate()}
+              disabled={testConnectionMutation.isPending}
+            >
+              <Zap className={`h-4 w-4 ${testConnectionMutation.isPending ? "animate-pulse" : ""}`} />
+              Test Connection
+            </Button>
+            {!isEditing && (
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="gap-2"
+                onClick={() => setIsEditing(true)}
+              >
+                <Pencil className="h-4 w-4" />
+                Edit
+              </Button>
+            )}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-4">
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">App ID (used for authentication)</Label>
+            <code className="block p-2 bg-muted rounded text-sm font-mono">{integration.appId}</code>
+          </div>
+
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Login Endpoint</Label>
+            {isEditing ? (
+              <Input
+                value={loginUrlOverride}
+                onChange={(e) => setLoginUrlOverride(e.target.value)}
+                placeholder={defaultLoginUrl || "Set outbound base URL first"}
+                data-testid="input-login-url-override"
+              />
+            ) : (
+              <code className="block p-2 bg-muted rounded text-sm font-mono">
+                {loginUrlOverride || defaultLoginUrl || "Not configured - set outbound base URL"}
+              </code>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Default: {defaultLoginUrl || "(requires outbound base URL)"} - Override only if different
+            </p>
+          </div>
+
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">API Secret (for outbound calls to ERP)</Label>
+            {isEditing ? (
+              <div className="relative">
+                <Input
+                  type={showSecret ? "text" : "password"}
+                  value={apiSecret}
+                  onChange={(e) => setApiSecret(e.target.value)}
+                  placeholder="Enter API secret provided by ERP"
+                  data-testid="input-api-secret"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute right-0 top-0 h-full px-3"
+                  onClick={() => setShowSecret(!showSecret)}
+                >
+                  {showSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </div>
+            ) : (
+              <div className="p-2 bg-muted rounded text-sm">
+                ••••••••••••••••
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">
+              This secret is used when Library calls ERP APIs to fetch user details
+            </p>
+          </div>
+
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Token TTL (seconds)</Label>
+            {isEditing ? (
+              <Input
+                type="number"
+                value={tokenTtl}
+                onChange={(e) => setTokenTtl(e.target.value)}
+                placeholder="3600"
+                data-testid="input-token-ttl"
+              />
+            ) : (
+              <code className="block p-2 bg-muted rounded text-sm font-mono">
+                {tokenTtl} seconds ({Math.round(parseInt(tokenTtl) / 60)} minutes)
+              </code>
+            )}
+            <p className="text-xs text-muted-foreground">
+              How long auth tokens are cached before refreshing (default: 3600 = 1 hour)
+            </p>
+          </div>
+        </div>
+
+        {isEditing && (
+          <div className="flex gap-2 pt-2">
+            <Button 
+              onClick={() => updateAuthMutation.mutate()}
+              disabled={updateAuthMutation.isPending}
+              data-testid="button-save-auth"
+            >
+              {updateAuthMutation.isPending ? "Saving..." : "Save Settings"}
+            </Button>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setIsEditing(false);
+                setApiSecret("");
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

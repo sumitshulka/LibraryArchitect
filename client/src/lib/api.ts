@@ -511,6 +511,49 @@ export const erpIntegrationsApi = {
     }
   },
 
+  // Outbound Auth Config
+  updateAuthConfig: async (integrationId: number, data: {
+    authLoginUrl?: string | null;
+    authClientSecret?: string | null;
+    authTokenTtlSeconds?: number;
+  }): Promise<{ success: boolean; message: string }> => {
+    const res = await fetch(`${API_BASE}/erp-integrations/${integrationId}/auth-config`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to update auth configuration");
+    }
+    return res.json();
+  },
+
+  testConnection: async (integrationId: number): Promise<{ success: boolean; message: string; tokenExpiry?: string }> => {
+    const res = await fetch(`${API_BASE}/erp-integrations/${integrationId}/test-connection`, {
+      method: "POST",
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Connection test failed");
+    }
+    return res.json();
+  },
+
+  lookupUser: async (integrationId: number, userType: 'student' | 'faculty', identifier: string): Promise<{
+    success: boolean;
+    userType: string;
+    identifier: string;
+    details: Record<string, any>;
+  }> => {
+    const res = await fetch(`${API_BASE}/erp-integrations/${integrationId}/lookup/${userType}/${identifier}`);
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "User lookup failed");
+    }
+    return res.json();
+  },
+
   // Pull Endpoints
   getPullEndpoints: async (integrationId: number): Promise<ErpPullEndpoint[]> => {
     const res = await fetch(`${API_BASE}/erp-integrations/${integrationId}/pull-endpoints`);

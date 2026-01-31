@@ -45,13 +45,27 @@ export class ERPClient {
     return new Date() >= new Date(expiresAt.getTime() - bufferMs);
   }
 
+  private getLoginUrl(): string {
+    if (this.integration.authLoginUrl) {
+      return this.integration.authLoginUrl;
+    }
+    if (this.integration.outboundBaseUrl) {
+      return `${this.integration.outboundBaseUrl.replace(/\/$/, '')}/auth/login`;
+    }
+    throw new Error("ERP authentication not configured. Please set outbound base URL or login URL.");
+  }
+
   async getAuthToken(): Promise<string> {
     if (!this.isTokenExpired() && this.integration.cachedAuthToken) {
       return this.integration.cachedAuthToken;
     }
 
-    if (!this.integration.authLoginUrl) {
-      throw new Error("ERP authentication not configured. Please set the login URL.");
+    if (!this.integration.outboundBaseUrl && !this.integration.authLoginUrl) {
+      throw new Error("ERP authentication not configured. Please set outbound base URL.");
+    }
+
+    if (!this.integration.authClientSecret) {
+      throw new Error("ERP API secret not configured. Please set the API secret in integration settings.");
     }
 
     const tokenResponse = await this.fetchNewToken();
@@ -73,24 +87,22 @@ export class ERPClient {
   }
 
   private async fetchNewToken(): Promise<ERPTokenResponse> {
-    const loginUrl = this.integration.authLoginUrl!;
+    const loginUrl = this.getLoginUrl();
     
-    const requestBody: Record<string, string> = {};
-    if (this.integration.authClientId) {
-      requestBody.client_id = this.integration.authClientId;
-      requestBody.clientId = this.integration.authClientId;
-    }
-    if (this.integration.authClientSecret) {
-      requestBody.client_secret = this.integration.authClientSecret;
-      requestBody.clientSecret = this.integration.authClientSecret;
-    }
-    requestBody.grant_type = 'client_credentials';
+    const requestBody: Record<string, string> = {
+      app_id: this.integration.appId,
+      appId: this.integration.appId,
+      api_secret: this.integration.authClientSecret!,
+      apiSecret: this.integration.authClientSecret!,
+      grant_type: 'client_credentials',
+    };
 
     const response = await fetch(loginUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
+        'X-App-Id': this.integration.appId,
       },
       body: JSON.stringify(requestBody),
     });
