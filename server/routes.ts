@@ -1739,6 +1739,342 @@ export async function registerRoutes(
     }
   });
 
+  // ===== SSO Authentication API =====
+  app.get("/api/sso/callback", async (req, res) => {
+    try {
+      const { token } = req.query;
+      
+      if (!token || typeof token !== 'string') {
+        return res.status(400).json({ error: "Missing or invalid token" });
+      }
+
+      const { 
+        decodeToken, 
+        verifyTokenSignature, 
+        isTokenExpired, 
+        mapERPUserToLibraryUser,
+        generateSessionId,
+        verifySecretKey,
+        isOriginWhitelisted
+      } = await import('./sso');
+      
+      const payload = decodeToken(token);
+      if (!payload) {
+        return res.status(400).json({ error: "Invalid token format" });
+      }
+
+      if (isTokenExpired(payload.timestamp)) {
+        return res.status(401).json({ error: "Token has expired" });
+      }
+
+      const integration = await storage.getErpIntegrationByAppId(payload.appId);
+      if (!integration) {
+        return res.status(401).json({ error: "Unknown application ID" });
+      }
+
+      if (!integration.isActive) {
+        return res.status(401).json({ error: "ERP integration is disabled" });
+      }
+
+      const whitelist = await storage.getWhitelistByIntegration(integration.id);
+      const origin = req.headers.origin;
+      const referer = req.headers.referer;
+      
+      if (!isOriginWhitelisted(origin, referer, whitelist)) {
+        return res.status(403).json({ error: "Origin not whitelisted" });
+      }
+
+      const secretKey = req.headers['x-secret-key'] as string;
+      if (!secretKey) {
+        return res.status(401).json({ error: "Missing secret key" });
+      }
+
+      if (!verifySecretKey(secretKey, integration.secretHash, integration.secretSalt)) {
+        return res.status(401).json({ error: "Invalid secret key" });
+      }
+
+      if (!verifyTokenSignature(payload, secretKey)) {
+        return res.status(401).json({ error: "Invalid token signature" });
+      }
+
+      const mappedUser = mapERPUserToLibraryUser(payload);
+      
+      let user = await storage.getUserByExternalId(mappedUser.externalId, integration.id);
+      
+      if (!user) {
+        const username = `${mappedUser.externalId}_${integration.id}`;
+        user = await storage.createUser({
+          username,
+          email: mappedUser.email,
+          name: mappedUser.name,
+          category: mappedUser.category,
+          role: mappedUser.role,
+          status: 'ACTIVE',
+          department: mappedUser.department || null,
+          employeeId: mappedUser.employeeId || null,
+          studentId: mappedUser.studentId || null,
+          externalId: mappedUser.externalId,
+          erpIntegrationId: integration.id,
+        });
+      } else {
+        await storage.updateUser(user.id, {
+          name: mappedUser.name,
+          email: mappedUser.email,
+          department: mappedUser.department || null,
+        });
+      }
+
+      await storage.updateUserLastLogin(user.id);
+
+      const sessionId = generateSessionId();
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      
+      await storage.createSession({
+        id: sessionId,
+        userId: user.id,
+        erpIntegrationId: integration.id,
+        expiresAt,
+        ipAddress: req.ip || null,
+        userAgent: req.headers['user-agent'] || null,
+      });
+
+      res.cookie('session_id', sessionId, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 24 * 60 * 60 * 1000,
+        path: '/'
+      });
+
+      const redirectPath = user.category === 'STAFF' ? '/dashboard' : '/catalog';
+      res.redirect(redirectPath);
+    } catch (error) {
+      console.error("SSO callback error:", error);
+      res.status(500).json({ error: "SSO authentication failed" });
+    }
+  });
+
+  app.get("/api/sso/session", async (req, res) => {
+    try {
+      const sessionId = req.cookies?.session_id;
+      
+      if (!sessionId) {
+        return res.json({ authenticated: false });
+      }
+
+      const result = await storage.getSessionWithUser(sessionId);
+      
+      if (!result) {
+        return res.json({ authenticated: false });
+      }
+
+      if (new Date(result.session.expiresAt) < new Date()) {
+        await storage.deleteSession(sessionId);
+        res.clearCookie('session_id');
+        return res.json({ authenticated: false });
+      }
+
+      const { password, ...safeUser } = result.user;
+      res.json({ 
+        authenticated: true, 
+        user: safeUser,
+        sessionExpiresAt: result.session.expiresAt
+      });
+    } catch (error) {
+      console.error("Session check error:", error);
+      res.status(500).json({ error: "Failed to check session" });
+    }
+  });
+
+  app.post("/api/sso/logout", async (req, res) => {
+    try {
+      const sessionId = req.cookies?.session_id;
+      
+      if (sessionId) {
+        await storage.deleteSession(sessionId);
+        res.clearCookie('session_id');
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Logout error:", error);
+      res.status(500).json({ error: "Logout failed" });
+    }
+  });
+
+  app.post("/api/sso/test/generate-token", async (req, res) => {
+    try {
+      const { appId, secretKey, userId, userType, role, name, email, department } = req.body;
+      
+      if (!appId || !secretKey || !userId || !userType || !name || !email) {
+        return res.status(400).json({ 
+          error: "Required fields: appId, secretKey, userId, userType, name, email" 
+        });
+      }
+
+      const integration = await storage.getErpIntegrationByAppId(appId);
+      if (!integration) {
+        return res.status(404).json({ error: "ERP integration not found with this App ID" });
+      }
+
+      const { verifySecretKey, generateSSOToken } = await import('./sso');
+      
+      if (!verifySecretKey(secretKey, integration.secretHash, integration.secretSalt)) {
+        return res.status(401).json({ error: "Invalid secret key" });
+      }
+
+      const token = generateSSOToken({
+        appId,
+        userId,
+        userType,
+        role,
+        name,
+        email,
+        department
+      }, secretKey);
+
+      const callbackUrl = `${req.protocol}://${req.get('host')}/api/sso/callback?token=${token}`;
+
+      res.json({ 
+        token,
+        callbackUrl,
+        expiresIn: 300,
+        instructions: {
+          method: "GET",
+          url: callbackUrl,
+          headers: {
+            "X-Secret-Key": secretKey
+          }
+        }
+      });
+    } catch (error) {
+      console.error("Token generation error:", error);
+      res.status(500).json({ error: "Failed to generate token" });
+    }
+  });
+
+  app.post("/api/sso/test/simulate-login", async (req, res) => {
+    try {
+      const { appId, secretKey, userId, userType, role, name, email, department } = req.body;
+      
+      if (!appId || !secretKey || !userId || !userType || !name || !email) {
+        return res.status(400).json({ 
+          error: "Required fields: appId, secretKey, userId, userType, name, email" 
+        });
+      }
+
+      const integration = await storage.getErpIntegrationByAppId(appId);
+      if (!integration) {
+        return res.status(404).json({ error: "ERP integration not found with this App ID" });
+      }
+
+      const { 
+        verifySecretKey, 
+        generateSSOToken, 
+        decodeToken, 
+        verifyTokenSignature,
+        mapERPUserToLibraryUser,
+        generateSessionId
+      } = await import('./sso');
+      
+      if (!verifySecretKey(secretKey, integration.secretHash, integration.secretSalt)) {
+        return res.status(401).json({ error: "Invalid secret key" });
+      }
+
+      const token = generateSSOToken({
+        appId,
+        userId,
+        userType,
+        role,
+        name,
+        email,
+        department
+      }, secretKey);
+
+      const payload = decodeToken(token)!;
+      const signatureValid = verifyTokenSignature(payload, secretKey);
+      
+      if (!signatureValid) {
+        return res.status(500).json({ error: "Token signature verification failed" });
+      }
+
+      const mappedUser = mapERPUserToLibraryUser(payload);
+      
+      let user = await storage.getUserByExternalId(mappedUser.externalId, integration.id);
+      let userCreated = false;
+      
+      if (!user) {
+        const username = `${mappedUser.externalId}_${integration.id}`;
+        user = await storage.createUser({
+          username,
+          email: mappedUser.email,
+          name: mappedUser.name,
+          category: mappedUser.category,
+          role: mappedUser.role,
+          status: 'ACTIVE',
+          department: mappedUser.department || null,
+          employeeId: mappedUser.employeeId || null,
+          studentId: mappedUser.studentId || null,
+          externalId: mappedUser.externalId,
+          erpIntegrationId: integration.id,
+        });
+        userCreated = true;
+      }
+
+      await storage.updateUserLastLogin(user.id);
+
+      const sessionId = generateSessionId();
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      
+      const session = await storage.createSession({
+        id: sessionId,
+        userId: user.id,
+        erpIntegrationId: integration.id,
+        expiresAt,
+        ipAddress: req.ip || null,
+        userAgent: req.headers['user-agent'] || null,
+      });
+
+      res.cookie('session_id', sessionId, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 24 * 60 * 60 * 1000,
+        path: '/'
+      });
+
+      const { password, ...safeUser } = user;
+      
+      res.json({
+        success: true,
+        userCreated,
+        user: safeUser,
+        session: {
+          id: session.id,
+          expiresAt: session.expiresAt
+        },
+        tokenDetails: {
+          token,
+          payload: {
+            appId: payload.appId,
+            userId: payload.userId,
+            userType: payload.userType,
+            role: payload.role,
+            name: payload.name,
+            email: payload.email,
+            timestamp: payload.timestamp
+          },
+          signatureValid,
+          mappedRole: mappedUser.role,
+          mappedCategory: mappedUser.category
+        }
+      });
+    } catch (error) {
+      console.error("Simulate login error:", error);
+      res.status(500).json({ error: "Simulation failed" });
+    }
+  });
+
   // ===== ERP Integration API =====
   app.get("/api/erp-integrations", async (req, res) => {
     try {
