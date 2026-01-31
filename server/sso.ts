@@ -127,6 +127,27 @@ export function hashSecretKey(secretKey: string): { hash: string; salt: string }
   return { hash, salt };
 }
 
+export function hashPassword(password: string): string {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto
+    .pbkdf2Sync(password, salt, 10000, 64, 'sha512')
+    .toString('hex');
+  return `${salt}:${hash}`;
+}
+
+export function verifyPassword(password: string, storedPassword: string): boolean {
+  const [salt, storedHash] = storedPassword.split(':');
+  if (!salt || !storedHash) return false;
+  
+  const hash = crypto
+    .pbkdf2Sync(password, salt, 10000, 64, 'sha512')
+    .toString('hex');
+  return crypto.timingSafeEqual(
+    Buffer.from(hash),
+    Buffer.from(storedHash)
+  );
+}
+
 export interface RoleMappingResult {
   success: boolean;
   user?: ValidatedSSOUser;

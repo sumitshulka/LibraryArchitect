@@ -1929,6 +1929,86 @@ export async function registerRoutes(
     }
   });
 
+  // Local Authentication Login
+  app.post("/api/auth/login", async (req, res) => {
+    try {
+      const { username, password } = req.body;
+      
+      if (!username || !password) {
+        return res.status(400).json({ error: "Username and password are required" });
+      }
+
+      // Check auth mode
+      const authModeConfig = await storage.getSystemConfig("auth_mode");
+      const authMode = authModeConfig?.value || "LOCAL";
+      
+      if (authMode === "ERP") {
+        return res.status(403).json({ 
+          error: "Local login is disabled. Please use SSO to sign in." 
+        });
+      }
+
+      // Find user by username or email
+      const user = await storage.getUserByUsername(username) || 
+                   await storage.getUserByEmail(username);
+      
+      if (!user) {
+        return res.status(401).json({ error: "Invalid username or password" });
+      }
+
+      if (!user.password) {
+        return res.status(401).json({ 
+          error: "This account uses SSO authentication. Please sign in via your organization." 
+        });
+      }
+
+      // Verify password
+      const { verifyPassword } = await import('./sso');
+      if (!verifyPassword(password, user.password)) {
+        return res.status(401).json({ error: "Invalid username or password" });
+      }
+
+      if (user.status !== 'ACTIVE') {
+        return res.status(403).json({ error: "Account is not active" });
+      }
+
+      // Create session
+      const { generateSessionId } = await import('./sso');
+      const sessionId = generateSessionId();
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+      
+      await storage.createSession({
+        id: sessionId,
+        userId: user.id,
+        expiresAt,
+      });
+      
+      await storage.updateUserLastLogin(user.id);
+
+      res.cookie('session_id', sessionId, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      });
+
+      res.json({
+        success: true,
+        user: {
+          id: user.id,
+          username: user.username,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          category: user.category,
+        },
+      });
+    } catch (error) {
+      console.error("Login error:", error);
+      res.status(500).json({ error: "Login failed" });
+    }
+  });
+
   // ERP Library User Provisioning APIs
   // These endpoints allow ERP systems to pre-provision library staff users
 

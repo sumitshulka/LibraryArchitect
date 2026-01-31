@@ -85,11 +85,30 @@ The system uses PostgreSQL enums and tables for:
 7. **ERP Integrations** - External ERP system configurations for SSO authentication
 8. **Sessions** - User session management with token-based authentication
 
+## Initial Setup & Bootstrap
+
+### Fresh Installation
+When the system is first installed, a bootstrap process automatically:
+1. Creates a default superadmin account if no users exist
+2. Sets the authentication mode to LOCAL
+
+**Default Admin Credentials:**
+- Username: `admin`
+- Password: `admin123`
+
+**Important:** Change the default password immediately after first login.
+
+### Local Login Endpoint
+- **POST /api/auth/login** - Authenticate with username/password
+  - Request: `{ "username": "admin", "password": "admin123" }`
+  - Returns: User session cookie and user info
+  - Only available in LOCAL or HYBRID auth modes
+
 ## SSO Authentication & User Provisioning
 
 ### Authentication Modes
 The system supports three authentication modes configured via System Config:
-- **LOCAL** - Traditional username/password authentication
+- **LOCAL** - Traditional username/password authentication (default for fresh installations)
 - **ERP** - SSO-only authentication via configured ERP integrations
 - **HYBRID** - Both local and SSO authentication available
 

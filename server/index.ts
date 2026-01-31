@@ -67,6 +67,10 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Bootstrap system (create default admin if needed)
+  const { bootstrapSystem } = await import("./bootstrap");
+  await bootstrapSystem();
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
