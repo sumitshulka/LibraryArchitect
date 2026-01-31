@@ -33,6 +33,7 @@ import {
   type InsertBookTransfer,
   type LibraryMembership,
   type InsertLibraryMembership,
+  type StaffAllocationLog,
   type AuditSession,
   type InsertAuditSession,
   type InventoryItem,
@@ -56,10 +57,19 @@ import {
   bookCopies,
   bookTransfers,
   libraryMemberships,
+  staffAllocationLogs,
   auditSessions,
   inventoryItems,
   sessions
 } from "@shared/schema";
+
+// Type for staff allocation logs with user and library details
+export interface StaffAllocationLogWithDetails extends StaffAllocationLog {
+  staffUserName: string;
+  staffUserRole: string;
+  libraryName: string;
+  performedByName: string;
+}
 import { db } from "./db";
 import { eq, and, or, like, desc, asc, sql, isNull, inArray } from "drizzle-orm";
 
@@ -240,6 +250,13 @@ export interface IStorage {
   deleteLibraryMembership(id: number): Promise<boolean>;
   getMembershipsByUser(userId: number): Promise<LibraryMembership[]>;
   getMembershipsByLibrary(libraryId: number): Promise<LibraryMembership[]>;
+  
+  // Staff Library Allocations
+  getStaffLibraryAllocations(staffUserId: number): Promise<LibraryMembership[]>;
+  allocateStaffToLibrary(staffUserId: number, libraryId: number, performedByUserId: number, reason?: string): Promise<LibraryMembership>;
+  deallocateStaffFromLibrary(staffUserId: number, libraryId: number, performedByUserId: number, reason?: string): Promise<boolean>;
+  getStaffAllocationLogs(staffUserId?: number): Promise<StaffAllocationLog[]>;
+  getStaffAllocationLogsWithDetails(staffUserId?: number): Promise<StaffAllocationLogWithDetails[]>;
   
   // Library Dashboard
   getLibraryDashboard(libraryId: number): Promise<LibraryDashboardStats>;
@@ -1276,6 +1293,127 @@ export class DBStorage implements IStorage {
   async getMembershipsByLibrary(libraryId: number): Promise<LibraryMembership[]> {
     return await db.select().from(libraryMemberships)
       .where(eq(libraryMemberships.libraryId, libraryId));
+  }
+
+  // Staff Library Allocations
+  async getStaffLibraryAllocations(staffUserId: number): Promise<LibraryMembership[]> {
+    return await db.select().from(libraryMemberships)
+      .where(and(
+        eq(libraryMemberships.userId, staffUserId),
+        eq(libraryMemberships.isActive, true)
+      ));
+  }
+
+  async allocateStaffToLibrary(staffUserId: number, libraryId: number, performedByUserId: number, reason?: string): Promise<LibraryMembership> {
+    // Check if allocation already exists
+    const existing = await db.select().from(libraryMemberships)
+      .where(and(
+        eq(libraryMemberships.userId, staffUserId),
+        eq(libraryMemberships.libraryId, libraryId)
+      ));
+    
+    let membership: LibraryMembership;
+    
+    if (existing.length > 0) {
+      // Reactivate existing membership
+      const [updated] = await db.update(libraryMemberships)
+        .set({ isActive: true })
+        .where(eq(libraryMemberships.id, existing[0].id))
+        .returning();
+      membership = updated;
+    } else {
+      // Create new membership with STAFF role
+      const user = await this.getUser(staffUserId);
+      const [created] = await db.insert(libraryMemberships)
+        .values({
+          userId: staffUserId,
+          libraryId,
+          role: user?.role || 'LIBRARIAN',
+          isPrimaryLibrary: false,
+          isActive: true,
+        })
+        .returning();
+      membership = created;
+    }
+    
+    // Log the allocation
+    await db.insert(staffAllocationLogs).values({
+      staffUserId,
+      libraryId,
+      action: 'ALLOCATED',
+      performedByUserId,
+      reason,
+    });
+    
+    return membership;
+  }
+
+  async deallocateStaffFromLibrary(staffUserId: number, libraryId: number, performedByUserId: number, reason?: string): Promise<boolean> {
+    const existing = await db.select().from(libraryMemberships)
+      .where(and(
+        eq(libraryMemberships.userId, staffUserId),
+        eq(libraryMemberships.libraryId, libraryId),
+        eq(libraryMemberships.isActive, true)
+      ));
+    
+    if (existing.length === 0) {
+      return false;
+    }
+    
+    // Deactivate the membership
+    await db.update(libraryMemberships)
+      .set({ isActive: false })
+      .where(eq(libraryMemberships.id, existing[0].id));
+    
+    // Log the deallocation
+    await db.insert(staffAllocationLogs).values({
+      staffUserId,
+      libraryId,
+      action: 'DEALLOCATED',
+      performedByUserId,
+      reason,
+    });
+    
+    return true;
+  }
+
+  async getStaffAllocationLogs(staffUserId?: number): Promise<StaffAllocationLog[]> {
+    if (staffUserId) {
+      return await db.select().from(staffAllocationLogs)
+        .where(eq(staffAllocationLogs.staffUserId, staffUserId))
+        .orderBy(desc(staffAllocationLogs.createdAt));
+    }
+    return await db.select().from(staffAllocationLogs)
+      .orderBy(desc(staffAllocationLogs.createdAt));
+  }
+
+  async getStaffAllocationLogsWithDetails(staffUserId?: number): Promise<StaffAllocationLogWithDetails[]> {
+    const logs = await this.getStaffAllocationLogs(staffUserId);
+    
+    // Get all unique user and library IDs
+    const staffUserIds = Array.from(new Set(logs.map(l => l.staffUserId)));
+    const performedByIds = Array.from(new Set(logs.map(l => l.performedByUserId)));
+    const libraryIds = Array.from(new Set(logs.map(l => l.libraryId)));
+    const allUserIds = Array.from(new Set([...staffUserIds, ...performedByIds]));
+    
+    // Fetch users and libraries
+    const usersData = allUserIds.length > 0 
+      ? await db.select().from(users).where(sql`${users.id} IN (${sql.join(allUserIds.map(id => sql`${id}`), sql`, `)})`)
+      : [];
+    const librariesData = libraryIds.length > 0 
+      ? await db.select().from(libraries).where(sql`${libraries.id} IN (${sql.join(libraryIds.map(id => sql`${id}`), sql`, `)})`)
+      : [];
+    
+    const userMap = new Map(usersData.map(u => [u.id, u]));
+    const libraryMap = new Map(librariesData.map(l => [l.id, l]));
+    
+    return logs.map(log => ({
+      ...log,
+      staffUserName: userMap.get(log.staffUserId)?.name || 'Unknown',
+      staffUserRole: userMap.get(log.staffUserId)?.role || 'Unknown',
+      libraryName: libraryMap.get(log.libraryId)?.name || 'Unknown',
+      performedByName: userMap.get(log.performedByUserId)?.name || 'Unknown',
+    }));
   }
 
   // Library Dashboard

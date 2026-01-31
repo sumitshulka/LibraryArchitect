@@ -4147,6 +4147,159 @@ export async function registerRoutes(
     }
   });
 
+  // ===== Staff Library Allocation API (Super Admin Only) =====
+  app.get("/api/staff-allocations/:staffUserId", async (req, res) => {
+    try {
+      // Check if requester is super admin (user ID 1 or first ADMIN user)
+      const session = await getSession(req, res);
+      if (!session) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      
+      const currentUser = await storage.getUser(session.userId);
+      if (!currentUser || currentUser.role !== 'ADMIN') {
+        return res.status(403).json({ error: "Only super admin can manage staff allocations" });
+      }
+      
+      const staffUserId = parseInt(req.params.staffUserId);
+      const allocations = await storage.getStaffLibraryAllocations(staffUserId);
+      
+      // Get library details for each allocation
+      const libraryIds = allocations.map(a => a.libraryId);
+      const libraries = await storage.getAllLibraries();
+      const libraryMap = new Map(libraries.map(l => [l.id, l]));
+      
+      const enriched = allocations.map(a => ({
+        ...a,
+        library: libraryMap.get(a.libraryId),
+      }));
+      
+      res.json(enriched);
+    } catch (error) {
+      console.error("Error fetching staff allocations:", error);
+      res.status(500).json({ error: "Failed to fetch staff allocations" });
+    }
+  });
+
+  app.post("/api/staff-allocations/:staffUserId/allocate", async (req, res) => {
+    try {
+      const session = await getSession(req, res);
+      if (!session) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      
+      const currentUser = await storage.getUser(session.userId);
+      if (!currentUser || currentUser.role !== 'ADMIN') {
+        return res.status(403).json({ error: "Only super admin can allocate staff to libraries" });
+      }
+      
+      const staffUserId = parseInt(req.params.staffUserId);
+      const { libraryId, reason } = req.body;
+      
+      if (!libraryId) {
+        return res.status(400).json({ error: "libraryId is required" });
+      }
+      
+      // Verify staff user exists and is a staff member
+      const staffUser = await storage.getUser(staffUserId);
+      if (!staffUser) {
+        return res.status(404).json({ error: "Staff user not found" });
+      }
+      if (staffUser.category !== 'STAFF') {
+        return res.status(400).json({ error: "User is not a staff member" });
+      }
+      
+      // Verify library exists
+      const library = await storage.getLibrary(libraryId);
+      if (!library) {
+        return res.status(404).json({ error: "Library not found" });
+      }
+      
+      const membership = await storage.allocateStaffToLibrary(
+        staffUserId, 
+        libraryId, 
+        session.userId, 
+        reason
+      );
+      
+      res.status(201).json({ 
+        success: true, 
+        message: `${staffUser.name} allocated to ${library.name}`,
+        membership 
+      });
+    } catch (error) {
+      console.error("Error allocating staff to library:", error);
+      res.status(500).json({ error: "Failed to allocate staff to library" });
+    }
+  });
+
+  app.post("/api/staff-allocations/:staffUserId/deallocate", async (req, res) => {
+    try {
+      const session = await getSession(req, res);
+      if (!session) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      
+      const currentUser = await storage.getUser(session.userId);
+      if (!currentUser || currentUser.role !== 'ADMIN') {
+        return res.status(403).json({ error: "Only super admin can deallocate staff from libraries" });
+      }
+      
+      const staffUserId = parseInt(req.params.staffUserId);
+      const { libraryId, reason } = req.body;
+      
+      if (!libraryId) {
+        return res.status(400).json({ error: "libraryId is required" });
+      }
+      
+      const staffUser = await storage.getUser(staffUserId);
+      const library = await storage.getLibrary(libraryId);
+      
+      const success = await storage.deallocateStaffFromLibrary(
+        staffUserId, 
+        libraryId, 
+        session.userId, 
+        reason
+      );
+      
+      if (!success) {
+        return res.status(404).json({ error: "Staff member is not allocated to this library" });
+      }
+      
+      res.json({ 
+        success: true, 
+        message: `${staffUser?.name || 'Staff'} deallocated from ${library?.name || 'library'}` 
+      });
+    } catch (error) {
+      console.error("Error deallocating staff from library:", error);
+      res.status(500).json({ error: "Failed to deallocate staff from library" });
+    }
+  });
+
+  app.get("/api/staff-allocation-logs", async (req, res) => {
+    try {
+      const session = await getSession(req, res);
+      if (!session) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      
+      const currentUser = await storage.getUser(session.userId);
+      if (!currentUser || currentUser.role !== 'ADMIN') {
+        return res.status(403).json({ error: "Only super admin can view allocation logs" });
+      }
+      
+      const { staffUserId } = req.query;
+      const logs = await storage.getStaffAllocationLogsWithDetails(
+        staffUserId ? parseInt(staffUserId as string) : undefined
+      );
+      
+      res.json(logs);
+    } catch (error) {
+      console.error("Error fetching staff allocation logs:", error);
+      res.status(500).json({ error: "Failed to fetch staff allocation logs" });
+    }
+  });
+
   // Dashboard Stats API
   app.get("/api/stats/dashboard", async (req, res) => {
     try {
