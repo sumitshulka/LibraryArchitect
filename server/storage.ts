@@ -70,6 +70,15 @@ export interface StaffAllocationLogWithDetails extends StaffAllocationLog {
   libraryName: string;
   performedByName: string;
 }
+
+export interface LibraryStaffMember {
+  id: number;
+  userId: number;
+  name: string;
+  email: string;
+  role: string;
+  allocatedAt: Date;
+}
 import { db } from "./db";
 import { eq, and, or, like, desc, asc, sql, isNull, inArray } from "drizzle-orm";
 
@@ -257,6 +266,7 @@ export interface IStorage {
   deallocateStaffFromLibrary(staffUserId: number, libraryId: number, performedByUserId: number, reason?: string): Promise<boolean>;
   getStaffAllocationLogs(staffUserId?: number): Promise<StaffAllocationLog[]>;
   getStaffAllocationLogsWithDetails(staffUserId?: number): Promise<StaffAllocationLogWithDetails[]>;
+  getLibraryStaff(libraryId: number): Promise<LibraryStaffMember[]>;
   
   // Library Dashboard
   getLibraryDashboard(libraryId: number): Promise<LibraryDashboardStats>;
@@ -1414,6 +1424,42 @@ export class DBStorage implements IStorage {
       libraryName: libraryMap.get(log.libraryId)?.name || 'Unknown',
       performedByName: userMap.get(log.performedByUserId)?.name || 'Unknown',
     }));
+  }
+
+  async getLibraryStaff(libraryId: number): Promise<LibraryStaffMember[]> {
+    const memberships = await db.select({
+      id: libraryMemberships.id,
+      userId: libraryMemberships.userId,
+      createdAt: libraryMemberships.createdAt,
+    }).from(libraryMemberships)
+      .where(and(
+        eq(libraryMemberships.libraryId, libraryId),
+        eq(libraryMemberships.isActive, true),
+        or(
+          eq(libraryMemberships.role, 'ADMIN'),
+          eq(libraryMemberships.role, 'LIBRARIAN')
+        )
+      ));
+    
+    if (memberships.length === 0) return [];
+    
+    const userIds = memberships.map(m => m.userId);
+    const staffUsers = await db.select().from(users)
+      .where(sql`${users.id} IN (${sql.join(userIds.map(id => sql`${id}`), sql`, `)})`);
+    
+    const userMap = new Map(staffUsers.map(u => [u.id, u]));
+    
+    return memberships.map(m => {
+      const user = userMap.get(m.userId);
+      return {
+        id: m.id,
+        userId: m.userId,
+        name: user?.name || 'Unknown',
+        email: user?.email || '',
+        role: user?.role === 'ADMIN' ? 'Library Admin' : 'Librarian',
+        allocatedAt: m.createdAt,
+      };
+    });
   }
 
   // Library Dashboard

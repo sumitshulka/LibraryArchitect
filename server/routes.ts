@@ -3626,6 +3626,20 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/libraries/:id/staff", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id) || id <= 0) {
+        return res.status(400).json({ error: "Invalid library ID" });
+      }
+      const staff = await storage.getLibraryStaff(id);
+      res.json(staff);
+    } catch (error) {
+      console.error("Error fetching library staff:", error);
+      res.status(500).json({ error: "Failed to fetch library staff" });
+    }
+  });
+
   app.get("/api/libraries/:id/resources", async (req, res) => {
     try {
       const id = parseInt(req.params.id);

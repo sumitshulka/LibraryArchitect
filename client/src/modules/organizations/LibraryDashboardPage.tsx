@@ -1,7 +1,8 @@
 import { MainLayout } from "@/components/layout/MainLayout";
 import { useQuery } from "@tanstack/react-query";
 import { useParams, Link } from "wouter";
-import { librariesApi, type LibraryDashboardStats } from "@/lib/api";
+import { librariesApi, type LibraryDashboardStats, type LibraryStaffMember } from "@/lib/api";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   Card,
   CardContent,
@@ -342,9 +343,74 @@ export function LibraryDashboardPage() {
                 </CardContent>
               </Card>
             </div>
+
+            <LibraryManagersSection libraryId={libraryId} />
           </>
         )}
       </div>
     </MainLayout>
+  );
+}
+
+function LibraryManagersSection({ libraryId }: { libraryId: number }) {
+  const { data: staff = [], isLoading } = useQuery({
+    queryKey: ['library-staff', libraryId],
+    queryFn: () => librariesApi.getStaff(libraryId),
+    enabled: libraryId > 0,
+  });
+
+  const getInitials = (name: string) => {
+    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Users className="h-5 w-5" />
+          Library Managers
+        </CardTitle>
+        <CardDescription>
+          Staff members managing this library
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground">Loading staff...</p>
+        ) : staff.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No managers assigned to this library yet.</p>
+        ) : (
+          <div className="space-y-3">
+            {staff.map((member) => (
+              <div 
+                key={member.id} 
+                className="flex items-center justify-between p-3 bg-muted rounded-lg"
+                data-testid={`staff-member-${member.userId}`}
+              >
+                <div className="flex items-center gap-3">
+                  <Avatar className="h-10 w-10">
+                    <AvatarFallback className="bg-primary/10 text-primary">
+                      {getInitials(member.name)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div>
+                    <p className="font-medium" data-testid={`staff-name-${member.userId}`}>
+                      {member.name}
+                    </p>
+                    <p className="text-sm text-muted-foreground">{member.email}</p>
+                  </div>
+                </div>
+                <Badge 
+                  variant={member.role === 'Library Admin' ? 'default' : 'secondary'}
+                  data-testid={`staff-role-${member.userId}`}
+                >
+                  {member.role}
+                </Badge>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

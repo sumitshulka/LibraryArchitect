@@ -939,6 +939,15 @@ export const librariesApi = {
     return res.json();
   },
 
+  getStaff: async (id: number): Promise<LibraryStaffMember[]> => {
+    const res = await fetch(`${API_BASE}/libraries/${id}/staff`);
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to fetch library staff");
+    }
+    return res.json();
+  },
+
   getResources: async (id: number, params?: {
     query?: string;
     format?: string;
@@ -1021,6 +1030,15 @@ export interface LibraryDashboardStats {
   pendingTransfersOut: number;
   
   totalMembers: number;
+}
+
+export interface LibraryStaffMember {
+  id: number;
+  userId: number;
+  name: string;
+  email: string;
+  role: string;
+  allocatedAt: string;
 }
 
 // Book Copies API
