@@ -39,7 +39,7 @@ export default function PublicHomePage() {
                 The library system is integrated with the campus ERP for seamless authentication.
               </p>
               <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                <Button size="lg" className="gap-2" disabled>
+                <Button size="lg" className="gap-2" disabled data-testid="button-institution-portal">
                   <ExternalLink className="h-5 w-5" />
                   Access via Institution Portal
                 </Button>

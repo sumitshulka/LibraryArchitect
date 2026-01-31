@@ -1762,6 +1762,13 @@ function ErpIntegrationsTab() {
                 Manage connections to external Education ERP systems for student data exchange.
               </CardDescription>
             </div>
+            <div className="flex items-center gap-2">
+              <a href="/settings/sso-testing" data-testid="link-sso-testing">
+                <Button variant="outline" size="sm" className="gap-2">
+                  <Shield className="h-4 w-4" />
+                  SSO Testing
+                </Button>
+              </a>
             <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
               <DialogTrigger asChild>
                 <Button size="sm" className="gap-2" data-testid="button-add-erp">
@@ -1773,6 +1780,7 @@ function ErpIntegrationsTab() {
                 <CreateErpIntegrationDialog onClose={() => setCreateDialogOpen(false)} />
               </DialogContent>
             </Dialog>
+            </div>
           </div>
         </CardHeader>
         <CardContent>

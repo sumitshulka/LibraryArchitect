@@ -70,26 +70,34 @@ export function verifyTokenSignature(
   payload: SSOTokenPayload,
   secretKey: string
 ): boolean {
-  const dataToSign = JSON.stringify({
-    appId: payload.appId,
-    userId: payload.userId,
-    userType: payload.userType,
-    role: payload.role,
-    name: payload.name,
-    email: payload.email,
-    department: payload.department,
-    timestamp: payload.timestamp
-  });
-  
-  const expectedSignature = crypto
-    .createHmac('sha256', secretKey)
-    .update(dataToSign)
-    .digest('hex');
-  
-  return crypto.timingSafeEqual(
-    Buffer.from(payload.signature),
-    Buffer.from(expectedSignature)
-  );
+  try {
+    const dataToSign = JSON.stringify({
+      appId: payload.appId,
+      userId: payload.userId,
+      userType: payload.userType,
+      role: payload.role,
+      name: payload.name,
+      email: payload.email,
+      department: payload.department,
+      timestamp: payload.timestamp
+    });
+    
+    const expectedSignature = crypto
+      .createHmac('sha256', secretKey)
+      .update(dataToSign)
+      .digest('hex');
+    
+    const providedBuffer = Buffer.from(payload.signature || '', 'hex');
+    const expectedBuffer = Buffer.from(expectedSignature, 'hex');
+    
+    if (providedBuffer.length !== expectedBuffer.length) {
+      return false;
+    }
+    
+    return crypto.timingSafeEqual(providedBuffer, expectedBuffer);
+  } catch {
+    return false;
+  }
 }
 
 export function isTokenExpired(timestamp: number): boolean {
@@ -162,16 +170,19 @@ export function generateSessionId(): string {
 export function isOriginWhitelisted(
   origin: string | undefined,
   referer: string | undefined,
-  whitelist: ErpWhitelist[]
+  whitelist: ErpWhitelist[],
+  requireWhitelist: boolean = false
 ): boolean {
-  if (whitelist.length === 0) return true;
+  const activeWhitelist = whitelist.filter(e => e.isActive);
+  
+  if (activeWhitelist.length === 0) {
+    return !requireWhitelist;
+  }
   
   const sourceUrl = origin || referer;
   if (!sourceUrl) return false;
   
-  return whitelist.some(entry => {
-    if (!entry.isActive) return false;
-    
+  return activeWhitelist.some(entry => {
     try {
       const url = new URL(sourceUrl);
       const pattern = entry.urlPattern;
