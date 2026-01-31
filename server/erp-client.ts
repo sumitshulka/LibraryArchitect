@@ -145,10 +145,14 @@ export class ERPClient {
     };
 
     if (endpoint?.requestHeaders) {
-      const customHeaders = typeof endpoint.requestHeaders === 'string'
-        ? JSON.parse(endpoint.requestHeaders)
-        : endpoint.requestHeaders;
-      Object.assign(headers, customHeaders);
+      try {
+        const customHeaders = typeof endpoint.requestHeaders === 'string'
+          ? JSON.parse(endpoint.requestHeaders)
+          : endpoint.requestHeaders;
+        Object.assign(headers, customHeaders);
+      } catch (e) {
+        console.error("Invalid requestHeaders JSON in endpoint configuration:", e);
+      }
     }
 
     if (body) {

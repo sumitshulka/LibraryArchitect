@@ -2325,9 +2325,22 @@ export async function registerRoutes(
   // ===== ERP Lookup API =====
   // Fetch student/faculty details from ERP on demand
 
-  // Configure ERP authentication settings
+  // Configure ERP authentication settings (requires admin session)
   app.put("/api/erp-integrations/:id/auth-config", async (req, res) => {
     try {
+      const sessionId = req.cookies.session_id;
+      if (!sessionId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      const session = await storage.getSession(sessionId);
+      if (!session) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+      const user = await storage.getUser(session.userId);
+      if (!user || (user.role !== 'ADMIN' && user.role !== 'LIBRARIAN')) {
+        return res.status(403).json({ error: "Admin or Librarian access required" });
+      }
+
       const id = parseInt(req.params.id);
       const { authLoginUrl, authClientId, authClientSecret, authTokenTtlSeconds } = req.body;
 
@@ -2355,9 +2368,22 @@ export async function registerRoutes(
     }
   });
 
-  // Test ERP connection and authentication
+  // Test ERP connection and authentication (requires admin session)
   app.post("/api/erp-integrations/:id/test-connection", async (req, res) => {
     try {
+      const sessionId = req.cookies.session_id;
+      if (!sessionId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      const session = await storage.getSession(sessionId);
+      if (!session) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+      const user = await storage.getUser(session.userId);
+      if (!user || (user.role !== 'ADMIN' && user.role !== 'LIBRARIAN')) {
+        return res.status(403).json({ error: "Admin or Librarian access required" });
+      }
+
       const id = parseInt(req.params.id);
       
       const { getERPClient } = await import('./erp-client');
@@ -2374,9 +2400,22 @@ export async function registerRoutes(
     }
   });
 
-  // Fetch user details from ERP
+  // Fetch user details from ERP (requires admin session)
   app.get("/api/erp-integrations/:id/lookup/:userType/:identifier", async (req, res) => {
     try {
+      const sessionId = req.cookies.session_id;
+      if (!sessionId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      const session = await storage.getSession(sessionId);
+      if (!session) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+      const user = await storage.getUser(session.userId);
+      if (!user || (user.role !== 'ADMIN' && user.role !== 'LIBRARIAN')) {
+        return res.status(403).json({ error: "Admin or Librarian access required" });
+      }
+
       const id = parseInt(req.params.id);
       const userType = req.params.userType.toUpperCase() as 'STUDENT' | 'FACULTY';
       const identifier = req.params.identifier;
@@ -2413,7 +2452,7 @@ export async function registerRoutes(
     }
   });
 
-  // Verify user exists in ERP (for circulation/fine verification)
+  // Verify user exists in ERP (for circulation/fine verification - requires secret key)
   app.post("/api/erp/verify-user", async (req, res) => {
     try {
       const { appId, userType, identifier } = req.body;
@@ -2423,21 +2462,23 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Required fields: appId, userType, identifier" });
       }
 
+      if (!secretKey) {
+        return res.status(401).json({ error: "X-Secret-Key header required" });
+      }
+
       const integration = await storage.getErpIntegrationByAppId(appId);
       if (!integration) {
         return res.status(404).json({ error: "ERP integration not found" });
       }
 
-      // Verify secret key if provided
-      if (secretKey) {
-        const { verifySecretKey } = await import('./sso');
-        if (!verifySecretKey(secretKey, integration.secretHash, integration.secretSalt)) {
-          return res.status(401).json({ error: "Invalid secret key" });
-        }
+      // Verify secret key
+      const { verifySecretKey } = await import('./sso');
+      if (!verifySecretKey(secretKey, integration.secretHash, integration.secretSalt)) {
+        return res.status(401).json({ error: "Invalid secret key" });
       }
 
-      const { getERPClient } = await import('./erp-client');
-      const client = new (await import('./erp-client')).ERPClient(integration);
+      const { ERPClient } = await import('./erp-client');
+      const client = new ERPClient(integration);
 
       const type = userType.toUpperCase() as 'STUDENT' | 'FACULTY';
       const userDetails = await client.fetchUserDetails(type, identifier);
