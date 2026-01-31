@@ -24,6 +24,7 @@ import { fromZodError } from "zod-validation-error";
 import crypto from "crypto";
 import * as XLSX from "xlsx";
 import multer from "multer";
+import { setupSwagger } from "./swagger";
 
 const MAX_WHITELIST_ENTRIES = 5;
 
@@ -52,6 +53,9 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  
+  // Setup Swagger API documentation
+  setupSwagger(app);
   
   // ===== Books API =====
   app.get("/api/books", async (req, res) => {

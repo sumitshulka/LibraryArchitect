@@ -1763,6 +1763,12 @@ function ErpIntegrationsTab() {
               </CardDescription>
             </div>
             <div className="flex items-center gap-2">
+              <a href="/api-docs" target="_blank" rel="noopener noreferrer" data-testid="link-api-docs">
+                <Button variant="outline" size="sm" className="gap-2">
+                  <BookOpen className="h-4 w-4" />
+                  API Docs
+                </Button>
+              </a>
               <a href="/settings/sso-testing" data-testid="link-sso-testing">
                 <Button variant="outline" size="sm" className="gap-2">
                   <Shield className="h-4 w-4" />
