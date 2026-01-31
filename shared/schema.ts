@@ -31,6 +31,9 @@ export const users = pgTable("users", {
   department: text("department"),
   employeeId: text("employee_id"),
   studentId: text("student_id"),
+  externalId: text("external_id"),
+  erpIntegrationId: integer("erp_integration_id"),
+  lastLoginAt: timestamp("last_login_at"),
 });
 
 export const resourceTypes = pgTable("resource_types", {
@@ -148,6 +151,16 @@ export const erpIntegrations = pgTable("erp_integrations", {
   description: text("description"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const sessions = pgTable("sessions", {
+  id: text("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  erpIntegrationId: integer("erp_integration_id").references(() => erpIntegrations.id),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
 });
 
 export const erpIntegrationWhitelist = pgTable("erp_integration_whitelist", {
@@ -357,6 +370,10 @@ export const insertErpIntegrationSchema = createInsertSchema(erpIntegrations).om
   secretLastRotatedAt: true,
 });
 
+export const insertSessionSchema = createInsertSchema(sessions).omit({
+  createdAt: true,
+});
+
 export const insertErpWhitelistSchema = createInsertSchema(erpIntegrationWhitelist).omit({
   id: true,
   createdAt: true,
@@ -442,6 +459,9 @@ export type SystemConfig = typeof systemConfig.$inferSelect;
 
 export type InsertErpIntegration = z.infer<typeof insertErpIntegrationSchema>;
 export type ErpIntegration = typeof erpIntegrations.$inferSelect;
+
+export type InsertSession = z.infer<typeof insertSessionSchema>;
+export type Session = typeof sessions.$inferSelect;
 
 export type InsertErpWhitelist = z.infer<typeof insertErpWhitelistSchema>;
 export type ErpWhitelist = typeof erpIntegrationWhitelist.$inferSelect;

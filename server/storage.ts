@@ -37,6 +37,8 @@ import {
   type InsertAuditSession,
   type InventoryItem,
   type InsertInventoryItem,
+  type Session,
+  type InsertSession,
   users,
   books,
   circulation,
@@ -55,7 +57,8 @@ import {
   bookTransfers,
   libraryMemberships,
   auditSessions,
-  inventoryItems
+  inventoryItems,
+  sessions
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, or, like, desc, asc, sql, isNull, inArray } from "drizzle-orm";
@@ -70,6 +73,16 @@ export interface IStorage {
   getAllUsers(): Promise<User[]>;
   getUsersByCategory(category: 'STAFF' | 'PATRON'): Promise<User[]>;
   deleteUser(id: number): Promise<boolean>;
+  getUserByExternalId(externalId: string, erpIntegrationId: number): Promise<User | undefined>;
+  updateUserLastLogin(id: number): Promise<void>;
+  
+  // Sessions
+  createSession(session: InsertSession): Promise<Session>;
+  getSession(id: string): Promise<Session | undefined>;
+  getSessionWithUser(id: string): Promise<{ session: Session; user: User } | undefined>;
+  deleteSession(id: string): Promise<boolean>;
+  deleteExpiredSessions(): Promise<number>;
+  deleteUserSessions(userId: number): Promise<number>;
   
   // Resource Types
   getResourceType(id: number): Promise<ResourceType | undefined>;
@@ -349,6 +362,61 @@ export class DBStorage implements IStorage {
   async deleteUser(id: number): Promise<boolean> {
     const result = await db.delete(users).where(eq(users.id, id));
     return (result.rowCount ?? 0) > 0;
+  }
+
+  async getUserByExternalId(externalId: string, erpIntegrationId: number): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(
+      and(
+        eq(users.externalId, externalId),
+        eq(users.erpIntegrationId, erpIntegrationId)
+      )
+    );
+    return user;
+  }
+
+  async updateUserLastLogin(id: number): Promise<void> {
+    await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, id));
+  }
+
+  // Sessions
+  async createSession(session: InsertSession): Promise<Session> {
+    const [created] = await db.insert(sessions).values(session).returning();
+    return created;
+  }
+
+  async getSession(id: string): Promise<Session | undefined> {
+    const [session] = await db.select().from(sessions).where(eq(sessions.id, id));
+    return session;
+  }
+
+  async getSessionWithUser(id: string): Promise<{ session: Session; user: User } | undefined> {
+    const result = await db.select({
+      session: sessions,
+      user: users
+    })
+      .from(sessions)
+      .innerJoin(users, eq(sessions.userId, users.id))
+      .where(eq(sessions.id, id));
+    
+    if (result.length === 0) return undefined;
+    return result[0];
+  }
+
+  async deleteSession(id: string): Promise<boolean> {
+    const result = await db.delete(sessions).where(eq(sessions.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async deleteExpiredSessions(): Promise<number> {
+    const result = await db.delete(sessions).where(
+      sql`${sessions.expiresAt} < NOW()`
+    );
+    return result.rowCount ?? 0;
+  }
+
+  async deleteUserSessions(userId: number): Promise<number> {
+    const result = await db.delete(sessions).where(eq(sessions.userId, userId));
+    return result.rowCount ?? 0;
   }
 
   // Resource Types
