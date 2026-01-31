@@ -1797,7 +1797,16 @@ export async function registerRoutes(
         return res.status(401).json({ error: "Invalid token signature" });
       }
 
-      const mappedUser = mapERPUserToLibraryUser(payload);
+      const mappingResult = mapERPUserToLibraryUser(payload);
+      
+      if (!mappingResult.success || !mappingResult.user) {
+        return res.status(403).json({ 
+          error: "Access denied", 
+          details: mappingResult.error 
+        });
+      }
+      
+      const mappedUser = mappingResult.user;
       
       let user = await storage.getUserByExternalId(mappedUser.externalId, integration.id);
       
@@ -1998,7 +2007,16 @@ export async function registerRoutes(
         return res.status(500).json({ error: "Token signature verification failed" });
       }
 
-      const mappedUser = mapERPUserToLibraryUser(payload);
+      const mappingResult = mapERPUserToLibraryUser(payload);
+      
+      if (!mappingResult.success || !mappingResult.user) {
+        return res.status(403).json({ 
+          error: "Access denied", 
+          details: mappingResult.error 
+        });
+      }
+      
+      const mappedUser = mappingResult.user;
       
       let user = await storage.getUserByExternalId(mappedUser.externalId, integration.id);
       let userCreated = false;

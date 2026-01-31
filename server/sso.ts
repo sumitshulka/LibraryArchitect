@@ -127,39 +127,64 @@ export function hashSecretKey(secretKey: string): { hash: string; salt: string }
   return { hash, salt };
 }
 
-export function mapERPUserToLibraryUser(payload: SSOTokenPayload): ValidatedSSOUser {
+export interface RoleMappingResult {
+  success: boolean;
+  user?: ValidatedSSOUser;
+  error?: string;
+}
+
+export function mapERPUserToLibraryUser(payload: SSOTokenPayload): RoleMappingResult {
   let category: 'STAFF' | 'PATRON';
   let role: 'ADMIN' | 'LIBRARIAN' | 'STUDENT' | 'FACULTY';
   let employeeId: string | undefined;
   let studentId: string | undefined;
   
+  const erpRole = payload.role?.toUpperCase() || '';
+  
   if (payload.userType === 'EMPLOYEE') {
-    category = 'STAFF';
-    if (payload.role?.toUpperCase() === 'ADMIN' || payload.role?.toUpperCase() === 'ADMINISTRATOR') {
+    // Only specific library roles are allowed for employees
+    if (erpRole === 'LIBRARY_ADMIN' || erpRole === 'LIBRARYADMIN') {
+      category = 'STAFF';
       role = 'ADMIN';
-    } else {
+      employeeId = payload.userId;
+    } else if (erpRole === 'LIBRARIAN' || erpRole === 'LIBRARY_STAFF') {
+      category = 'STAFF';
       role = 'LIBRARIAN';
+      employeeId = payload.userId;
+    } else {
+      // Employees without library-specific roles are not authorized
+      return {
+        success: false,
+        error: `Employee role '${payload.role || 'none'}' is not authorized for library access. Only LIBRARY_ADMIN or LIBRARIAN roles are permitted.`
+      };
     }
-    employeeId = payload.userId;
   } else if (payload.userType === 'FACULTY') {
     category = 'PATRON';
     role = 'FACULTY';
     studentId = payload.userId;
-  } else {
+  } else if (payload.userType === 'STUDENT') {
     category = 'PATRON';
     role = 'STUDENT';
     studentId = payload.userId;
+  } else {
+    return {
+      success: false,
+      error: `Unknown user type '${payload.userType}'. Expected EMPLOYEE, FACULTY, or STUDENT.`
+    };
   }
   
   return {
-    externalId: payload.userId,
-    name: payload.name,
-    email: payload.email,
-    category,
-    role,
-    department: payload.department,
-    employeeId,
-    studentId
+    success: true,
+    user: {
+      externalId: payload.userId,
+      name: payload.name,
+      email: payload.email,
+      category,
+      role,
+      department: payload.department,
+      employeeId,
+      studentId
+    }
   };
 }
 

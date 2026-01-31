@@ -308,9 +308,10 @@ export default function SSOTestingPage() {
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="ADMIN">Administrator</SelectItem>
+                              <SelectItem value="LIBRARY_ADMIN">Library Admin</SelectItem>
                               <SelectItem value="LIBRARIAN">Librarian</SelectItem>
-                              <SelectItem value="STAFF">Staff</SelectItem>
+                              <SelectItem value="MANAGER">Manager (Denied)</SelectItem>
+                              <SelectItem value="STAFF">Staff (Denied)</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
@@ -745,16 +746,22 @@ Headers:
                     <div className="space-y-4">
                       <div className="space-y-2">
                         <h5 className="font-medium text-sm">Staff (Library Employees)</h5>
+                        <p className="text-xs text-muted-foreground mb-2">Only employees with specific library roles are authorized</p>
                         <div className="text-sm space-y-1">
                           <div className="flex items-center gap-2">
-                            <Badge variant="outline" className="font-mono">EMPLOYEE + ADMIN</Badge>
+                            <Badge variant="outline" className="font-mono">EMPLOYEE + LIBRARY_ADMIN</Badge>
                             <ArrowRight className="h-3 w-3" />
                             <Badge>ADMIN</Badge>
                           </div>
                           <div className="flex items-center gap-2">
-                            <Badge variant="outline" className="font-mono">EMPLOYEE + other</Badge>
+                            <Badge variant="outline" className="font-mono">EMPLOYEE + LIBRARIAN</Badge>
                             <ArrowRight className="h-3 w-3" />
                             <Badge>LIBRARIAN</Badge>
+                          </div>
+                          <div className="flex items-center gap-2 opacity-60">
+                            <Badge variant="outline" className="font-mono">EMPLOYEE + other</Badge>
+                            <ArrowRight className="h-3 w-3" />
+                            <Badge variant="destructive">ACCESS DENIED</Badge>
                           </div>
                         </div>
                       </div>
