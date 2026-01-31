@@ -1427,30 +1427,39 @@ export class DBStorage implements IStorage {
   }
 
   async getLibraryStaff(libraryId: number): Promise<LibraryStaffMember[]> {
-    // Join memberships with users to filter by user category = STAFF
-    const results = await db.select({
-      membershipId: libraryMemberships.id,
-      userId: users.id,
-      name: users.name,
-      email: users.email,
-      role: users.role,
-      createdAt: libraryMemberships.createdAt,
-    }).from(libraryMemberships)
-      .innerJoin(users, eq(libraryMemberships.userId, users.id))
+    // Get active memberships for this library
+    const memberships = await db.select().from(libraryMemberships)
       .where(and(
         eq(libraryMemberships.libraryId, libraryId),
-        eq(libraryMemberships.isActive, true),
-        eq(users.category, 'STAFF')
+        eq(libraryMemberships.isActive, true)
       ));
     
-    return results.map(r => ({
-      id: r.membershipId,
-      userId: r.userId,
-      name: r.name,
-      email: r.email || '',
-      role: r.role === 'ADMIN' ? 'Library Admin' : 'Librarian',
-      allocatedAt: r.createdAt,
-    }));
+    if (memberships.length === 0) return [];
+    
+    // Get all users for these memberships
+    const userIds = memberships.map(m => m.userId);
+    const allUsers = await db.select().from(users)
+      .where(sql`${users.id} IN (${sql.join(userIds.map(id => sql`${id}`), sql`, `)})`);
+    
+    // Filter to only STAFF category users
+    const staffUsers = allUsers.filter(u => u.category === 'STAFF');
+    const staffUserIds = new Set(staffUsers.map(u => u.id));
+    const userMap = new Map(staffUsers.map(u => [u.id, u]));
+    
+    // Return only memberships for staff users
+    return memberships
+      .filter(m => staffUserIds.has(m.userId))
+      .map(m => {
+        const user = userMap.get(m.userId)!;
+        return {
+          id: m.id,
+          userId: m.userId,
+          name: user.name,
+          email: user.email || '',
+          role: user.role === 'ADMIN' ? 'Library Admin' : 'Librarian',
+          allocatedAt: m.createdAt,
+        };
+      });
   }
 
   // Library Dashboard
