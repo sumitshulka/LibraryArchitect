@@ -149,6 +149,12 @@ export const erpIntegrations = pgTable("erp_integrations", {
   secretLastRotatedAt: timestamp("secret_last_rotated_at").notNull().defaultNow(),
   outboundBaseUrl: text("outbound_base_url"),
   description: text("description"),
+  authLoginUrl: text("auth_login_url"),
+  authClientId: text("auth_client_id"),
+  authClientSecret: text("auth_client_secret"),
+  authTokenTtlSeconds: integer("auth_token_ttl_seconds").default(3600),
+  cachedAuthToken: text("cached_auth_token"),
+  cachedAuthTokenExpiresAt: timestamp("cached_auth_token_expires_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

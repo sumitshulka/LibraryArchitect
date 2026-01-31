@@ -151,6 +151,7 @@ export interface IStorage {
   getErpIntegrationByAppId(appId: string): Promise<ErpIntegration | undefined>;
   createErpIntegration(integration: InsertErpIntegration): Promise<ErpIntegration>;
   updateErpIntegration(id: number, integration: Partial<InsertErpIntegration>): Promise<ErpIntegration | undefined>;
+  updateErpIntegrationToken(id: number, token: string, expiresAt: Date): Promise<void>;
   deleteErpIntegration(id: number): Promise<boolean>;
   getAllErpIntegrations(): Promise<ErpIntegration[]>;
   rotateErpSecret(id: number, newSecretHash: string, newSecretSalt: string): Promise<ErpIntegration | undefined>;
@@ -702,6 +703,16 @@ export class DBStorage implements IStorage {
       .where(eq(erpIntegrations.id, id))
       .returning();
     return integration;
+  }
+
+  async updateErpIntegrationToken(id: number, token: string, expiresAt: Date): Promise<void> {
+    await db.update(erpIntegrations)
+      .set({ 
+        cachedAuthToken: token, 
+        cachedAuthTokenExpiresAt: expiresAt,
+        updatedAt: new Date() 
+      })
+      .where(eq(erpIntegrations.id, id));
   }
 
   async deleteErpIntegration(id: number): Promise<boolean> {

@@ -2322,6 +2322,154 @@ export async function registerRoutes(
     }
   });
 
+  // ===== ERP Lookup API =====
+  // Fetch student/faculty details from ERP on demand
+
+  // Configure ERP authentication settings
+  app.put("/api/erp-integrations/:id/auth-config", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { authLoginUrl, authClientId, authClientSecret, authTokenTtlSeconds } = req.body;
+
+      const integration = await storage.getErpIntegration(id);
+      if (!integration) {
+        return res.status(404).json({ error: "ERP integration not found" });
+      }
+
+      const updated = await storage.updateErpIntegration(id, {
+        authLoginUrl,
+        authClientId,
+        authClientSecret,
+        authTokenTtlSeconds: authTokenTtlSeconds || 3600,
+      });
+
+      res.json({ 
+        success: true, 
+        message: "Authentication configuration updated",
+        authLoginUrl: updated?.authLoginUrl,
+        authTokenTtlSeconds: updated?.authTokenTtlSeconds,
+      });
+    } catch (error) {
+      console.error("Auth config update error:", error);
+      res.status(500).json({ error: "Failed to update authentication configuration" });
+    }
+  });
+
+  // Test ERP connection and authentication
+  app.post("/api/erp-integrations/:id/test-connection", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      
+      const { getERPClient } = await import('./erp-client');
+      const client = await getERPClient(id);
+      const result = await client.testConnection();
+
+      res.json(result);
+    } catch (error) {
+      console.error("ERP connection test error:", error);
+      res.status(500).json({ 
+        success: false, 
+        message: error instanceof Error ? error.message : "Connection test failed" 
+      });
+    }
+  });
+
+  // Fetch user details from ERP
+  app.get("/api/erp-integrations/:id/lookup/:userType/:identifier", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const userType = req.params.userType.toUpperCase() as 'STUDENT' | 'FACULTY';
+      const identifier = req.params.identifier;
+
+      if (!['STUDENT', 'FACULTY'].includes(userType)) {
+        return res.status(400).json({ error: "userType must be STUDENT or FACULTY" });
+      }
+
+      const { getERPClient } = await import('./erp-client');
+      const client = await getERPClient(id);
+
+      // Find configured endpoint for this user type
+      const endpointType = userType === 'STUDENT' ? 'SINGLE_STUDENT' : 'LIBRARY_EMPLOYEES';
+      const endpoints = await storage.getErpPullEndpointsByIntegration(id);
+      const endpoint = endpoints.find(e => e.endpointType === endpointType && e.isActive);
+
+      const userDetails = await client.fetchUserDetails(userType, identifier, endpoint);
+
+      if (!userDetails) {
+        return res.status(404).json({ error: `${userType} not found in ERP system` });
+      }
+
+      res.json({
+        success: true,
+        userType,
+        identifier,
+        details: userDetails,
+      });
+    } catch (error) {
+      console.error("ERP user lookup error:", error);
+      res.status(500).json({ 
+        error: error instanceof Error ? error.message : "Failed to fetch user details from ERP" 
+      });
+    }
+  });
+
+  // Verify user exists in ERP (for circulation/fine verification)
+  app.post("/api/erp/verify-user", async (req, res) => {
+    try {
+      const { appId, userType, identifier } = req.body;
+      const secretKey = req.headers['x-secret-key'] as string;
+
+      if (!appId || !userType || !identifier) {
+        return res.status(400).json({ error: "Required fields: appId, userType, identifier" });
+      }
+
+      const integration = await storage.getErpIntegrationByAppId(appId);
+      if (!integration) {
+        return res.status(404).json({ error: "ERP integration not found" });
+      }
+
+      // Verify secret key if provided
+      if (secretKey) {
+        const { verifySecretKey } = await import('./sso');
+        if (!verifySecretKey(secretKey, integration.secretHash, integration.secretSalt)) {
+          return res.status(401).json({ error: "Invalid secret key" });
+        }
+      }
+
+      const { getERPClient } = await import('./erp-client');
+      const client = new (await import('./erp-client')).ERPClient(integration);
+
+      const type = userType.toUpperCase() as 'STUDENT' | 'FACULTY';
+      const userDetails = await client.fetchUserDetails(type, identifier);
+
+      if (!userDetails) {
+        return res.json({ 
+          verified: false, 
+          message: `${userType} not found in ERP system`,
+        });
+      }
+
+      res.json({
+        verified: true,
+        user: {
+          registrationNumber: userDetails.registrationNumber,
+          name: userDetails.name,
+          email: userDetails.email,
+          program: userDetails.programName,
+          batch: userDetails.batchName,
+          session: userDetails.session,
+          department: userDetails.department,
+          userType: userDetails.userType,
+        },
+      });
+    } catch (error) {
+      console.error("ERP user verification error:", error);
+      res.status(500).json({ 
+        error: error instanceof Error ? error.message : "Verification failed" 
+      });
+    }
+  });
+
   // SSO Test Endpoints (for development/testing only)
   app.post("/api/sso/test/generate-token", async (req, res) => {
     try {
