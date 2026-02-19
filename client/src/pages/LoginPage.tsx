@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useLocation } from "wouter";
+import { useState, useEffect } from "react";
+import { useLocation, useSearch } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,6 +8,19 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { BookOpen, Loader2, AlertCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
+const SSO_ERROR_MESSAGES: Record<string, string> = {
+  invalid_token: "SSO login failed: The authentication token is invalid or missing.",
+  token_expired: "SSO login failed: The authentication token has expired. Please try again from your portal.",
+  invalid_integration: "SSO login failed: The ERP integration could not be identified.",
+  integration_disabled: "SSO login failed: The ERP integration is currently disabled.",
+  origin_blocked: "SSO login failed: The request origin is not authorized.",
+  auth_failed: "SSO login failed: Authentication could not be verified.",
+  access_denied: "SSO login failed: Your role does not have access to the library system.",
+  not_provisioned: "SSO login failed: Your library staff account has not been set up yet. Please contact your administrator.",
+  account_inactive: "SSO login failed: Your account has been deactivated. Please contact your administrator.",
+  sso_failed: "SSO login failed: An unexpected error occurred. Please try again.",
+};
+
 export default function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -15,6 +28,17 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const { login } = useAuth();
   const [, setLocation] = useLocation();
+  const searchString = useSearch();
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchString);
+    const ssoError = params.get("error");
+    if (ssoError && SSO_ERROR_MESSAGES[ssoError]) {
+      setError(SSO_ERROR_MESSAGES[ssoError]);
+    } else if (ssoError) {
+      setError("SSO login failed. Please try again or contact your administrator.");
+    }
+  }, [searchString]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

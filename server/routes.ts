@@ -1770,7 +1770,7 @@ export async function registerRoutes(
       
       if (!token || typeof token !== 'string') {
         logAudit(req, { category: 'AUTHENTICATION', action: 'SSO_LOGIN_FAILED', status: 'FAILURE', details: { reason: 'Missing or invalid token' } });
-        return res.status(400).json({ error: "Missing or invalid token" });
+        return res.redirect('/login?error=invalid_token');
       }
 
       const { 
@@ -1786,23 +1786,23 @@ export async function registerRoutes(
       const payload = decodeToken(token);
       if (!payload) {
         logAudit(req, { category: 'AUTHENTICATION', action: 'SSO_LOGIN_FAILED', status: 'FAILURE', details: { reason: 'Invalid token format' } });
-        return res.status(400).json({ error: "Invalid token format" });
+        return res.redirect('/login?error=invalid_token');
       }
 
       if (isTokenExpired(payload.timestamp)) {
         logAudit(req, { category: 'AUTHENTICATION', action: 'SSO_LOGIN_FAILED', status: 'FAILURE', details: { reason: 'Token expired', appId: payload.appId } });
-        return res.status(401).json({ error: "Token has expired" });
+        return res.redirect('/login?error=token_expired');
       }
 
       const integration = await storage.getErpIntegrationByAppId(payload.appId);
       if (!integration) {
         logAudit(req, { category: 'AUTHENTICATION', action: 'SSO_LOGIN_FAILED', status: 'FAILURE', details: { reason: 'Unknown application ID', appId: payload.appId } });
-        return res.status(401).json({ error: "Unknown application ID" });
+        return res.redirect('/login?error=invalid_integration');
       }
 
       if (!integration.isActive) {
         logAudit(req, { category: 'AUTHENTICATION', action: 'SSO_LOGIN_FAILED', status: 'FAILURE', details: { reason: 'ERP integration disabled', appId: payload.appId } });
-        return res.status(401).json({ error: "ERP integration is disabled" });
+        return res.redirect('/login?error=integration_disabled');
       }
 
       const whitelist = await storage.getWhitelistByIntegration(integration.id);
@@ -1811,32 +1811,30 @@ export async function registerRoutes(
       
       if (!isOriginWhitelisted(origin, referer, whitelist)) {
         logAudit(req, { category: 'AUTHENTICATION', action: 'SSO_LOGIN_FAILED', status: 'FAILURE', details: { reason: 'Origin not whitelisted', appId: payload.appId, origin, referer } });
-        return res.status(403).json({ error: "Origin not whitelisted" });
+        return res.redirect('/login?error=origin_blocked');
       }
 
       const secretKey = req.headers['x-secret-key'] as string;
       if (!secretKey) {
         logAudit(req, { category: 'AUTHENTICATION', action: 'SSO_LOGIN_FAILED', status: 'FAILURE', details: { reason: 'Missing secret key', appId: payload.appId } });
-        return res.status(401).json({ error: "Missing secret key" });
+        return res.redirect('/login?error=auth_failed');
       }
 
       if (!verifySecretKey(secretKey, integration.secretHash, integration.secretSalt)) {
         logAudit(req, { category: 'AUTHENTICATION', action: 'SSO_LOGIN_FAILED', status: 'FAILURE', details: { reason: 'Invalid secret key', appId: payload.appId } });
-        return res.status(401).json({ error: "Invalid secret key" });
+        return res.redirect('/login?error=auth_failed');
       }
 
       if (!verifyTokenSignature(payload, secretKey)) {
         logAudit(req, { category: 'AUTHENTICATION', action: 'SSO_LOGIN_FAILED', status: 'FAILURE', details: { reason: 'Invalid token signature', appId: payload.appId } });
-        return res.status(401).json({ error: "Invalid token signature" });
+        return res.redirect('/login?error=auth_failed');
       }
 
       const mappingResult = mapERPUserToLibraryUser(payload);
       
       if (!mappingResult.success || !mappingResult.user) {
-        return res.status(403).json({ 
-          error: "Access denied", 
-          details: mappingResult.error 
-        });
+        logAudit(req, { category: 'AUTHENTICATION', action: 'SSO_LOGIN_FAILED', status: 'FAILURE', details: { reason: 'Role mapping failed', appId: payload.appId, error: mappingResult.error } });
+        return res.redirect('/login?error=access_denied');
       }
       
       const mappedUser = mappingResult.user;
@@ -1844,13 +1842,9 @@ export async function registerRoutes(
       let user = await storage.getUserByExternalId(mappedUser.externalId, integration.id);
       
       if (!user) {
-        // Staff users (Library Admin, Librarian) must be pre-provisioned via API
         if (mappedUser.category === 'STAFF') {
           logAudit(req, { category: 'AUTHENTICATION', action: 'SSO_LOGIN_FAILED', status: 'FAILURE', details: { reason: 'Staff not provisioned', appId: payload.appId, externalId: mappedUser.externalId } });
-          return res.status(403).json({ 
-            error: "Access denied", 
-            details: "Library staff users must be pre-provisioned by the ERP system. Please contact your administrator to request library access."
-          });
+          return res.redirect('/login?error=not_provisioned');
         }
         
         // Patrons (Students, Faculty) can be auto-provisioned on first login
@@ -1872,10 +1866,7 @@ export async function registerRoutes(
         // Check if staff user is still active
         if (mappedUser.category === 'STAFF' && user.status !== 'ACTIVE') {
           logAudit(req, { category: 'AUTHENTICATION', action: 'SSO_LOGIN_FAILED', status: 'FAILURE', userId: user.id, userName: user.username, details: { reason: 'Inactive staff account', appId: payload.appId } });
-          return res.status(403).json({ 
-            error: "Access denied", 
-            details: "Your library staff account has been deactivated. Please contact your administrator."
-          });
+          return res.redirect('/login?error=account_inactive');
         }
         
         // Update user info on login
@@ -1910,11 +1901,10 @@ export async function registerRoutes(
 
       logAudit(req, { category: 'AUTHENTICATION', action: 'SSO_LOGIN_SUCCESS', userId: user.id, userName: user.username, details: { appId: payload.appId, role: user.role, category: user.category } });
 
-      const redirectPath = user.category === 'STAFF' ? '/dashboard' : '/catalog';
-      res.redirect(redirectPath);
+      res.redirect('/dashboard');
     } catch (error) {
       console.error("SSO callback error:", error);
-      res.status(500).json({ error: "SSO authentication failed" });
+      res.redirect('/login?error=sso_failed');
     }
   });
 
