@@ -1858,12 +1858,19 @@ export async function registerRoutes(
       let user = await storage.getUserByExternalId(mappedUser.externalId, integration.id);
       
       if (!user) {
+        const orphanedUser = await storage.getUserByExternalIdOnly(mappedUser.externalId);
+        if (orphanedUser) {
+          await storage.updateUser(orphanedUser.id, { erpIntegrationId: integration.id });
+          user = { ...orphanedUser, erpIntegrationId: integration.id };
+        }
+      }
+
+      if (!user) {
         if (mappedUser.category === 'STAFF') {
           logAudit(req, { category: 'AUTHENTICATION', action: 'SSO_LOGIN_FAILED', status: 'FAILURE', details: { reason: 'Staff not provisioned', appId: payload.appId, externalId: mappedUser.externalId } });
           return res.redirect('/login?error=not_provisioned');
         }
         
-        // Patrons (Students, Faculty) can be auto-provisioned on first login
         const username = `${mappedUser.externalId}_${integration.id}`;
         user = await storage.createUser({
           username,
