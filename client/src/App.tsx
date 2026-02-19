@@ -50,6 +50,7 @@ function AppRouter() {
       <Route path="/login" component={LoginPage} />
       <Route path="/home" component={PublicHomePage} />
       <Route path="/">{() => <ProtectedRoute component={DashboardPage} />}</Route>
+      <Route path="/dashboard">{() => <ProtectedRoute component={DashboardPage} />}</Route>
       <Route path="/catalog">{() => <ProtectedRoute component={CatalogPage} />}</Route>
       <Route path="/catalog/new">{() => <ProtectedRoute component={AddResourcePage} />}</Route>
       <Route path="/catalog/bulk-upload">{() => <ProtectedRoute component={BulkUploadPage} />}</Route>
