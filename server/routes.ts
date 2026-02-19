@@ -25,6 +25,7 @@ import crypto from "crypto";
 import * as XLSX from "xlsx";
 import multer from "multer";
 import { setupSwagger } from "./swagger";
+import { logAudit } from "./audit";
 
 const MAX_WHITELIST_ENTRIES = 5;
 
@@ -251,6 +252,7 @@ export async function registerRoutes(
         );
       }
       
+      logAudit(req, { category: 'CATALOG', action: 'BOOK_CREATED', targetType: 'book', targetId: String(book.id), details: { title: book.title, isbn: book.isbn, copiesCreated: copyCount } });
       res.status(201).json({ ...book, copiesCreated: copyCount });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -272,6 +274,7 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Book not found" });
       }
       
+      logAudit(req, { category: 'CATALOG', action: 'BOOK_UPDATED', targetType: 'book', targetId: String(id), details: { changedFields: Object.keys(validated) } });
       res.json(book);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -293,6 +296,7 @@ export async function registerRoutes(
       }
       
       await storage.deleteBook(id);
+      logAudit(req, { category: 'CATALOG', action: 'BOOK_DELETED', targetType: 'book', targetId: String(id) });
       res.status(204).send();
     } catch (error) {
       console.error("Error deleting book:", error);
@@ -470,6 +474,7 @@ export async function registerRoutes(
       }
       
       const user = await storage.createUser(validated);
+      logAudit(req, { category: 'USER_MANAGEMENT', action: 'USER_CREATED', targetType: 'user', targetId: String(user.id), details: { username: user.username, email: user.email, role: user.role, category: user.category } });
       res.status(201).json(user);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -491,6 +496,7 @@ export async function registerRoutes(
         return res.status(404).json({ error: "User not found" });
       }
       
+      logAudit(req, { category: 'USER_MANAGEMENT', action: 'USER_UPDATED', targetType: 'user', targetId: String(id), details: { changedFields: Object.keys(validated) } });
       res.json(user);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -510,6 +516,7 @@ export async function registerRoutes(
         return res.status(404).json({ error: "User not found" });
       }
       
+      logAudit(req, { category: 'USER_MANAGEMENT', action: 'USER_DELETED', targetType: 'user', targetId: String(id) });
       res.status(204).send();
     } catch (error) {
       console.error("Error deleting user:", error);
@@ -582,6 +589,7 @@ export async function registerRoutes(
       // Update book status
       await storage.updateBook(validated.bookId, { status: 'CHECKED_OUT' });
       
+      logAudit(req, { category: 'CIRCULATION', action: 'CHECKOUT', targetType: 'circulation', targetId: String(circulation.id), details: { bookId: validated.bookId, bookTitle: book.title, userId: validated.userId, bookCopyId: validated.bookCopyId } });
       res.status(201).json(circulation);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -625,6 +633,7 @@ export async function registerRoutes(
       // Update book status
       await storage.updateBook(circ.bookId, { status: 'AVAILABLE' });
       
+      logAudit(req, { category: 'CIRCULATION', action: 'RETURN', targetType: 'circulation', targetId: String(id), details: { bookId: circ.bookId, userId: circ.userId, isOverdue, fineAmount } });
       res.json(updated);
     } catch (error) {
       console.error("Error returning book:", error);
@@ -775,6 +784,7 @@ export async function registerRoutes(
         });
       }
       
+      logAudit(req, { category: 'INVENTORY', action: 'AUDIT_SESSION_CREATED', targetType: 'audit_session', targetId: String(session.id), details: { sessionCode: session.sessionCode, libraryId: session.libraryId } });
       res.status(201).json(session);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -829,6 +839,7 @@ export async function registerRoutes(
         discrepancies: stats.discrepancy
       });
       
+      logAudit(req, { category: 'INVENTORY', action: 'AUDIT_SESSION_COMPLETED', targetType: 'audit_session', targetId: String(id), details: { verified: stats.verified, missing: stats.missing, discrepancies: stats.discrepancy } });
       res.json(updated);
     } catch (error) {
       console.error("Error completing audit session:", error);
@@ -1185,6 +1196,7 @@ export async function registerRoutes(
         });
       }
       
+      logAudit(req, { category: 'INVENTORY', action: 'ITEM_SCANNED', targetType: 'inventory_item', targetId: String(item.id), details: { sessionId, ssn, bookTitle: book?.title, status: item.status } });
       res.json({ item, copy, book });
     } catch (error) {
       console.error("Error scanning item:", error);
@@ -1207,6 +1219,7 @@ export async function registerRoutes(
     try {
       const validated = insertSystemConfigSchema.parse(req.body);
       const config = await storage.setSystemConfig(validated);
+      logAudit(req, { category: 'SYSTEM_CONFIG', action: 'CONFIG_UPDATED', targetType: 'config', targetId: validated.key, details: { key: validated.key, value: validated.value } });
       res.json(config);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -1255,6 +1268,7 @@ export async function registerRoutes(
     try {
       const validated = insertResourceTypeSchema.parse(req.body);
       const type = await storage.createResourceType(validated);
+      logAudit(req, { category: 'CATALOG', action: 'RESOURCE_TYPE_CREATED', targetType: 'resource_type', targetId: String(type.id), details: { name: validated.name } });
       res.status(201).json(type);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -1276,6 +1290,7 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Resource type not found" });
       }
       
+      logAudit(req, { category: 'CATALOG', action: 'RESOURCE_TYPE_UPDATED', targetType: 'resource_type', targetId: String(id), details: { changedFields: Object.keys(validated) } });
       res.json(type);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -1290,6 +1305,7 @@ export async function registerRoutes(
     try {
       const id = parseInt(req.params.id);
       await storage.deleteResourceType(id);
+      logAudit(req, { category: 'CATALOG', action: 'RESOURCE_TYPE_DELETED', targetType: 'resource_type', targetId: String(id) });
       res.status(204).send();
     } catch (error) {
       console.error("Error deleting resource type:", error);
@@ -1335,6 +1351,7 @@ export async function registerRoutes(
     try {
       const validated = insertCategorySchema.parse(req.body);
       const category = await storage.createCategory(validated);
+      logAudit(req, { category: 'CATALOG', action: 'CATEGORY_CREATED', targetType: 'category', targetId: String(category.id), details: { name: validated.name } });
       res.status(201).json(category);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -1356,6 +1373,7 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Category not found" });
       }
       
+      logAudit(req, { category: 'CATALOG', action: 'CATEGORY_UPDATED', targetType: 'category', targetId: String(id), details: { changedFields: Object.keys(validated) } });
       res.json(category);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -1370,6 +1388,7 @@ export async function registerRoutes(
     try {
       const id = parseInt(req.params.id);
       await storage.deleteCategory(id);
+      logAudit(req, { category: 'CATALOG', action: 'CATEGORY_DELETED', targetType: 'category', targetId: String(id) });
       res.status(204).send();
     } catch (error) {
       console.error("Error deleting category:", error);
@@ -1731,6 +1750,7 @@ export async function registerRoutes(
         }
       }
       
+      logAudit(req, { category: 'CATALOG', action: 'BULK_UPLOAD', details: { createdBooks, createdCopies, skippedRows, errorCount: errors.length } });
       res.json({
         createdBooks,
         createdCopies,
@@ -1749,6 +1769,7 @@ export async function registerRoutes(
       const { token } = req.query;
       
       if (!token || typeof token !== 'string') {
+        logAudit(req, { category: 'AUTHENTICATION', action: 'SSO_LOGIN_FAILED', status: 'FAILURE', details: { reason: 'Missing or invalid token' } });
         return res.status(400).json({ error: "Missing or invalid token" });
       }
 
@@ -1764,19 +1785,23 @@ export async function registerRoutes(
       
       const payload = decodeToken(token);
       if (!payload) {
+        logAudit(req, { category: 'AUTHENTICATION', action: 'SSO_LOGIN_FAILED', status: 'FAILURE', details: { reason: 'Invalid token format' } });
         return res.status(400).json({ error: "Invalid token format" });
       }
 
       if (isTokenExpired(payload.timestamp)) {
+        logAudit(req, { category: 'AUTHENTICATION', action: 'SSO_LOGIN_FAILED', status: 'FAILURE', details: { reason: 'Token expired', appId: payload.appId } });
         return res.status(401).json({ error: "Token has expired" });
       }
 
       const integration = await storage.getErpIntegrationByAppId(payload.appId);
       if (!integration) {
+        logAudit(req, { category: 'AUTHENTICATION', action: 'SSO_LOGIN_FAILED', status: 'FAILURE', details: { reason: 'Unknown application ID', appId: payload.appId } });
         return res.status(401).json({ error: "Unknown application ID" });
       }
 
       if (!integration.isActive) {
+        logAudit(req, { category: 'AUTHENTICATION', action: 'SSO_LOGIN_FAILED', status: 'FAILURE', details: { reason: 'ERP integration disabled', appId: payload.appId } });
         return res.status(401).json({ error: "ERP integration is disabled" });
       }
 
@@ -1785,19 +1810,23 @@ export async function registerRoutes(
       const referer = req.headers.referer;
       
       if (!isOriginWhitelisted(origin, referer, whitelist)) {
+        logAudit(req, { category: 'AUTHENTICATION', action: 'SSO_LOGIN_FAILED', status: 'FAILURE', details: { reason: 'Origin not whitelisted', appId: payload.appId, origin, referer } });
         return res.status(403).json({ error: "Origin not whitelisted" });
       }
 
       const secretKey = req.headers['x-secret-key'] as string;
       if (!secretKey) {
+        logAudit(req, { category: 'AUTHENTICATION', action: 'SSO_LOGIN_FAILED', status: 'FAILURE', details: { reason: 'Missing secret key', appId: payload.appId } });
         return res.status(401).json({ error: "Missing secret key" });
       }
 
       if (!verifySecretKey(secretKey, integration.secretHash, integration.secretSalt)) {
+        logAudit(req, { category: 'AUTHENTICATION', action: 'SSO_LOGIN_FAILED', status: 'FAILURE', details: { reason: 'Invalid secret key', appId: payload.appId } });
         return res.status(401).json({ error: "Invalid secret key" });
       }
 
       if (!verifyTokenSignature(payload, secretKey)) {
+        logAudit(req, { category: 'AUTHENTICATION', action: 'SSO_LOGIN_FAILED', status: 'FAILURE', details: { reason: 'Invalid token signature', appId: payload.appId } });
         return res.status(401).json({ error: "Invalid token signature" });
       }
 
@@ -1817,6 +1846,7 @@ export async function registerRoutes(
       if (!user) {
         // Staff users (Library Admin, Librarian) must be pre-provisioned via API
         if (mappedUser.category === 'STAFF') {
+          logAudit(req, { category: 'AUTHENTICATION', action: 'SSO_LOGIN_FAILED', status: 'FAILURE', details: { reason: 'Staff not provisioned', appId: payload.appId, externalId: mappedUser.externalId } });
           return res.status(403).json({ 
             error: "Access denied", 
             details: "Library staff users must be pre-provisioned by the ERP system. Please contact your administrator to request library access."
@@ -1841,6 +1871,7 @@ export async function registerRoutes(
       } else {
         // Check if staff user is still active
         if (mappedUser.category === 'STAFF' && user.status !== 'ACTIVE') {
+          logAudit(req, { category: 'AUTHENTICATION', action: 'SSO_LOGIN_FAILED', status: 'FAILURE', userId: user.id, userName: user.username, details: { reason: 'Inactive staff account', appId: payload.appId } });
           return res.status(403).json({ 
             error: "Access denied", 
             details: "Your library staff account has been deactivated. Please contact your administrator."
@@ -1876,6 +1907,8 @@ export async function registerRoutes(
         maxAge: 24 * 60 * 60 * 1000,
         path: '/'
       });
+
+      logAudit(req, { category: 'AUTHENTICATION', action: 'SSO_LOGIN_SUCCESS', userId: user.id, userName: user.username, details: { appId: payload.appId, role: user.role, category: user.category } });
 
       const redirectPath = user.category === 'STAFF' ? '/dashboard' : '/catalog';
       res.redirect(redirectPath);
@@ -1921,11 +1954,19 @@ export async function registerRoutes(
     try {
       const sessionId = req.cookies?.session_id;
       
+      let logUserId: number | undefined;
+      let logUserName: string | undefined;
       if (sessionId) {
+        const sessionData = await storage.getSessionWithUser(sessionId);
+        if (sessionData) {
+          logUserId = sessionData.user.id;
+          logUserName = sessionData.user.username;
+        }
         await storage.deleteSession(sessionId);
         res.clearCookie('session_id');
       }
 
+      logAudit(req, { category: 'AUTHENTICATION', action: 'LOGOUT', userId: logUserId, userName: logUserName, details: { method: 'SSO' } });
       res.json({ success: true });
     } catch (error) {
       console.error("Logout error:", error);
@@ -1986,12 +2027,14 @@ export async function registerRoutes(
 
       // Check if user is a local user (has password and no ERP integration)
       if (user.erpIntegrationId) {
+        logAudit(req, { category: 'AUTHENTICATION', action: 'PASSWORD_CHANGE_FAILED', status: 'FAILURE', userId: user.id, userName: user.username, details: { reason: 'ERP user cannot change password locally' } });
         return res.status(403).json({ 
           error: "ERP users cannot change password here. Please use your organization's portal." 
         });
       }
 
       if (!user.password) {
+        logAudit(req, { category: 'AUTHENTICATION', action: 'PASSWORD_CHANGE_FAILED', status: 'FAILURE', userId: user.id, userName: user.username, details: { reason: 'SSO-only account' } });
         return res.status(403).json({ 
           error: "This account uses SSO authentication." 
         });
@@ -2010,6 +2053,7 @@ export async function registerRoutes(
       // Verify current password
       const { verifyPassword, hashPassword } = await import('./sso');
       if (!verifyPassword(currentPassword, user.password)) {
+        logAudit(req, { category: 'AUTHENTICATION', action: 'PASSWORD_CHANGE_FAILED', status: 'FAILURE', userId: user.id, userName: user.username, details: { reason: 'Incorrect current password' } });
         return res.status(401).json({ error: "Current password is incorrect" });
       }
 
@@ -2017,6 +2061,7 @@ export async function registerRoutes(
       const hashedNewPassword = hashPassword(newPassword);
       await storage.updateUser(user.id, { password: hashedNewPassword });
 
+      logAudit(req, { category: 'AUTHENTICATION', action: 'PASSWORD_CHANGED', userId: user.id, userName: user.username });
       res.json({ success: true, message: "Password changed successfully" });
     } catch (error) {
       console.error("Change password error:", error);
@@ -2029,11 +2074,19 @@ export async function registerRoutes(
     try {
       const sessionId = req.cookies?.session_id;
       
+      let logUserId: number | undefined;
+      let logUserName: string | undefined;
       if (sessionId) {
+        const sessionData = await storage.getSessionWithUser(sessionId);
+        if (sessionData) {
+          logUserId = sessionData.user.id;
+          logUserName = sessionData.user.username;
+        }
         await storage.deleteSession(sessionId);
         res.clearCookie('session_id');
       }
 
+      logAudit(req, { category: 'AUTHENTICATION', action: 'LOGOUT', userId: logUserId, userName: logUserName, details: { method: 'LOCAL' } });
       res.json({ success: true });
     } catch (error) {
       console.error("Logout error:", error);
@@ -2055,6 +2108,7 @@ export async function registerRoutes(
       const authMode = authModeConfig?.value || "LOCAL";
       
       if (authMode === "ERP") {
+        logAudit(req, { category: 'AUTHENTICATION', action: 'LOCAL_LOGIN_FAILED', status: 'FAILURE', details: { reason: 'Local login disabled (SSO-only mode)', username } });
         return res.status(403).json({ 
           error: "Local login is disabled. Please use SSO to sign in." 
         });
@@ -2065,10 +2119,12 @@ export async function registerRoutes(
                    await storage.getUserByEmail(username);
       
       if (!user) {
+        logAudit(req, { category: 'AUTHENTICATION', action: 'LOCAL_LOGIN_FAILED', status: 'FAILURE', details: { reason: 'User not found', username } });
         return res.status(401).json({ error: "Invalid username or password" });
       }
 
       if (!user.password) {
+        logAudit(req, { category: 'AUTHENTICATION', action: 'LOCAL_LOGIN_FAILED', status: 'FAILURE', userId: user.id, userName: user.username, details: { reason: 'SSO-only account', username } });
         return res.status(401).json({ 
           error: "This account uses SSO authentication. Please sign in via your organization." 
         });
@@ -2077,10 +2133,12 @@ export async function registerRoutes(
       // Verify password
       const { verifyPassword } = await import('./sso');
       if (!verifyPassword(password, user.password)) {
+        logAudit(req, { category: 'AUTHENTICATION', action: 'LOCAL_LOGIN_FAILED', status: 'FAILURE', userId: user.id, userName: user.username, details: { reason: 'Invalid password', username } });
         return res.status(401).json({ error: "Invalid username or password" });
       }
 
       if (user.status !== 'ACTIVE') {
+        logAudit(req, { category: 'AUTHENTICATION', action: 'LOCAL_LOGIN_FAILED', status: 'FAILURE', userId: user.id, userName: user.username, details: { reason: 'Account inactive', username } });
         return res.status(403).json({ error: "Account is not active" });
       }
 
@@ -2103,6 +2161,8 @@ export async function registerRoutes(
         sameSite: 'lax',
         maxAge: 24 * 60 * 60 * 1000, // 24 hours
       });
+
+      logAudit(req, { category: 'AUTHENTICATION', action: 'LOCAL_LOGIN_SUCCESS', userId: user.id, userName: user.username, details: { role: user.role, category: user.category } });
 
       res.json({
         success: true,
@@ -2203,6 +2263,7 @@ export async function registerRoutes(
         erpIntegrationId: integration.id,
       });
 
+      logAudit(req, { category: 'ERP_INTEGRATION', action: 'ERP_USER_PROVISIONED', targetType: 'user', targetId: String(newUser.id), details: { externalId, name, email, role: libraryRole, appId } });
       res.status(201).json({ 
         message: "Library user created successfully",
         user: {
@@ -2216,6 +2277,7 @@ export async function registerRoutes(
         }
       });
     } catch (error) {
+      logAudit(req, { category: 'ERP_INTEGRATION', action: 'ERP_USER_PROVISION_FAILED', status: 'FAILURE', errorMessage: error instanceof Error ? error.message : 'Unknown error' });
       console.error("Library user creation error:", error);
       res.status(500).json({ error: "Failed to create library user" });
     }
@@ -2307,6 +2369,7 @@ export async function registerRoutes(
       // Soft delete - set status to INACTIVE
       await storage.updateUser(user.id, { status: 'INACTIVE' });
 
+      logAudit(req, { category: 'ERP_INTEGRATION', action: 'ERP_USER_DEACTIVATED', targetType: 'user', targetId: String(user.id), details: { externalId, name: user.name, appId } });
       res.json({ 
         message: "Library user deactivated successfully",
         user: {
@@ -3512,6 +3575,7 @@ export async function registerRoutes(
       }
       
       const unit = await storage.createOrgUnit(validated);
+      logAudit(req, { category: 'SYSTEM_CONFIG', action: 'ORG_UNIT_CREATED', targetType: 'org_unit', targetId: String(unit.id), details: { name: validated.name, code: validated.code } });
       res.status(201).json(unit);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -3533,6 +3597,7 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Organizational unit not found" });
       }
       
+      logAudit(req, { category: 'SYSTEM_CONFIG', action: 'ORG_UNIT_UPDATED', targetType: 'org_unit', targetId: String(id), details: { changedFields: Object.keys(validated) } });
       res.json(unit);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -3563,6 +3628,7 @@ export async function registerRoutes(
       }
       
       await storage.deleteOrgUnit(id);
+      logAudit(req, { category: 'SYSTEM_CONFIG', action: 'ORG_UNIT_DELETED', targetType: 'org_unit', targetId: String(id) });
       res.status(204).send();
     } catch (error) {
       console.error("Error deleting org unit:", error);
@@ -3676,6 +3742,7 @@ export async function registerRoutes(
       }
       
       const library = await storage.createLibrary(validated);
+      logAudit(req, { category: 'SYSTEM_CONFIG', action: 'LIBRARY_CREATED', targetType: 'library', targetId: String(library.id), details: { name: validated.name, code: validated.code } });
       res.status(201).json(library);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -3697,6 +3764,7 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Library not found" });
       }
       
+      logAudit(req, { category: 'SYSTEM_CONFIG', action: 'LIBRARY_UPDATED', targetType: 'library', targetId: String(id), details: { changedFields: Object.keys(validated) } });
       res.json(library);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -3722,6 +3790,7 @@ export async function registerRoutes(
       }
       
       await storage.deleteLibrary(id);
+      logAudit(req, { category: 'SYSTEM_CONFIG', action: 'LIBRARY_DELETED', targetType: 'library', targetId: String(id) });
       res.status(204).send();
     } catch (error) {
       console.error("Error deleting library:", error);
@@ -3945,6 +4014,7 @@ export async function registerRoutes(
         ssnPrefix
       );
       
+      logAudit(req, { category: 'STAFF_ALLOCATION', action: 'STAFF_ALLOCATED', targetType: 'library', targetId: String(libraryId), details: { allocatedCount: allocatedCopies.length, copyIds, libraryName: library.name } });
       res.json({
         success: true,
         allocatedCount: allocatedCopies.length,
@@ -4326,6 +4396,43 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error fetching staff allocation logs:", error);
       res.status(500).json({ error: "Failed to fetch staff allocation logs" });
+    }
+  });
+
+  // Audit Logs API
+  app.get("/api/audit-logs", async (req, res) => {
+    try {
+      const sessionId = req.cookies?.session_id;
+      if (!sessionId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      const session = await storage.getSession(sessionId);
+      if (!session) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+      const currentUser = await storage.getUser(session.userId);
+      if (!currentUser || currentUser.role !== 'ADMIN') {
+        return res.status(403).json({ error: "Only administrators can view audit logs" });
+      }
+
+      const { category, action, userId, status, startDate, endDate, search, limit, offset } = req.query;
+
+      const filters: any = {};
+      if (category) filters.category = category as string;
+      if (action) filters.action = action as string;
+      if (userId) filters.userId = parseInt(userId as string);
+      if (status) filters.status = status as string;
+      if (startDate) filters.startDate = new Date(startDate as string);
+      if (endDate) filters.endDate = new Date(endDate as string);
+      if (search) filters.search = search as string;
+      if (limit) filters.limit = parseInt(limit as string);
+      if (offset) filters.offset = parseInt(offset as string);
+
+      const result = await storage.queryAuditLogs(filters);
+      res.json(result);
+    } catch (error) {
+      console.error("Error fetching audit logs:", error);
+      res.status(500).json({ error: "Failed to fetch audit logs" });
     }
   });
 

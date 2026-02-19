@@ -34,6 +34,8 @@ import {
   type LibraryMembership,
   type InsertLibraryMembership,
   type StaffAllocationLog,
+  type AuditLog,
+  type InsertAuditLog,
   type AuditSession,
   type InsertAuditSession,
   type InventoryItem,
@@ -58,10 +60,23 @@ import {
   bookTransfers,
   libraryMemberships,
   staffAllocationLogs,
+  auditLogs,
   auditSessions,
   inventoryItems,
   sessions
 } from "@shared/schema";
+
+export interface AuditLogFilters {
+  category?: string;
+  action?: string;
+  userId?: number;
+  status?: string;
+  startDate?: Date;
+  endDate?: Date;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
 
 // Type for staff allocation logs with user and library details
 export interface StaffAllocationLogWithDetails extends StaffAllocationLog {
@@ -268,6 +283,10 @@ export interface IStorage {
   getStaffAllocationLogsWithDetails(staffUserId?: number): Promise<StaffAllocationLogWithDetails[]>;
   getLibraryStaff(libraryId: number): Promise<LibraryStaffMember[]>;
   
+  // Audit Logs
+  createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
+  queryAuditLogs(filters: AuditLogFilters): Promise<{ logs: AuditLog[]; total: number }>;
+
   // Library Dashboard
   getLibraryDashboard(libraryId: number): Promise<LibraryDashboardStats>;
   
@@ -1692,6 +1711,61 @@ export class DBStorage implements IStorage {
     });
     
     return { resources, total, categories: allCategories };
+  }
+
+  async createAuditLog(log: InsertAuditLog): Promise<AuditLog> {
+    const [result] = await db.insert(auditLogs).values(log).returning();
+    return result;
+  }
+
+  async queryAuditLogs(filters: AuditLogFilters): Promise<{ logs: AuditLog[]; total: number }> {
+    const conditions = [];
+    
+    if (filters.category) {
+      conditions.push(eq(auditLogs.category, filters.category as any));
+    }
+    if (filters.action) {
+      conditions.push(like(auditLogs.action, `%${filters.action}%`));
+    }
+    if (filters.userId) {
+      conditions.push(eq(auditLogs.userId, filters.userId));
+    }
+    if (filters.status) {
+      conditions.push(eq(auditLogs.status, filters.status as any));
+    }
+    if (filters.startDate) {
+      conditions.push(sql`${auditLogs.timestamp} >= ${filters.startDate}`);
+    }
+    if (filters.endDate) {
+      conditions.push(sql`${auditLogs.timestamp} <= ${filters.endDate}`);
+    }
+    if (filters.search) {
+      conditions.push(
+        or(
+          like(auditLogs.action, `%${filters.search}%`),
+          like(auditLogs.userName, `%${filters.search}%`),
+          like(auditLogs.targetType, `%${filters.search}%`),
+          like(auditLogs.errorMessage, `%${filters.search}%`)
+        )!
+      );
+    }
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const [countResult] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(auditLogs)
+      .where(whereClause);
+
+    const logs = await db
+      .select()
+      .from(auditLogs)
+      .where(whereClause)
+      .orderBy(desc(auditLogs.timestamp))
+      .limit(filters.limit || 50)
+      .offset(filters.offset || 0);
+
+    return { logs, total: countResult.count };
   }
 }
 

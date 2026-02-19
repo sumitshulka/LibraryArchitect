@@ -84,6 +84,7 @@ The system uses PostgreSQL enums and tables for:
 6. **System Config** - Application-wide configuration settings with support for local, ERP, or hybrid authentication modes
 7. **ERP Integrations** - External ERP system configurations for SSO authentication
 8. **Sessions** - User session management with token-based authentication
+9. **Audit Logs** - Comprehensive activity logging with 10 categories (AUTHENTICATION, USER_MANAGEMENT, CATALOG, CIRCULATION, FINES, INVENTORY, REPORTS, ERP_INTEGRATION, SYSTEM_CONFIG, STAFF_ALLOCATION), tracking success/failure status, user info, IP addresses, and detailed JSON metadata. Indexed on timestamp, category, status, and userId for query performance.
 
 ## Initial Setup & Bootstrap
 

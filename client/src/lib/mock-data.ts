@@ -1,4 +1,4 @@
-import { LucideIcon, LayoutDashboard, Book, Users, Repeat, AlertCircle, Settings, PieChart, Layers, Bell, Search, Menu, Building2, Package } from "lucide-react";
+import { LucideIcon, LayoutDashboard, Book, Users, Repeat, AlertCircle, Settings, PieChart, Layers, Bell, Search, Menu, Building2, Package, ClipboardList } from "lucide-react";
 
 export type UserRole = 'ADMIN' | 'LIBRARIAN' | 'STUDENT';
 
@@ -81,5 +81,6 @@ export const navItems = [
   { label: 'Inventory', icon: Layers, href: '/inventory' },
   { label: 'Organizations', icon: Building2, href: '/organizations' },
   { label: 'Reports', icon: PieChart, href: '/reports' },
+  { label: 'Audit Logs', icon: ClipboardList, href: '/audit-logs' },
   { label: 'Settings', icon: Settings, href: '/settings' },
 ];

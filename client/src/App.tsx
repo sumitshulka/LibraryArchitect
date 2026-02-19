@@ -20,6 +20,7 @@ import OrganizationsPage from "@/modules/organizations/OrganizationsPage";
 import { LibraryDashboardPage } from "@/modules/organizations/LibraryDashboardPage";
 import { LibraryResourcesPage } from "@/modules/organizations/LibraryResourcesPage";
 import ReportsPage from "@/modules/reports/ReportsPage";
+import AuditLogsPage from "@/modules/reports/AuditLogsPage";
 import SettingsPage from "@/modules/settings/SettingsPage";
 import SSOTestingPage from "./modules/settings/SSOTestingPage";
 import PublicHomePage from "./pages/PublicHomePage";
@@ -60,6 +61,7 @@ function AppRouter() {
       <Route path="/organizations/libraries/:libraryId">{() => <ProtectedRoute component={LibraryDashboardPage} />}</Route>
       <Route path="/organizations/libraries/:libraryId/resources">{() => <ProtectedRoute component={LibraryResourcesPage} />}</Route>
       <Route path="/reports">{() => <ProtectedRoute component={ReportsPage} />}</Route>
+      <Route path="/audit-logs">{() => <ProtectedRoute component={AuditLogsPage} />}</Route>
       <Route path="/settings">{() => <ProtectedRoute component={SettingsPage} />}</Route>
       <Route path="/settings/sso-testing">{() => <ProtectedRoute component={SSOTestingPage} />}</Route>
       <Route component={NotFound} />

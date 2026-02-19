@@ -1,4 +1,4 @@
-import type { Book, User, Circulation, Inventory, SystemConfig, ResourceType, Category, ErpIntegration, ErpWhitelist, OrgUnit, Library, BookCopy, BookTransfer, LibraryMembership } from "@shared/schema";
+import type { Book, User, Circulation, Inventory, SystemConfig, ResourceType, Category, ErpIntegration, ErpWhitelist, OrgUnit, Library, BookCopy, BookTransfer, LibraryMembership, AuditLog } from "@shared/schema";
 
 const API_BASE = "/api";
 
@@ -1339,6 +1339,28 @@ export const staffAllocationsApi = {
       : `${API_BASE}/staff-allocation-logs`;
     const res = await fetch(url);
     if (!res.ok) throw new Error("Failed to fetch allocation logs");
+    return res.json();
+  },
+};
+
+export const auditLogsApi = {
+  query: async (filters: {
+    category?: string;
+    action?: string;
+    userId?: number;
+    status?: string;
+    startDate?: string;
+    endDate?: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ logs: AuditLog[]; total: number }> => {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined && value !== '') params.append(key, String(value));
+    });
+    const res = await fetch(`${API_BASE}/audit-logs?${params}`);
+    if (!res.ok) throw new Error("Failed to fetch audit logs");
     return res.json();
   },
 };
