@@ -29,6 +29,29 @@ import { logAudit, invalidateAuditConfigCache } from "./audit";
 
 const MAX_WHITELIST_ENTRIES = 5;
 
+async function requireLocalAdmin(req: any, res: any): Promise<any | null> {
+  const sessionId = req.cookies?.session_id;
+  if (!sessionId) {
+    res.status(401).json({ error: "Authentication required" });
+    return null;
+  }
+  const session = await storage.getSession(sessionId);
+  if (!session) {
+    res.status(401).json({ error: "Invalid session" });
+    return null;
+  }
+  const user = await storage.getUser(session.userId);
+  if (!user || user.role !== 'ADMIN') {
+    res.status(403).json({ error: "Only administrators can access this resource" });
+    return null;
+  }
+  if (user.erpIntegrationId) {
+    res.status(403).json({ error: "Only local administrators can access this resource" });
+    return null;
+  }
+  return user;
+}
+
 function generateAppId(): string {
   return `LIB-${crypto.randomBytes(16).toString('hex').toUpperCase()}`;
 }
@@ -1207,6 +1230,8 @@ export async function registerRoutes(
   // ===== System Config API =====
   app.get("/api/config", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const configs = await storage.getAllSystemConfig();
       res.json(configs);
     } catch (error) {
@@ -1217,9 +1242,11 @@ export async function registerRoutes(
 
   app.post("/api/config", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const validated = insertSystemConfigSchema.parse(req.body);
       const config = await storage.setSystemConfig(validated);
-      logAudit(req, { category: 'SYSTEM_CONFIG', action: 'CONFIG_UPDATED', targetType: 'config', targetId: validated.key, details: { key: validated.key, value: validated.value } });
+      logAudit(req, { category: 'SYSTEM_CONFIG', action: 'CONFIG_UPDATED', userId: currentUser.id, userName: currentUser.name, targetType: 'config', targetId: validated.key, details: { key: validated.key, value: validated.value } });
       res.json(config);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -4377,21 +4404,11 @@ export async function registerRoutes(
     }
   });
 
-  // Audit Logs API
+  // Audit Logs API (Local Admin Only)
   app.get("/api/audit-logs", async (req, res) => {
     try {
-      const sessionId = req.cookies?.session_id;
-      if (!sessionId) {
-        return res.status(401).json({ error: "Authentication required" });
-      }
-      const session = await storage.getSession(sessionId);
-      if (!session) {
-        return res.status(401).json({ error: "Invalid session" });
-      }
-      const currentUser = await storage.getUser(session.userId);
-      if (!currentUser || currentUser.role !== 'ADMIN') {
-        return res.status(403).json({ error: "Only administrators can view audit logs" });
-      }
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
 
       const { category, action, userId, status, startDate, endDate, search, limit, offset } = req.query;
 
@@ -4414,17 +4431,11 @@ export async function registerRoutes(
     }
   });
 
-  // Audit Config API
+  // Audit Config API (Local Admin Only)
   app.get("/api/audit-config", async (req, res) => {
     try {
-      const sessionId = req.cookies?.session_id;
-      if (!sessionId) return res.status(401).json({ error: "Authentication required" });
-      const session = await storage.getSession(sessionId);
-      if (!session) return res.status(401).json({ error: "Invalid session" });
-      const currentUser = await storage.getUser(session.userId);
-      if (!currentUser || currentUser.role !== 'ADMIN') {
-        return res.status(403).json({ error: "Only administrators can manage audit configuration" });
-      }
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
 
       const allConfig = await storage.getAllSystemConfig();
       const auditConfig = allConfig
@@ -4445,14 +4456,8 @@ export async function registerRoutes(
 
   app.patch("/api/audit-config/:category", async (req, res) => {
     try {
-      const sessionId = req.cookies?.session_id;
-      if (!sessionId) return res.status(401).json({ error: "Authentication required" });
-      const session = await storage.getSession(sessionId);
-      if (!session) return res.status(401).json({ error: "Invalid session" });
-      const currentUser = await storage.getUser(session.userId);
-      if (!currentUser || currentUser.role !== 'ADMIN') {
-        return res.status(403).json({ error: "Only administrators can manage audit configuration" });
-      }
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
 
       const { category } = req.params;
       const { enabled } = req.body;

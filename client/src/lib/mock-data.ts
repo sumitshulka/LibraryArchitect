@@ -73,14 +73,14 @@ export const dashboardStats = {
 };
 
 export const navItems = [
-  { label: 'Dashboard', icon: LayoutDashboard, href: '/' },
-  { label: 'Catalog', icon: Book, href: '/catalog' },
-  { label: 'Allocations', icon: Package, href: '/allocations' },
-  { label: 'Circulation', icon: Repeat, href: '/circulation' },
-  { label: 'Patrons', icon: Users, href: '/users' },
-  { label: 'Inventory', icon: Layers, href: '/inventory' },
-  { label: 'Organizations', icon: Building2, href: '/organizations' },
-  { label: 'Reports', icon: PieChart, href: '/reports' },
-  { label: 'Audit Logs', icon: ClipboardList, href: '/audit-logs' },
-  { label: 'Settings', icon: Settings, href: '/settings' },
+  { label: 'Dashboard', icon: LayoutDashboard, href: '/', localAdminOnly: false },
+  { label: 'Catalog', icon: Book, href: '/catalog', localAdminOnly: false },
+  { label: 'Allocations', icon: Package, href: '/allocations', localAdminOnly: false },
+  { label: 'Circulation', icon: Repeat, href: '/circulation', localAdminOnly: false },
+  { label: 'Patrons', icon: Users, href: '/users', localAdminOnly: false },
+  { label: 'Inventory', icon: Layers, href: '/inventory', localAdminOnly: false },
+  { label: 'Organizations', icon: Building2, href: '/organizations', localAdminOnly: false },
+  { label: 'Reports', icon: PieChart, href: '/reports', localAdminOnly: false },
+  { label: 'Audit Logs', icon: ClipboardList, href: '/audit-logs', localAdminOnly: true },
+  { label: 'Settings', icon: Settings, href: '/settings', localAdminOnly: true },
 ];
