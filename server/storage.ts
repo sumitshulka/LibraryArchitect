@@ -188,7 +188,7 @@ export interface IStorage {
   updateErpIntegrationToken(id: number, token: string, expiresAt: Date): Promise<void>;
   deleteErpIntegration(id: number): Promise<boolean>;
   getAllErpIntegrations(): Promise<ErpIntegration[]>;
-  rotateErpSecret(id: number, newSecretHash: string, newSecretSalt: string): Promise<ErpIntegration | undefined>;
+  rotateErpSecret(id: number, newSecretKey: string, newSecretHash: string, newSecretSalt: string): Promise<ErpIntegration | undefined>;
   
   // ERP Whitelist
   getErpWhitelist(id: number): Promise<ErpWhitelist | undefined>;
@@ -770,9 +770,10 @@ export class DBStorage implements IStorage {
     return await db.select().from(erpIntegrations).orderBy(desc(erpIntegrations.createdAt));
   }
 
-  async rotateErpSecret(id: number, newSecretHash: string, newSecretSalt: string): Promise<ErpIntegration | undefined> {
+  async rotateErpSecret(id: number, newSecretKey: string, newSecretHash: string, newSecretSalt: string): Promise<ErpIntegration | undefined> {
     const [integration] = await db.update(erpIntegrations)
       .set({ 
+        secretKey: newSecretKey,
         secretHash: newSecretHash, 
         secretSalt: newSecretSalt, 
         secretLastRotatedAt: new Date(),

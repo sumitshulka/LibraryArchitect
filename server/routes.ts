@@ -1814,18 +1814,7 @@ export async function registerRoutes(
         return res.redirect('/login?error=origin_blocked');
       }
 
-      const secretKey = req.headers['x-secret-key'] as string;
-      if (!secretKey) {
-        logAudit(req, { category: 'AUTHENTICATION', action: 'SSO_LOGIN_FAILED', status: 'FAILURE', details: { reason: 'Missing secret key', appId: payload.appId } });
-        return res.redirect('/login?error=auth_failed');
-      }
-
-      if (!verifySecretKey(secretKey, integration.secretHash, integration.secretSalt)) {
-        logAudit(req, { category: 'AUTHENTICATION', action: 'SSO_LOGIN_FAILED', status: 'FAILURE', details: { reason: 'Invalid secret key', appId: payload.appId } });
-        return res.redirect('/login?error=auth_failed');
-      }
-
-      if (!verifyTokenSignature(payload, secretKey)) {
+      if (!verifyTokenSignature(payload, integration.secretKey)) {
         logAudit(req, { category: 'AUTHENTICATION', action: 'SSO_LOGIN_FAILED', status: 'FAILURE', details: { reason: 'Invalid token signature', appId: payload.appId } });
         return res.redirect('/login?error=auth_failed');
       }
@@ -2610,11 +2599,9 @@ export async function registerRoutes(
         callbackUrl,
         expiresIn: 300,
         instructions: {
-          method: "GET",
+          method: "GET (browser redirect)",
           url: callbackUrl,
-          headers: {
-            "X-Secret-Key": secretKey
-          }
+          note: "The ERP redirects the user's browser to this URL. No headers needed — the server verifies the token signature using the stored shared secret."
         }
       });
     } catch (error) {
@@ -2790,7 +2777,7 @@ export async function registerRoutes(
   app.get("/api/erp-integrations", async (req, res) => {
     try {
       const integrations = await storage.getAllErpIntegrations();
-      const sanitized = integrations.map(({ secretHash, secretSalt, authClientSecret, cachedAuthToken, ...rest }) => ({
+      const sanitized = integrations.map(({ secretKey, secretHash, secretSalt, authClientSecret, cachedAuthToken, ...rest }) => ({
         ...rest,
         hasApiSecret: !!authClientSecret,
       }));
@@ -2810,7 +2797,7 @@ export async function registerRoutes(
         return res.status(404).json({ error: "ERP integration not found" });
       }
       
-      const { secretHash, secretSalt, authClientSecret, cachedAuthToken, ...sanitized } = integration;
+      const { secretKey: _sk2, secretHash, secretSalt, authClientSecret, cachedAuthToken, ...sanitized } = integration;
       res.json({
         ...sanitized,
         hasApiSecret: !!authClientSecret,
@@ -2842,11 +2829,12 @@ export async function registerRoutes(
       const integration = await storage.createErpIntegration({
         ...validated,
         appId,
+        secretKey,
         secretHash,
         secretSalt: salt,
       });
       
-      const { secretHash: _, secretSalt: __, ...sanitized } = integration;
+      const { secretKey: _sk, secretHash: _, secretSalt: __, ...sanitized } = integration;
       
       res.status(201).json({
         ...sanitized,
@@ -2884,7 +2872,7 @@ export async function registerRoutes(
         return res.status(404).json({ error: "ERP integration not found" });
       }
       
-      const { secretHash, secretSalt, ...sanitized } = integration;
+      const { secretKey: _sk3, secretHash: _sh, secretSalt: _ss, ...sanitized } = integration;
       res.json(sanitized);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -2925,7 +2913,7 @@ export async function registerRoutes(
       const newSalt = generateSalt();
       const newSecretHash = hashSecret(newSecretKey, newSalt);
       
-      const updated = await storage.rotateErpSecret(id, newSecretHash, newSalt);
+      const updated = await storage.rotateErpSecret(id, newSecretKey, newSecretHash, newSalt);
       
       if (!updated) {
         return res.status(500).json({ error: "Failed to rotate secret" });

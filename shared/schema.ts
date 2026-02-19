@@ -144,6 +144,7 @@ export const erpIntegrations = pgTable("erp_integrations", {
   connectionMode: erpConnectionModeEnum("connection_mode").notNull().default('BIDIRECTIONAL'),
   isActive: boolean("is_active").notNull().default(true),
   appId: text("app_id").notNull().unique(),
+  secretKey: text("secret_key").notNull(),
   secretHash: text("secret_hash").notNull(),
   secretSalt: text("secret_salt").notNull(),
   secretLastRotatedAt: timestamp("secret_last_rotated_at").notNull().defaultNow(),
