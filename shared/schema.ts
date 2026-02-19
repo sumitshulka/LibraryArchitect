@@ -338,7 +338,7 @@ export const libraryMemberships = pgTable("library_memberships", {
 export const auditLogCategoryEnum = pgEnum('audit_log_category', [
   'AUTHENTICATION', 'USER_MANAGEMENT', 'CATALOG', 'CIRCULATION', 
   'FINES', 'INVENTORY', 'REPORTS', 'ERP_INTEGRATION', 
-  'SYSTEM_CONFIG', 'STAFF_ALLOCATION'
+  'SYSTEM_CONFIG', 'STAFF_ALLOCATION', 'API_ACCESS'
 ]);
 
 export const auditLogStatusEnum = pgEnum('audit_log_status', ['SUCCESS', 'FAILURE']);
