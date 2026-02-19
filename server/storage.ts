@@ -762,6 +762,8 @@ export class DBStorage implements IStorage {
   }
 
   async deleteErpIntegration(id: number): Promise<boolean> {
+    await db.delete(sessions).where(eq(sessions.erpIntegrationId, id));
+    await db.update(users).set({ erpIntegrationId: null }).where(eq(users.erpIntegrationId, id));
     await db.delete(erpIntegrations).where(eq(erpIntegrations.id, id));
     return true;
   }
