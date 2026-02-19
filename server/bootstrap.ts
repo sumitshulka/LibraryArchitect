@@ -56,6 +56,33 @@ export async function bootstrapSystem(): Promise<void> {
       log("Default authentication mode set to LOCAL.");
     }
     
+    const auditCategories = [
+      { key: 'audit.AUTHENTICATION', label: 'Authentication events', defaultOn: true },
+      { key: 'audit.USER_MANAGEMENT', label: 'User management', defaultOn: true },
+      { key: 'audit.CATALOG', label: 'Catalog changes', defaultOn: true },
+      { key: 'audit.CIRCULATION', label: 'Circulation events', defaultOn: true },
+      { key: 'audit.FINES', label: 'Fine operations', defaultOn: true },
+      { key: 'audit.INVENTORY', label: 'Inventory audits', defaultOn: true },
+      { key: 'audit.REPORTS', label: 'Report generation', defaultOn: true },
+      { key: 'audit.ERP_INTEGRATION', label: 'ERP integration events', defaultOn: true },
+      { key: 'audit.SYSTEM_CONFIG', label: 'System config changes', defaultOn: true },
+      { key: 'audit.STAFF_ALLOCATION', label: 'Staff allocation', defaultOn: true },
+      { key: 'audit.API_ACCESS', label: 'All API request logging', defaultOn: false },
+    ];
+
+    for (const cat of auditCategories) {
+      const existing = await storage.getSystemConfig(cat.key);
+      if (!existing) {
+        await storage.setSystemConfig({
+          key: cat.key,
+          value: cat.defaultOn ? 'true' : 'false',
+          category: 'audit',
+          description: cat.label,
+        });
+      }
+    }
+    log("Audit logging configuration initialized.");
+
     log("Bootstrap check completed.");
   } catch (error) {
     console.error(`Bootstrap error: ${error}`);

@@ -4,6 +4,8 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import path from "path";
 import cookieParser from "cookie-parser";
+import { logAudit, getClientInfo } from "./audit";
+import { storage } from "./storage";
 
 const app = express();
 const httpServer = createServer(app);
@@ -60,6 +62,66 @@ app.use((req, res, next) => {
       }
 
       log(logLine);
+
+      if (path !== '/api/audit-logs' && !path.startsWith('/api/audit-config')) {
+        const statusCode = res.statusCode;
+        let userId: number | null = null;
+        let userName: string | null = null;
+        
+        try {
+          const sessionId = req.cookies?.session_id;
+          if (sessionId) {
+            storage.getSession(sessionId).then(session => {
+              if (session) {
+                storage.getUser(session.userId).then(user => {
+                  logAudit(req, {
+                    category: 'API_ACCESS',
+                    action: 'API_REQUEST',
+                    status: statusCode >= 400 ? 'FAILURE' : 'SUCCESS',
+                    userId: user?.id ?? null,
+                    userName: user?.name ?? null,
+                    targetType: req.method,
+                    targetId: path,
+                    details: {
+                      method: req.method,
+                      path,
+                      statusCode,
+                      duration,
+                      query: Object.keys(req.query).length > 0 ? req.query : undefined,
+                    },
+                    errorMessage: statusCode >= 400 && capturedJsonResponse?.error 
+                      ? capturedJsonResponse.error : undefined,
+                  });
+                }).catch(() => {});
+              } else {
+                logAudit(req, {
+                  category: 'API_ACCESS',
+                  action: 'API_REQUEST',
+                  status: statusCode >= 400 ? 'FAILURE' : 'SUCCESS',
+                  targetType: req.method,
+                  targetId: path,
+                  details: { method: req.method, path, statusCode, duration },
+                  errorMessage: statusCode >= 400 && capturedJsonResponse?.error 
+                    ? capturedJsonResponse.error : undefined,
+                });
+              }
+            }).catch(() => {});
+          } else {
+            logAudit(req, {
+              category: 'API_ACCESS',
+              action: 'API_REQUEST',
+              status: statusCode >= 400 ? 'FAILURE' : 'SUCCESS',
+              targetType: req.method,
+              targetId: path,
+              details: { method: req.method, path, statusCode, duration },
+              errorMessage: statusCode >= 400 && capturedJsonResponse?.error 
+                ? capturedJsonResponse.error : undefined,
+            });
+          }
+        } catch (e) {
+          // silently fail
+        }
+      }
     }
   });
 

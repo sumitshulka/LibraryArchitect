@@ -25,7 +25,7 @@ import crypto from "crypto";
 import * as XLSX from "xlsx";
 import multer from "multer";
 import { setupSwagger } from "./swagger";
-import { logAudit } from "./audit";
+import { logAudit, invalidateAuditConfigCache } from "./audit";
 
 const MAX_WHITELIST_ENTRIES = 5;
 
@@ -4433,6 +4433,85 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error fetching audit logs:", error);
       res.status(500).json({ error: "Failed to fetch audit logs" });
+    }
+  });
+
+  // Audit Config API
+  app.get("/api/audit-config", async (req, res) => {
+    try {
+      const sessionId = req.cookies?.session_id;
+      if (!sessionId) return res.status(401).json({ error: "Authentication required" });
+      const session = await storage.getSession(sessionId);
+      if (!session) return res.status(401).json({ error: "Invalid session" });
+      const currentUser = await storage.getUser(session.userId);
+      if (!currentUser || currentUser.role !== 'ADMIN') {
+        return res.status(403).json({ error: "Only administrators can manage audit configuration" });
+      }
+
+      const allConfig = await storage.getAllSystemConfig();
+      const auditConfig = allConfig
+        .filter(c => c.key.startsWith('audit.'))
+        .map(c => ({
+          key: c.key,
+          category: c.key.replace('audit.', ''),
+          enabled: c.value === 'true',
+          description: c.description,
+        }));
+
+      res.json(auditConfig);
+    } catch (error) {
+      console.error("Error fetching audit config:", error);
+      res.status(500).json({ error: "Failed to fetch audit configuration" });
+    }
+  });
+
+  app.patch("/api/audit-config/:category", async (req, res) => {
+    try {
+      const sessionId = req.cookies?.session_id;
+      if (!sessionId) return res.status(401).json({ error: "Authentication required" });
+      const session = await storage.getSession(sessionId);
+      if (!session) return res.status(401).json({ error: "Invalid session" });
+      const currentUser = await storage.getUser(session.userId);
+      if (!currentUser || currentUser.role !== 'ADMIN') {
+        return res.status(403).json({ error: "Only administrators can manage audit configuration" });
+      }
+
+      const { category } = req.params;
+      const { enabled } = req.body;
+
+      if (typeof enabled !== 'boolean') {
+        return res.status(400).json({ error: "enabled must be a boolean" });
+      }
+
+      const key = `audit.${category}`;
+      const existing = await storage.getSystemConfig(key);
+      if (!existing) {
+        return res.status(404).json({ error: "Audit category not found" });
+      }
+
+      await storage.setSystemConfig({
+        key,
+        value: enabled ? 'true' : 'false',
+        category: 'audit',
+        description: existing.description || category,
+      });
+
+      invalidateAuditConfigCache();
+
+      logAudit(req, {
+        category: 'SYSTEM_CONFIG',
+        action: 'AUDIT_CONFIG_CHANGED',
+        userId: currentUser.id,
+        userName: currentUser.name,
+        targetType: 'audit_config',
+        targetId: category,
+        details: { category, enabled },
+      });
+
+      res.json({ success: true, category, enabled });
+    } catch (error) {
+      console.error("Error updating audit config:", error);
+      res.status(500).json({ error: "Failed to update audit configuration" });
     }
   });
 

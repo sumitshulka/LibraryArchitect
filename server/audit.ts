@@ -2,10 +2,13 @@ import type { Request } from "express";
 import { storage } from "./storage";
 import type { InsertAuditLog } from "@shared/schema";
 
-type AuditCategory = 
-  | 'AUTHENTICATION' | 'USER_MANAGEMENT' | 'CATALOG' | 'CIRCULATION'
-  | 'FINES' | 'INVENTORY' | 'REPORTS' | 'ERP_INTEGRATION'
-  | 'SYSTEM_CONFIG' | 'STAFF_ALLOCATION';
+const AUDIT_CATEGORIES = [
+  'AUTHENTICATION', 'USER_MANAGEMENT', 'CATALOG', 'CIRCULATION',
+  'FINES', 'INVENTORY', 'REPORTS', 'ERP_INTEGRATION',
+  'SYSTEM_CONFIG', 'STAFF_ALLOCATION', 'API_ACCESS'
+] as const;
+
+export type AuditCategory = typeof AUDIT_CATEGORIES[number];
 
 interface AuditLogParams {
   category: AuditCategory;
@@ -19,6 +22,44 @@ interface AuditLogParams {
   errorMessage?: string;
 }
 
+let auditConfigCache: Record<string, boolean> = {};
+let cacheLoadedAt = 0;
+const CACHE_TTL_MS = 30_000;
+
+export async function loadAuditConfig(): Promise<Record<string, boolean>> {
+  try {
+    const configs = await storage.getAllSystemConfig();
+    const result: Record<string, boolean> = {};
+    for (const cat of AUDIT_CATEGORIES) {
+      const key = `audit.${cat}`;
+      const config = configs.find(c => c.key === key);
+      if (config) {
+        result[cat] = config.value === 'true';
+      } else {
+        result[cat] = cat !== 'API_ACCESS';
+      }
+    }
+    auditConfigCache = result;
+    cacheLoadedAt = Date.now();
+    return result;
+  } catch (err) {
+    console.error('Failed to load audit config:', err);
+    return auditConfigCache;
+  }
+}
+
+export function invalidateAuditConfigCache(): void {
+  cacheLoadedAt = 0;
+}
+
+async function isAuditEnabled(category: AuditCategory): Promise<boolean> {
+  if (Date.now() - cacheLoadedAt > CACHE_TTL_MS) {
+    await loadAuditConfig();
+  }
+  const enabled = auditConfigCache[category];
+  return enabled !== undefined ? enabled : (category !== 'API_ACCESS');
+}
+
 export function getClientInfo(req: Request) {
   const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() 
     || req.socket?.remoteAddress || 'unknown';
@@ -28,6 +69,9 @@ export function getClientInfo(req: Request) {
 
 export async function logAudit(req: Request, params: AuditLogParams): Promise<void> {
   try {
+    const enabled = await isAuditEnabled(params.category);
+    if (!enabled) return;
+
     const { ipAddress, userAgent } = getClientInfo(req);
     const log: InsertAuditLog = {
       category: params.category,

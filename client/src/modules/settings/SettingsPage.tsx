@@ -46,7 +46,8 @@ import { Badge } from "@/components/ui/badge";
 import { 
   Building2, Lock, Globe, Mail, Database, BookOpen, Plus, Pencil, Trash2, 
   Key, RefreshCw, Shield, Copy, Eye, EyeOff, AlertTriangle, CheckCircle2, Link2, Coins,
-  ArrowDownToLine, Play, Clock, Settings2, Zap, Send, ChevronDown, ChevronUp
+  ArrowDownToLine, Play, Clock, Settings2, Zap, Send, ChevronDown, ChevronUp,
+  Users, Repeat, Layers, PieChart
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { resourceTypesApi, categoriesApi, erpIntegrationsApi, configApi, type ErpIntegrationPublic, type ErpCredentials, type ErpPullEndpoint } from "@/lib/api";
@@ -2104,6 +2105,105 @@ function ErpIntegrationsTab() {
   );
 }
 
+const AUDIT_CATEGORIES = [
+  { key: "AUTHENTICATION", icon: Shield, label: "Authentication", description: "Login attempts, logouts, password changes" },
+  { key: "USER_MANAGEMENT", icon: Users, label: "User Management", description: "User creation, updates, role changes" },
+  { key: "CATALOG", icon: BookOpen, label: "Catalog", description: "Book additions, updates, deletions" },
+  { key: "CIRCULATION", icon: Repeat, label: "Circulation", description: "Checkouts, returns, renewals" },
+  { key: "FINES", icon: Coins, label: "Fines", description: "Fine creation, payment, waiver" },
+  { key: "INVENTORY", icon: Layers, label: "Inventory", description: "Audit sessions, item scanning" },
+  { key: "REPORTS", icon: PieChart, label: "Reports", description: "Report generation events" },
+  { key: "ERP_INTEGRATION", icon: Link2, label: "ERP Integration", description: "ERP provisioning, sync events" },
+  { key: "SYSTEM_CONFIG", icon: Settings2, label: "System Config", description: "Configuration changes" },
+  { key: "STAFF_ALLOCATION", icon: Building2, label: "Staff Allocation", description: "Staff library allocations" },
+  { key: "API_ACCESS", icon: Zap, label: "API Access Logging", description: "Log ALL API requests including failures (verbose)" },
+];
+
+function AuditLoggingConfig() {
+  const queryClient = useQueryClient();
+
+  const { data: auditConfig = [], isLoading } = useQuery<{ category: string; enabled: boolean }[]>({
+    queryKey: ["/api/audit-config"],
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: async ({ category, enabled }: { category: string; enabled: boolean }) => {
+      const res = await fetch(`/api/audit-config/${category}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ enabled }),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || res.statusText);
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/audit-config"] });
+      toast.success("Audit configuration updated");
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Failed to update audit configuration");
+    },
+  });
+
+  const getEnabled = (category: string) => {
+    const config = auditConfig.find((c) => c.category === category);
+    return config?.enabled ?? true;
+  };
+
+  return (
+    <Card data-testid="card-audit-logging-config">
+      <CardHeader>
+        <CardTitle>Audit Logging Configuration</CardTitle>
+        <CardDescription>
+          Control which activities are logged. Turn off categories you don't need, or enable API Access logging for integration testing.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-1">
+        {isLoading ? (
+          <div className="text-center py-8 text-muted-foreground">Loading...</div>
+        ) : (
+          AUDIT_CATEGORIES.map((cat) => {
+            const Icon = cat.icon;
+            const isApiAccess = cat.key === "API_ACCESS";
+            const enabled = getEnabled(cat.key);
+            return (
+              <div
+                key={cat.key}
+                className={`flex items-center justify-between p-3 rounded-lg ${isApiAccess ? "border-2 border-orange-300 bg-orange-50/50" : "hover:bg-muted/50"}`}
+                data-testid={`row-audit-category-${cat.key}`}
+              >
+                <div className="flex items-center gap-3">
+                  <Icon className={`h-5 w-5 ${isApiAccess ? "text-orange-500" : "text-muted-foreground"}`} />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-sm">{cat.label}</span>
+                      {isApiAccess && (
+                        <Badge variant="outline" className="border-orange-300 text-orange-700 text-xs" data-testid="badge-api-access-warning">
+                          Verbose - recommended only during integration testing
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">{cat.description}</p>
+                  </div>
+                </div>
+                <Switch
+                  checked={enabled}
+                  onCheckedChange={(checked) => toggleMutation.mutate({ category: cat.key, enabled: checked })}
+                  data-testid={`switch-audit-${cat.key}`}
+                />
+              </div>
+            );
+          })
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function SettingsPage() {
   const queryClient = useQueryClient();
   
@@ -2275,6 +2375,13 @@ export default function SettingsPage() {
               >
                 <Lock className="mr-2 h-4 w-4" />
                 Security & Access
+              </TabsTrigger>
+              <TabsTrigger 
+                value="audit" 
+                className="justify-start px-3 py-2 h-10 data-[state=active]:bg-muted data-[state=active]:text-foreground hover:bg-muted/50 transition-colors"
+              >
+                <Shield className="h-4 w-4 mr-2" />
+                Audit Logging
               </TabsTrigger>
             </TabsList>
           </div>
@@ -2622,6 +2729,10 @@ export default function SettingsPage() {
                   </div>
                 </CardContent>
               </Card>
+            </TabsContent>
+
+            <TabsContent value="audit" className="mt-0 space-y-6">
+              <AuditLoggingConfig />
             </TabsContent>
           </div>
         </div>

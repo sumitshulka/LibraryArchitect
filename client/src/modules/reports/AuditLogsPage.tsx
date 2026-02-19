@@ -34,6 +34,7 @@ const CATEGORIES = [
   "ERP_INTEGRATION",
   "SYSTEM_CONFIG",
   "STAFF_ALLOCATION",
+  "API_ACCESS",
 ] as const;
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -47,6 +48,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   ERP_INTEGRATION: "bg-teal-100 text-teal-800 border-teal-200",
   SYSTEM_CONFIG: "bg-gray-100 text-gray-800 border-gray-200",
   STAFF_ALLOCATION: "bg-pink-100 text-pink-800 border-pink-200",
+  API_ACCESS: "bg-amber-100 text-amber-800 border-amber-200",
 };
 
 const PAGE_SIZE = 25;
