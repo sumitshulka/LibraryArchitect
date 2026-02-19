@@ -335,6 +335,30 @@ export const libraryMemberships = pgTable("library_memberships", {
 });
 
 // Staff allocation action type enum
+export const auditLogCategoryEnum = pgEnum('audit_log_category', [
+  'AUTHENTICATION', 'USER_MANAGEMENT', 'CATALOG', 'CIRCULATION', 
+  'FINES', 'INVENTORY', 'REPORTS', 'ERP_INTEGRATION', 
+  'SYSTEM_CONFIG', 'STAFF_ALLOCATION'
+]);
+
+export const auditLogStatusEnum = pgEnum('audit_log_status', ['SUCCESS', 'FAILURE']);
+
+export const auditLogs = pgTable("audit_logs", {
+  id: serial("id").primaryKey(),
+  timestamp: timestamp("timestamp").notNull().defaultNow(),
+  category: auditLogCategoryEnum("category").notNull(),
+  action: text("action").notNull(),
+  status: auditLogStatusEnum("status").notNull().default('SUCCESS'),
+  userId: integer("user_id"),
+  userName: text("user_name"),
+  targetType: text("target_type"),
+  targetId: text("target_id"),
+  details: jsonb("details"),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  errorMessage: text("error_message"),
+});
+
 export const staffAllocationActionEnum = pgEnum('staff_allocation_action', ['ALLOCATED', 'DEALLOCATED']);
 
 // Audit log for staff library allocations
@@ -451,6 +475,11 @@ export const insertStaffAllocationLogSchema = createInsertSchema(staffAllocation
   createdAt: true,
 });
 
+export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({
+  id: true,
+  timestamp: true,
+});
+
 export const insertAuditSessionSchema = createInsertSchema(auditSessions).omit({
   id: true,
   startedAt: true,
@@ -517,6 +546,9 @@ export type LibraryMembership = typeof libraryMemberships.$inferSelect;
 
 export type InsertStaffAllocationLog = z.infer<typeof insertStaffAllocationLogSchema>;
 export type StaffAllocationLog = typeof staffAllocationLogs.$inferSelect;
+
+export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
+export type AuditLog = typeof auditLogs.$inferSelect;
 
 export type InsertAuditSession = z.infer<typeof insertAuditSessionSchema>;
 export type AuditSession = typeof auditSessions.$inferSelect;
