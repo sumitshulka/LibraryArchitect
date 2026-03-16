@@ -23,6 +23,7 @@ import ReportsPage from "@/modules/reports/ReportsPage";
 import AuditLogsPage from "@/modules/reports/AuditLogsPage";
 import SettingsPage from "@/modules/settings/SettingsPage";
 import SSOTestingPage from "./modules/settings/SSOTestingPage";
+import SearchAttributesPage from "./modules/catalog/SearchAttributesPage";
 import PublicHomePage from "./pages/PublicHomePage";
 import { Loader2 } from "lucide-react";
 
@@ -54,6 +55,7 @@ function AppRouter() {
       <Route path="/catalog">{() => <ProtectedRoute component={CatalogPage} />}</Route>
       <Route path="/catalog/new">{() => <ProtectedRoute component={AddResourcePage} />}</Route>
       <Route path="/catalog/bulk-upload">{() => <ProtectedRoute component={BulkUploadPage} />}</Route>
+      <Route path="/catalog/search-attributes">{() => <ProtectedRoute component={SearchAttributesPage} />}</Route>
       <Route path="/allocations">{() => <ProtectedRoute component={AllocationsPage} />}</Route>
       <Route path="/users">{() => <ProtectedRoute component={UsersPage} />}</Route>
       <Route path="/circulation">{() => <ProtectedRoute component={CirculationPage} />}</Route>

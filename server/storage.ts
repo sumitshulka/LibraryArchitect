@@ -42,6 +42,12 @@ import {
   type InsertInventoryItem,
   type Session,
   type InsertSession,
+  type SearchAttributeType,
+  type InsertSearchAttributeType,
+  type SearchAttributeValue,
+  type InsertSearchAttributeValue,
+  type ResourceSearchAttribute,
+  type InsertResourceSearchAttribute,
   users,
   books,
   circulation,
@@ -63,7 +69,10 @@ import {
   auditLogs,
   auditSessions,
   inventoryItems,
-  sessions
+  sessions,
+  searchAttributeTypes,
+  searchAttributeValues,
+  resourceSearchAttributes,
 } from "@shared/schema";
 
 export interface AuditLogFilters {
@@ -293,6 +302,28 @@ export interface IStorage {
   
   // Library Resources
   getLibraryResources(params: LibraryResourcesSearchParams): Promise<{ resources: LibraryResourceStats[]; total: number; categories: string[] }>;
+
+  // Search Attribute Types
+  getAllSearchAttributeTypes(): Promise<SearchAttributeType[]>;
+  getActiveSearchAttributeTypes(): Promise<SearchAttributeType[]>;
+  getSearchAttributeType(id: number): Promise<SearchAttributeType | undefined>;
+  createSearchAttributeType(data: InsertSearchAttributeType): Promise<SearchAttributeType>;
+  updateSearchAttributeType(id: number, data: Partial<InsertSearchAttributeType>): Promise<SearchAttributeType | undefined>;
+  deleteSearchAttributeType(id: number): Promise<boolean>;
+
+  // Search Attribute Values
+  getSearchAttributeValuesByType(typeId: number): Promise<SearchAttributeValue[]>;
+  getSearchAttributeValue(id: number): Promise<SearchAttributeValue | undefined>;
+  createSearchAttributeValue(data: InsertSearchAttributeValue): Promise<SearchAttributeValue>;
+  updateSearchAttributeValue(id: number, data: Partial<InsertSearchAttributeValue>): Promise<SearchAttributeValue | undefined>;
+  deleteSearchAttributeValue(id: number): Promise<boolean>;
+
+  // Resource Search Attributes (assignments)
+  getResourceSearchAttributes(bookId: number): Promise<(ResourceSearchAttribute & { attributeValue: string; attributeTypeName: string; attributeTypeId: number })[]>;
+  assignSearchAttribute(bookId: number, attributeValueId: number): Promise<ResourceSearchAttribute>;
+  removeSearchAttribute(bookId: number, attributeValueId: number): Promise<boolean>;
+  setResourceSearchAttributes(bookId: number, attributeValueIds: number[]): Promise<void>;
+  searchBooksByAttributes(attributeValueIds: number[]): Promise<number[]>;
 }
 
 export interface LibraryDashboardStats {
@@ -1777,6 +1808,127 @@ export class DBStorage implements IStorage {
       .offset(filters.offset || 0);
 
     return { logs, total: countResult.count };
+  }
+
+  // Search Attribute Types
+  async getAllSearchAttributeTypes(): Promise<SearchAttributeType[]> {
+    return await db.select().from(searchAttributeTypes).orderBy(asc(searchAttributeTypes.sortOrder), asc(searchAttributeTypes.name));
+  }
+
+  async getActiveSearchAttributeTypes(): Promise<SearchAttributeType[]> {
+    return await db.select().from(searchAttributeTypes)
+      .where(eq(searchAttributeTypes.isActive, true))
+      .orderBy(asc(searchAttributeTypes.sortOrder), asc(searchAttributeTypes.name));
+  }
+
+  async getSearchAttributeType(id: number): Promise<SearchAttributeType | undefined> {
+    const [result] = await db.select().from(searchAttributeTypes).where(eq(searchAttributeTypes.id, id));
+    return result;
+  }
+
+  async createSearchAttributeType(data: InsertSearchAttributeType): Promise<SearchAttributeType> {
+    const [result] = await db.insert(searchAttributeTypes).values(data).returning();
+    return result;
+  }
+
+  async updateSearchAttributeType(id: number, data: Partial<InsertSearchAttributeType>): Promise<SearchAttributeType | undefined> {
+    const [result] = await db.update(searchAttributeTypes).set(data).where(eq(searchAttributeTypes.id, id)).returning();
+    return result;
+  }
+
+  async deleteSearchAttributeType(id: number): Promise<boolean> {
+    const result = await db.delete(searchAttributeTypes).where(eq(searchAttributeTypes.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  // Search Attribute Values
+  async getSearchAttributeValuesByType(typeId: number): Promise<SearchAttributeValue[]> {
+    return await db.select().from(searchAttributeValues)
+      .where(eq(searchAttributeValues.attributeTypeId, typeId))
+      .orderBy(asc(searchAttributeValues.sortOrder), asc(searchAttributeValues.value));
+  }
+
+  async getSearchAttributeValue(id: number): Promise<SearchAttributeValue | undefined> {
+    const [result] = await db.select().from(searchAttributeValues).where(eq(searchAttributeValues.id, id));
+    return result;
+  }
+
+  async createSearchAttributeValue(data: InsertSearchAttributeValue): Promise<SearchAttributeValue> {
+    const [result] = await db.insert(searchAttributeValues).values(data).returning();
+    return result;
+  }
+
+  async updateSearchAttributeValue(id: number, data: Partial<InsertSearchAttributeValue>): Promise<SearchAttributeValue | undefined> {
+    const [result] = await db.update(searchAttributeValues).set(data).where(eq(searchAttributeValues.id, id)).returning();
+    return result;
+  }
+
+  async deleteSearchAttributeValue(id: number): Promise<boolean> {
+    const result = await db.delete(searchAttributeValues).where(eq(searchAttributeValues.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  // Resource Search Attributes
+  async getResourceSearchAttributes(bookId: number): Promise<(ResourceSearchAttribute & { attributeValue: string; attributeTypeName: string; attributeTypeId: number })[]> {
+    const results = await db.select({
+      id: resourceSearchAttributes.id,
+      bookId: resourceSearchAttributes.bookId,
+      attributeValueId: resourceSearchAttributes.attributeValueId,
+      assignedAt: resourceSearchAttributes.assignedAt,
+      attributeValue: searchAttributeValues.value,
+      attributeTypeName: searchAttributeTypes.name,
+      attributeTypeId: searchAttributeTypes.id,
+    })
+      .from(resourceSearchAttributes)
+      .innerJoin(searchAttributeValues, eq(resourceSearchAttributes.attributeValueId, searchAttributeValues.id))
+      .innerJoin(searchAttributeTypes, eq(searchAttributeValues.attributeTypeId, searchAttributeTypes.id))
+      .where(eq(resourceSearchAttributes.bookId, bookId))
+      .orderBy(asc(searchAttributeTypes.sortOrder), asc(searchAttributeValues.value));
+    
+    return results;
+  }
+
+  async assignSearchAttribute(bookId: number, attributeValueId: number): Promise<ResourceSearchAttribute> {
+    const existing = await db.select().from(resourceSearchAttributes)
+      .where(and(
+        eq(resourceSearchAttributes.bookId, bookId),
+        eq(resourceSearchAttributes.attributeValueId, attributeValueId)
+      ));
+    
+    if (existing.length > 0) return existing[0];
+    
+    const [result] = await db.insert(resourceSearchAttributes)
+      .values({ bookId, attributeValueId })
+      .returning();
+    return result;
+  }
+
+  async removeSearchAttribute(bookId: number, attributeValueId: number): Promise<boolean> {
+    const result = await db.delete(resourceSearchAttributes)
+      .where(and(
+        eq(resourceSearchAttributes.bookId, bookId),
+        eq(resourceSearchAttributes.attributeValueId, attributeValueId)
+      ));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async setResourceSearchAttributes(bookId: number, attributeValueIds: number[]): Promise<void> {
+    await db.delete(resourceSearchAttributes).where(eq(resourceSearchAttributes.bookId, bookId));
+    
+    if (attributeValueIds.length > 0) {
+      await db.insert(resourceSearchAttributes)
+        .values(attributeValueIds.map(attributeValueId => ({ bookId, attributeValueId })));
+    }
+  }
+
+  async searchBooksByAttributes(attributeValueIds: number[]): Promise<number[]> {
+    if (attributeValueIds.length === 0) return [];
+    
+    const results = await db.selectDistinct({ bookId: resourceSearchAttributes.bookId })
+      .from(resourceSearchAttributes)
+      .where(inArray(resourceSearchAttributes.attributeValueId, attributeValueIds));
+    
+    return results.map(r => r.bookId);
   }
 }
 

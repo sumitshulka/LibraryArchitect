@@ -476,6 +476,33 @@ export const insertStaffAllocationLogSchema = createInsertSchema(staffAllocation
   createdAt: true,
 });
 
+// ===== Search Attributes =====
+
+export const searchAttributeTypes = pgTable("search_attribute_types", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  description: text("description"),
+  isActive: boolean("is_active").notNull().default(true),
+  sortOrder: integer("sort_order").default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const searchAttributeValues = pgTable("search_attribute_values", {
+  id: serial("id").primaryKey(),
+  attributeTypeId: integer("attribute_type_id").notNull().references(() => searchAttributeTypes.id, { onDelete: 'cascade' }),
+  value: text("value").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  sortOrder: integer("sort_order").default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const resourceSearchAttributes = pgTable("resource_search_attributes", {
+  id: serial("id").primaryKey(),
+  bookId: integer("book_id").notNull().references(() => books.id, { onDelete: 'cascade' }),
+  attributeValueId: integer("attribute_value_id").notNull().references(() => searchAttributeValues.id, { onDelete: 'cascade' }),
+  assignedAt: timestamp("assigned_at").notNull().defaultNow(),
+});
+
 export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({
   id: true,
   timestamp: true,
@@ -548,6 +575,21 @@ export type LibraryMembership = typeof libraryMemberships.$inferSelect;
 export type InsertStaffAllocationLog = z.infer<typeof insertStaffAllocationLogSchema>;
 export type StaffAllocationLog = typeof staffAllocationLogs.$inferSelect;
 
+export const insertSearchAttributeTypeSchema = createInsertSchema(searchAttributeTypes).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertSearchAttributeValueSchema = createInsertSchema(searchAttributeValues).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertResourceSearchAttributeSchema = createInsertSchema(resourceSearchAttributes).omit({
+  id: true,
+  assignedAt: true,
+});
+
 export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
 export type AuditLog = typeof auditLogs.$inferSelect;
 
@@ -556,3 +598,12 @@ export type AuditSession = typeof auditSessions.$inferSelect;
 
 export type InsertInventoryItem = z.infer<typeof insertInventoryItemSchema>;
 export type InventoryItem = typeof inventoryItems.$inferSelect;
+
+export type InsertSearchAttributeType = z.infer<typeof insertSearchAttributeTypeSchema>;
+export type SearchAttributeType = typeof searchAttributeTypes.$inferSelect;
+
+export type InsertSearchAttributeValue = z.infer<typeof insertSearchAttributeValueSchema>;
+export type SearchAttributeValue = typeof searchAttributeValues.$inferSelect;
+
+export type InsertResourceSearchAttribute = z.infer<typeof insertResourceSearchAttributeSchema>;
+export type ResourceSearchAttribute = typeof resourceSearchAttributes.$inferSelect;

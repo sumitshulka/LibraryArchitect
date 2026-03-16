@@ -1343,6 +1343,116 @@ export const staffAllocationsApi = {
   },
 };
 
+// Search Attributes API
+export interface SearchAttributeType {
+  id: number;
+  name: string;
+  description: string | null;
+  isActive: boolean;
+  sortOrder: number | null;
+  createdAt: string;
+  values: SearchAttributeValue[];
+}
+
+export interface SearchAttributeValue {
+  id: number;
+  attributeTypeId: number;
+  value: string;
+  isActive: boolean;
+  sortOrder: number | null;
+  createdAt: string;
+}
+
+export interface ResourceSearchAttribute {
+  id: number;
+  bookId: number;
+  attributeValueId: number;
+  assignedAt: string;
+  attributeValue: string;
+  attributeTypeName: string;
+  attributeTypeId: number;
+}
+
+export const searchAttributesApi = {
+  getTypes: async (): Promise<SearchAttributeType[]> => {
+    const res = await fetch(`${API_BASE}/search-attributes/types`);
+    if (!res.ok) throw new Error("Failed to fetch search attribute types");
+    return res.json();
+  },
+
+  createType: async (data: { name: string; description?: string; sortOrder?: number }): Promise<SearchAttributeType> => {
+    const res = await fetch(`${API_BASE}/search-attributes/types`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to create search attribute type");
+    }
+    return res.json();
+  },
+
+  updateType: async (id: number, data: Partial<{ name: string; description: string; isActive: boolean; sortOrder: number }>): Promise<SearchAttributeType> => {
+    const res = await fetch(`${API_BASE}/search-attributes/types/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error("Failed to update search attribute type");
+    return res.json();
+  },
+
+  deleteType: async (id: number): Promise<void> => {
+    const res = await fetch(`${API_BASE}/search-attributes/types/${id}`, { method: "DELETE" });
+    if (!res.ok) throw new Error("Failed to delete search attribute type");
+  },
+
+  createValue: async (typeId: number, data: { value: string; sortOrder?: number }): Promise<SearchAttributeValue> => {
+    const res = await fetch(`${API_BASE}/search-attributes/types/${typeId}/values`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to create search attribute value");
+    }
+    return res.json();
+  },
+
+  updateValue: async (id: number, data: Partial<{ value: string; isActive: boolean; sortOrder: number }>): Promise<SearchAttributeValue> => {
+    const res = await fetch(`${API_BASE}/search-attributes/values/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error("Failed to update search attribute value");
+    return res.json();
+  },
+
+  deleteValue: async (id: number): Promise<void> => {
+    const res = await fetch(`${API_BASE}/search-attributes/values/${id}`, { method: "DELETE" });
+    if (!res.ok) throw new Error("Failed to delete search attribute value");
+  },
+
+  getBookAttributes: async (bookId: number): Promise<ResourceSearchAttribute[]> => {
+    const res = await fetch(`${API_BASE}/books/${bookId}/search-attributes`);
+    if (!res.ok) throw new Error("Failed to fetch book search attributes");
+    return res.json();
+  },
+
+  setBookAttributes: async (bookId: number, attributeValueIds: number[]): Promise<ResourceSearchAttribute[]> => {
+    const res = await fetch(`${API_BASE}/books/${bookId}/search-attributes`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ attributeValueIds }),
+    });
+    if (!res.ok) throw new Error("Failed to update book search attributes");
+    return res.json();
+  },
+};
+
 export const auditLogsApi = {
   query: async (filters: {
     category?: string;

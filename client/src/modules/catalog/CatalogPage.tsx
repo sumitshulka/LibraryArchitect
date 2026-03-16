@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Link } from "wouter";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Input } from "@/components/ui/input";
@@ -33,18 +33,179 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Checkbox } from "@/components/ui/checkbox";
 import { 
   Search, MoreHorizontal, Filter, Download, Database, FileText, Plus, Upload, Camera, Loader2,
   Book as BookIcon, Library, CheckCircle2, Clock, AlertTriangle, Truck, XCircle, History,
-  DollarSign, ShoppingCart, Receipt, ImageIcon, Globe
+  DollarSign, ShoppingCart, Receipt, ImageIcon, Globe, Tags, Save
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { booksApi, type BookDashboard, type BookLibraryAllocation } from "@/lib/api";
+import { booksApi, searchAttributesApi, type BookDashboard, type BookLibraryAllocation, type ResourceSearchAttribute } from "@/lib/api";
 import type { Book, Circulation } from "@shared/schema";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { useCurrency } from "@/lib/useCurrency";
 import { formatIsbn } from "@/lib/isbn";
+
+function BookSearchAttributes({ bookId }: { bookId: number }) {
+  const queryClient = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [selectedValues, setSelectedValues] = useState<Set<number>>(new Set());
+
+  const { data: attrTypes = [] } = useQuery({
+    queryKey: ["search-attribute-types"],
+    queryFn: searchAttributesApi.getTypes,
+  });
+
+  const { data: bookAttrs = [] } = useQuery({
+    queryKey: ["book-search-attributes", bookId],
+    queryFn: () => searchAttributesApi.getBookAttributes(bookId),
+    enabled: !!bookId,
+  });
+
+  useEffect(() => {
+    if (editing) {
+      setSelectedValues(new Set(bookAttrs.map((a) => a.attributeValueId)));
+    }
+  }, [editing, bookAttrs]);
+
+  const saveMutation = useMutation({
+    mutationFn: () => searchAttributesApi.setBookAttributes(bookId, Array.from(selectedValues)),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["book-search-attributes", bookId] });
+      setEditing(false);
+      toast.success("Search attributes updated");
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const activeTypes = attrTypes.filter((t) => t.isActive && t.values.length > 0);
+
+  const grouped = bookAttrs.reduce<Record<string, ResourceSearchAttribute[]>>((acc, attr) => {
+    if (!acc[attr.attributeTypeName]) acc[attr.attributeTypeName] = [];
+    acc[attr.attributeTypeName].push(attr);
+    return acc;
+  }, {});
+
+  const toggleValue = (valueId: number) => {
+    setSelectedValues((prev) => {
+      const next = new Set(prev);
+      if (next.has(valueId)) next.delete(valueId);
+      else next.add(valueId);
+      return next;
+    });
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <h4 className="font-semibold flex items-center gap-2">
+          <Tags className="h-4 w-4" />
+          Search Attributes
+        </h4>
+        {activeTypes.length > 0 && (
+          <div className="flex gap-2">
+            {editing ? (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => setEditing(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-7 text-xs gap-1"
+                  onClick={() => saveMutation.mutate()}
+                  disabled={saveMutation.isPending}
+                  data-testid="button-save-attributes"
+                >
+                  <Save className="h-3 w-3" />
+                  Save
+                </Button>
+              </>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs gap-1"
+                onClick={() => setEditing(true)}
+                data-testid="button-edit-attributes"
+              >
+                <Tags className="h-3 w-3" />
+                Edit Attributes
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {editing ? (
+        <div className="space-y-3 border rounded-lg p-3">
+          {activeTypes.map((type) => (
+            <div key={type.id}>
+              <div className="text-sm font-medium text-muted-foreground mb-1.5">{type.name}</div>
+              <div className="flex flex-wrap gap-2">
+                {type.values.filter((v) => v.isActive).map((val) => {
+                  const checked = selectedValues.has(val.id);
+                  return (
+                    <label
+                      key={val.id}
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-sm cursor-pointer transition-colors ${
+                        checked ? "bg-primary/10 border-primary text-primary" : "hover:bg-muted"
+                      }`}
+                      data-testid={`attr-checkbox-${val.id}`}
+                    >
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={() => toggleValue(val.id)}
+                        className="h-3.5 w-3.5"
+                      />
+                      {val.value}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : bookAttrs.length === 0 ? (
+        <div className="text-center py-4 text-muted-foreground border rounded-lg border-dashed">
+          <Tags className="h-8 w-8 mx-auto mb-2 opacity-50" />
+          <p className="text-sm">No search attributes assigned</p>
+          {activeTypes.length > 0 && (
+            <Button
+              variant="link"
+              size="sm"
+              className="mt-1 text-xs"
+              onClick={() => setEditing(true)}
+              data-testid="button-assign-attributes"
+            >
+              Assign attributes
+            </Button>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {Object.entries(grouped).map(([typeName, attrs]) => (
+            <div key={typeName} className="flex items-start gap-2">
+              <span className="text-xs text-muted-foreground min-w-[80px] pt-0.5">{typeName}:</span>
+              <div className="flex flex-wrap gap-1">
+                {attrs.map((attr) => (
+                  <Badge key={attr.id} variant="secondary" className="text-xs" data-testid={`badge-attr-${attr.attributeValueId}`}>
+                    {attr.attributeValue}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function BookDetailsSheet({
   open,
@@ -228,6 +389,11 @@ function BookDetailsSheet({
                   </div>
                 </div>
               </div>
+
+              <Separator />
+
+              {/* Search Attributes */}
+              <BookSearchAttributes bookId={bookId!} />
 
               <Separator />
 

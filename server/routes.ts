@@ -17,7 +17,9 @@ import {
   insertBookTransferSchema,
   insertLibraryMembershipSchema,
   insertAuditSessionSchema,
-  insertInventoryItemSchema
+  insertInventoryItemSchema,
+  insertSearchAttributeTypeSchema,
+  insertSearchAttributeValueSchema,
 } from "@shared/schema";
 import { z } from "zod";
 import { fromZodError } from "zod-validation-error";
@@ -4502,6 +4504,165 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error updating audit config:", error);
       res.status(500).json({ error: "Failed to update audit configuration" });
+    }
+  });
+
+  // ===== Search Attributes API =====
+
+  // Search Attribute Types
+  app.get("/api/search-attributes/types", async (req, res) => {
+    try {
+      const types = await storage.getAllSearchAttributeTypes();
+      const typesWithValues = await Promise.all(
+        types.map(async (type) => {
+          const values = await storage.getSearchAttributeValuesByType(type.id);
+          return { ...type, values };
+        })
+      );
+      res.json(typesWithValues);
+    } catch (error) {
+      console.error("Error fetching search attribute types:", error);
+      res.status(500).json({ error: "Failed to fetch search attribute types" });
+    }
+  });
+
+  app.post("/api/search-attributes/types", async (req, res) => {
+    try {
+      const validated = insertSearchAttributeTypeSchema.parse(req.body);
+      const type = await storage.createSearchAttributeType(validated);
+      logAudit(req, { category: 'CATALOG', action: 'SEARCH_ATTR_TYPE_CREATED', targetType: 'search_attribute_type', targetId: String(type.id), details: { name: type.name } });
+      res.status(201).json(type);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error creating search attribute type:", error);
+      res.status(500).json({ error: "Failed to create search attribute type" });
+    }
+  });
+
+  app.patch("/api/search-attributes/types/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const validated = insertSearchAttributeTypeSchema.partial().parse(req.body);
+      const type = await storage.updateSearchAttributeType(id, validated);
+      if (!type) return res.status(404).json({ error: "Search attribute type not found" });
+      logAudit(req, { category: 'CATALOG', action: 'SEARCH_ATTR_TYPE_UPDATED', targetType: 'search_attribute_type', targetId: String(id), details: { changedFields: Object.keys(validated) } });
+      res.json(type);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error updating search attribute type:", error);
+      res.status(500).json({ error: "Failed to update search attribute type" });
+    }
+  });
+
+  app.delete("/api/search-attributes/types/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const deleted = await storage.deleteSearchAttributeType(id);
+      if (!deleted) return res.status(404).json({ error: "Search attribute type not found" });
+      logAudit(req, { category: 'CATALOG', action: 'SEARCH_ATTR_TYPE_DELETED', targetType: 'search_attribute_type', targetId: String(id) });
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting search attribute type:", error);
+      res.status(500).json({ error: "Failed to delete search attribute type" });
+    }
+  });
+
+  // Search Attribute Values
+  app.get("/api/search-attributes/types/:typeId/values", async (req, res) => {
+    try {
+      const typeId = parseInt(req.params.typeId);
+      const values = await storage.getSearchAttributeValuesByType(typeId);
+      res.json(values);
+    } catch (error) {
+      console.error("Error fetching search attribute values:", error);
+      res.status(500).json({ error: "Failed to fetch search attribute values" });
+    }
+  });
+
+  app.post("/api/search-attributes/types/:typeId/values", async (req, res) => {
+    try {
+      const typeId = parseInt(req.params.typeId);
+      const type = await storage.getSearchAttributeType(typeId);
+      if (!type) return res.status(404).json({ error: "Search attribute type not found" });
+
+      const validated = insertSearchAttributeValueSchema.parse({
+        ...req.body,
+        attributeTypeId: typeId,
+      });
+      const value = await storage.createSearchAttributeValue(validated);
+      logAudit(req, { category: 'CATALOG', action: 'SEARCH_ATTR_VALUE_CREATED', targetType: 'search_attribute_value', targetId: String(value.id), details: { typeName: type.name, value: value.value } });
+      res.status(201).json(value);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error creating search attribute value:", error);
+      res.status(500).json({ error: "Failed to create search attribute value" });
+    }
+  });
+
+  app.patch("/api/search-attributes/values/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const validated = insertSearchAttributeValueSchema.partial().parse(req.body);
+      const value = await storage.updateSearchAttributeValue(id, validated);
+      if (!value) return res.status(404).json({ error: "Search attribute value not found" });
+      res.json(value);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error updating search attribute value:", error);
+      res.status(500).json({ error: "Failed to update search attribute value" });
+    }
+  });
+
+  app.delete("/api/search-attributes/values/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const deleted = await storage.deleteSearchAttributeValue(id);
+      if (!deleted) return res.status(404).json({ error: "Search attribute value not found" });
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting search attribute value:", error);
+      res.status(500).json({ error: "Failed to delete search attribute value" });
+    }
+  });
+
+  // Resource Search Attribute Assignments
+  app.get("/api/books/:bookId/search-attributes", async (req, res) => {
+    try {
+      const bookId = parseInt(req.params.bookId);
+      const attrs = await storage.getResourceSearchAttributes(bookId);
+      res.json(attrs);
+    } catch (error) {
+      console.error("Error fetching resource search attributes:", error);
+      res.status(500).json({ error: "Failed to fetch resource search attributes" });
+    }
+  });
+
+  app.put("/api/books/:bookId/search-attributes", async (req, res) => {
+    try {
+      const bookId = parseInt(req.params.bookId);
+      const book = await storage.getBook(bookId);
+      if (!book) return res.status(404).json({ error: "Book not found" });
+
+      const { attributeValueIds } = req.body;
+      if (!Array.isArray(attributeValueIds)) {
+        return res.status(400).json({ error: "attributeValueIds must be an array" });
+      }
+
+      await storage.setResourceSearchAttributes(bookId, attributeValueIds);
+      const updated = await storage.getResourceSearchAttributes(bookId);
+      logAudit(req, { category: 'CATALOG', action: 'SEARCH_ATTRS_UPDATED', targetType: 'book', targetId: String(bookId), details: { bookTitle: book.title, attributeCount: attributeValueIds.length } });
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating resource search attributes:", error);
+      res.status(500).json({ error: "Failed to update resource search attributes" });
     }
   });
 

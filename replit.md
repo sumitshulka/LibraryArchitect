@@ -85,6 +85,9 @@ The system uses PostgreSQL enums and tables for:
 7. **ERP Integrations** - External ERP system configurations for SSO authentication
 8. **Sessions** - User session management with token-based authentication
 9. **Audit Logs** - Comprehensive activity logging with 10 categories (AUTHENTICATION, USER_MANAGEMENT, CATALOG, CIRCULATION, FINES, INVENTORY, REPORTS, ERP_INTEGRATION, SYSTEM_CONFIG, STAFF_ALLOCATION), tracking success/failure status, user info, IP addresses, and detailed JSON metadata. Indexed on timestamp, category, status, and userId for query performance.
+10. **Search Attribute Types** - Configurable filter categories (e.g., Tags, Programs, Courses, Semester, Subject Type) that librarians define for refined catalog search
+11. **Search Attribute Values** - Individual values within each attribute type (e.g., "Computer Science" under Programs, "Semester 1" under Semester)
+12. **Resource Search Attributes** - Junction table linking books to attribute values, enabling multi-faceted search filtering
 
 ## Initial Setup & Bootstrap
 
