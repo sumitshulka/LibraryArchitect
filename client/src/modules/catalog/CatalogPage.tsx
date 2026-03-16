@@ -633,6 +633,7 @@ function BookDetailsSheet({
 function EditBookDialog({ book, open, onOpenChange }: { book: Book | null; open: boolean; onOpenChange: (open: boolean) => void }) {
   const queryClient = useQueryClient();
   const { currency } = useCurrency();
+  const currencySymbol = currency?.symbol || "$";
   const [formData, setFormData] = useState({
     title: "",
     author: "",
@@ -861,7 +862,7 @@ function EditBookDialog({ book, open, onOpenChange }: { book: Book | null; open:
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-price">Unit Price ({currency})</Label>
+                <Label htmlFor="edit-price">Unit Price ({currencySymbol})</Label>
                 <Input
                   id="edit-price"
                   type="number"
