@@ -4,6 +4,7 @@ import { MainLayout } from "@/components/layout/MainLayout";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
 import { MarcEditor } from "@/modules/catalog/MarcEditor";
 import { Z3950Search } from "@/modules/catalog/Z3950Search";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -24,6 +25,21 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Sheet,
   SheetContent,
   SheetDescription,
@@ -37,10 +53,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { 
   Search, MoreHorizontal, Filter, Download, Database, FileText, Plus, Upload, Camera, Loader2,
   Book as BookIcon, Library, CheckCircle2, Clock, AlertTriangle, Truck, XCircle, History,
-  DollarSign, ShoppingCart, Receipt, ImageIcon, Globe, Tags, Save
+  DollarSign, ShoppingCart, Receipt, ImageIcon, Globe, Tags, Save, Pencil
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { booksApi, searchAttributesApi, type BookDashboard, type BookLibraryAllocation, type ResourceSearchAttribute } from "@/lib/api";
+import { booksApi, searchAttributesApi, resourceTypesApi, categoriesApi, type BookDashboard, type BookLibraryAllocation, type ResourceSearchAttribute } from "@/lib/api";
 import type { Book, Circulation } from "@shared/schema";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -614,12 +630,283 @@ function BookDetailsSheet({
   );
 }
 
+function EditBookDialog({ book, open, onOpenChange }: { book: Book | null; open: boolean; onOpenChange: (open: boolean) => void }) {
+  const queryClient = useQueryClient();
+  const { currency } = useCurrency();
+  const [formData, setFormData] = useState({
+    title: "",
+    author: "",
+    isbn: "",
+    publisher: "",
+    publishedYear: new Date().getFullYear(),
+    category: "",
+    resourceTypeId: null as number | null,
+    shelfLocation: "",
+    status: "AVAILABLE" as string,
+    format: "PHYSICAL" as string,
+    coverUrl: "" as string,
+    unitPrice: "" as string,
+  });
+
+  useEffect(() => {
+    if (book && open) {
+      setFormData({
+        title: book.title || "",
+        author: book.author || "",
+        isbn: book.isbn || "",
+        publisher: book.publisher || "",
+        publishedYear: book.publishedYear || new Date().getFullYear(),
+        category: book.category || "",
+        resourceTypeId: book.resourceTypeId ?? null,
+        shelfLocation: book.shelfLocation || "",
+        status: book.status || "AVAILABLE",
+        format: book.format || "PHYSICAL",
+        coverUrl: book.coverUrl || "",
+        unitPrice: book.unitPrice != null ? String(book.unitPrice) : "",
+      });
+    }
+  }, [book, open]);
+
+  const { data: resourceTypes = [] } = useQuery({
+    queryKey: ["resource-types", "active"],
+    queryFn: resourceTypesApi.getActive,
+    enabled: open,
+  });
+
+  const { data: categories = [] } = useQuery({
+    queryKey: ["categories", "active"],
+    queryFn: categoriesApi.getActive,
+    enabled: open,
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: (data: Partial<Book>) => booksApi.update(book!.id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["books"] });
+      queryClient.invalidateQueries({ queryKey: ["book", book!.id] });
+      toast.success("Book updated successfully");
+      onOpenChange(false);
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!book) return;
+    const updates: Partial<Book> = {
+      title: formData.title,
+      author: formData.author,
+      isbn: formData.isbn,
+      publisher: formData.publisher,
+      publishedYear: formData.publishedYear,
+      category: formData.category,
+      resourceTypeId: formData.resourceTypeId,
+      shelfLocation: formData.shelfLocation,
+      status: formData.status as Book["status"],
+      format: formData.format as Book["format"],
+      coverUrl: formData.coverUrl || null,
+      unitPrice: formData.unitPrice ? Number(formData.unitPrice) : null,
+    };
+    updateMutation.mutate(updates);
+  };
+
+  if (!book) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Edit Book Details</DialogTitle>
+          <DialogDescription>Update the details for "{book.title}"</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit}>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-title">Title *</Label>
+                <Input
+                  id="edit-title"
+                  value={formData.title}
+                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                  required
+                  data-testid="input-edit-title"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-author">Author *</Label>
+                <Input
+                  id="edit-author"
+                  value={formData.author}
+                  onChange={(e) => setFormData({ ...formData, author: e.target.value })}
+                  required
+                  data-testid="input-edit-author"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-isbn">ISBN</Label>
+                <Input
+                  id="edit-isbn"
+                  value={formData.isbn}
+                  onChange={(e) => setFormData({ ...formData, isbn: e.target.value })}
+                  data-testid="input-edit-isbn"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-publisher">Publisher</Label>
+                <Input
+                  id="edit-publisher"
+                  value={formData.publisher}
+                  onChange={(e) => setFormData({ ...formData, publisher: e.target.value })}
+                  data-testid="input-edit-publisher"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-year">Published Year</Label>
+                <Input
+                  id="edit-year"
+                  type="number"
+                  value={formData.publishedYear}
+                  onChange={(e) => setFormData({ ...formData, publishedYear: parseInt(e.target.value) || 0 })}
+                  data-testid="input-edit-year"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-status">Status</Label>
+                <Select value={formData.status} onValueChange={(v) => setFormData({ ...formData, status: v })}>
+                  <SelectTrigger data-testid="select-edit-status">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="AVAILABLE">Available</SelectItem>
+                    <SelectItem value="CHECKED_OUT">Checked Out</SelectItem>
+                    <SelectItem value="RESERVED">Reserved</SelectItem>
+                    <SelectItem value="LOST">Lost</SelectItem>
+                    <SelectItem value="MAINTENANCE">Maintenance</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-format">Format</Label>
+                <Select value={formData.format} onValueChange={(v) => setFormData({ ...formData, format: v })}>
+                  <SelectTrigger data-testid="select-edit-format">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PHYSICAL">Physical</SelectItem>
+                    <SelectItem value="EBOOK">E-Book</SelectItem>
+                    <SelectItem value="AUDIOBOOK">Audiobook</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-category">Category</Label>
+                {categories.length > 0 ? (
+                  <Select value={formData.category} onValueChange={(v) => setFormData({ ...formData, category: v })}>
+                    <SelectTrigger data-testid="select-edit-category">
+                      <SelectValue placeholder="Select category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {categories.map((cat: any) => (
+                        <SelectItem key={cat.id} value={cat.name}>{cat.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    id="edit-category"
+                    value={formData.category}
+                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                    data-testid="input-edit-category"
+                  />
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-resource-type">Resource Type</Label>
+                <Select
+                  value={formData.resourceTypeId ? String(formData.resourceTypeId) : "none"}
+                  onValueChange={(v) => setFormData({ ...formData, resourceTypeId: v === "none" ? null : Number(v) })}
+                >
+                  <SelectTrigger data-testid="select-edit-resource-type">
+                    <SelectValue placeholder="Select type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">None</SelectItem>
+                    {resourceTypes.map((rt: any) => (
+                      <SelectItem key={rt.id} value={String(rt.id)}>{rt.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-shelf">Shelf Location</Label>
+                <Input
+                  id="edit-shelf"
+                  value={formData.shelfLocation}
+                  onChange={(e) => setFormData({ ...formData, shelfLocation: e.target.value })}
+                  data-testid="input-edit-shelf"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-price">Unit Price ({currency})</Label>
+                <Input
+                  id="edit-price"
+                  type="number"
+                  step="0.01"
+                  value={formData.unitPrice}
+                  onChange={(e) => setFormData({ ...formData, unitPrice: e.target.value })}
+                  data-testid="input-edit-price"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-cover">Cover URL</Label>
+              <Input
+                id="edit-cover"
+                value={formData.coverUrl}
+                onChange={(e) => setFormData({ ...formData, coverUrl: e.target.value })}
+                placeholder="https://..."
+                data-testid="input-edit-cover"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} data-testid="button-edit-cancel">
+              Cancel
+            </Button>
+            <Button type="submit" disabled={updateMutation.isPending} data-testid="button-edit-save">
+              {updateMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function CatalogPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("browse");
   const [selectedBookId, setSelectedBookId] = useState<number | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [editingBook, setEditingBook] = useState<Book | null>(null);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
   const queryClient = useQueryClient();
 
   const { data: books = [], isLoading } = useQuery({
@@ -812,7 +1099,10 @@ export default function CatalogPage() {
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                            <DropdownMenuItem>Edit Details</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => { setEditingBook(book); setEditDialogOpen(true); }} data-testid={`button-edit-${book.id}`}>
+                              <Pencil className="mr-2 h-4 w-4" />
+                              Edit Details
+                            </DropdownMenuItem>
                             <DropdownMenuItem>View MARC Record</DropdownMenuItem>
                             <DropdownMenuItem>View History</DropdownMenuItem>
                             <DropdownMenuSeparator />
@@ -861,6 +1151,12 @@ export default function CatalogPage() {
         open={sheetOpen}
         onOpenChange={setSheetOpen}
         bookId={selectedBookId}
+      />
+
+      <EditBookDialog
+        book={editingBook}
+        open={editDialogOpen}
+        onOpenChange={setEditDialogOpen}
       />
     </MainLayout>
   );
