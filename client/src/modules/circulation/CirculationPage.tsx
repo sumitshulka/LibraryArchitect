@@ -1,11 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { circulationApi, booksApi, usersApi } from "@/lib/api";
+import { circulationApi, booksApi } from "@/lib/api";
 import {
   Table,
   TableBody,
@@ -40,18 +40,210 @@ import { Separator } from "@/components/ui/separator";
 import {
   Search, BookOpen, RefreshCw, AlertCircle, CheckCircle2,
   Loader2, ArrowRight, RotateCcw, User, BookCopy, Calendar, Hash,
+  X, Filter,
 } from "lucide-react";
 import { formatIsbn } from "@/lib/isbn";
 import { toast } from "sonner";
 import type { Book, User as UserType } from "@shared/schema";
 
+type SafeUser = Omit<UserType, "password">;
+
+function MemberSearchBox({
+  selectedUser,
+  onSelect,
+  onClear,
+}: {
+  selectedUser: SafeUser | null;
+  onSelect: (user: SafeUser) => void;
+  onClear: () => void;
+}) {
+  const [searchText, setSearchText] = useState("");
+  const [roleFilter, setRoleFilter] = useState("ALL");
+  const [deptFilter, setDeptFilter] = useState("");
+  const [isOpen, setIsOpen] = useState(false);
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchText), 300);
+    return () => clearTimeout(timer);
+  }, [searchText]);
+
+  const { data, isFetching } = useQuery({
+    queryKey: ["users-search", debouncedSearch, roleFilter, deptFilter],
+    queryFn: async () => {
+      const params = new URLSearchParams({ status: "ACTIVE", limit: "20" });
+      if (debouncedSearch) params.set("q", debouncedSearch);
+      if (roleFilter && roleFilter !== "ALL") params.set("role", roleFilter);
+      if (deptFilter) params.set("department", deptFilter);
+      const res = await fetch(`/api/users/search?${params}`);
+      if (!res.ok) throw new Error("Failed to search users");
+      return res.json() as Promise<{ users: SafeUser[]; totalCount: number }>;
+    },
+    enabled: isOpen,
+    staleTime: 10000,
+  });
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const handleSelect = (user: SafeUser) => {
+    onSelect(user);
+    setIsOpen(false);
+    setSearchText("");
+  };
+
+  if (selectedUser) {
+    return (
+      <div className="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold shrink-0">
+              {selectedUser.name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase()}
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold truncate" data-testid="text-selected-member-name">{selectedUser.name}</p>
+              <p className="text-xs text-muted-foreground truncate">
+                {selectedUser.role.toLowerCase()}
+                {selectedUser.studentId && ` · ${selectedUser.studentId}`}
+                {selectedUser.employeeId && ` · ${selectedUser.employeeId}`}
+                {selectedUser.department && ` · ${selectedUser.department}`}
+                {" · "}{selectedUser.email}
+              </p>
+            </div>
+          </div>
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onClear}
+          className="shrink-0 h-7 w-7 p-0"
+          data-testid="button-clear-member"
+        >
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div ref={containerRef} className="relative">
+      <div className="space-y-2">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            ref={inputRef}
+            placeholder="Search by name, ID, email, or phone..."
+            value={searchText}
+            onChange={(e) => { setSearchText(e.target.value); setIsOpen(true); }}
+            onFocus={() => setIsOpen(true)}
+            className="h-10 pl-9 pr-10"
+            data-testid="input-member-search"
+          />
+          {isFetching && (
+            <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+          )}
+        </div>
+
+        <div className="flex gap-2">
+          <Select value={roleFilter} onValueChange={(v) => { setRoleFilter(v); setIsOpen(true); }}>
+            <SelectTrigger className="h-8 text-xs w-[130px]" data-testid="select-role-filter">
+              <Filter className="h-3 w-3 mr-1" />
+              <SelectValue placeholder="All Roles" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All Roles</SelectItem>
+              <SelectItem value="STUDENT">Student</SelectItem>
+              <SelectItem value="FACULTY">Faculty</SelectItem>
+              <SelectItem value="LIBRARIAN">Librarian</SelectItem>
+              <SelectItem value="ADMIN">Admin</SelectItem>
+            </SelectContent>
+          </Select>
+          <Input
+            placeholder="Filter by department..."
+            value={deptFilter}
+            onChange={(e) => { setDeptFilter(e.target.value); setIsOpen(true); }}
+            className="h-8 text-xs flex-1"
+            data-testid="input-dept-filter"
+          />
+          {(roleFilter !== "ALL" || deptFilter) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 px-2 text-xs"
+              onClick={() => { setRoleFilter("ALL"); setDeptFilter(""); }}
+            >
+              Clear
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {isOpen && (
+        <div className="absolute z-50 mt-1 w-full bg-popover border rounded-lg shadow-lg max-h-[320px] overflow-hidden">
+          {!data ? (
+            <div className="flex items-center justify-center py-6">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : data.users.length === 0 ? (
+            <div className="py-6 text-center text-sm text-muted-foreground">
+              {searchText ? `No members found for "${searchText}"` : "No active members found"}
+            </div>
+          ) : (
+            <div className="overflow-y-auto max-h-[280px]">
+              {data.totalCount > data.users.length && (
+                <div className="px-3 py-1.5 bg-muted/50 text-xs text-muted-foreground border-b">
+                  Showing {data.users.length} of {data.totalCount} results — type more to narrow down
+                </div>
+              )}
+              {data.users.map((user) => (
+                <button
+                  key={user.id}
+                  onClick={() => handleSelect(user)}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-accent text-left transition-colors border-b last:border-b-0"
+                  data-testid={`button-select-member-${user.id}`}
+                >
+                  <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold shrink-0">
+                    {user.name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium truncate">{user.name}</span>
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">
+                        {user.role}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      {user.studentId && <span>ID: {user.studentId}</span>}
+                      {user.employeeId && <span>Emp: {user.employeeId}</span>}
+                      {user.department && <span>{user.department}</span>}
+                      <span className="truncate">{user.email}</span>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function CirculationPage() {
   const queryClient = useQueryClient();
 
-  const [selectedUserId, setSelectedUserId] = useState("");
-  const [isbnInput, setIsbnInput] = useState("");
   const [resolvedBook, setResolvedBook] = useState<Book | null>(null);
-  const [resolvedUser, setResolvedUser] = useState<UserType | null>(null);
+  const [resolvedUser, setResolvedUser] = useState<SafeUser | null>(null);
+  const [isbnInput, setIsbnInput] = useState("");
   const [bookError, setBookError] = useState("");
   const [isLookingUpBook, setIsLookingUpBook] = useState(false);
   const [showConfirmation, setShowConfirmation] = useState(false);
@@ -62,9 +254,8 @@ export default function CirculationPage() {
   });
   const [txSearch, setTxSearch] = useState("");
   const [returnIsbn, setReturnIsbn] = useState("");
-  const [returnInfo, setReturnInfo] = useState<{ circulationId: number; book: Book; user: UserType; dueDate: string; isOverdue: boolean } | null>(null);
+  const [returnInfo, setReturnInfo] = useState<{ circulationId: number; book: Book; user: SafeUser; dueDate: string; isOverdue: boolean } | null>(null);
   const [isLookingUpReturn, setIsLookingUpReturn] = useState(false);
-  const [userSearch, setUserSearch] = useState("");
 
   const { data: circulation = [], isLoading: isLoadingCirculation } = useQuery({
     queryKey: ["circulation"],
@@ -76,21 +267,16 @@ export default function CirculationPage() {
     queryFn: () => booksApi.getAll(),
   });
 
-  const { data: users = [] } = useQuery({
+  const { data: allUsers = [] } = useQuery({
     queryKey: ["users"],
-    queryFn: usersApi.getAll,
+    queryFn: async () => {
+      const res = await fetch("/api/users");
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
   });
 
   const activeTransactions = circulation.filter(c => c.status === "ACTIVE" || c.status === "OVERDUE");
-
-  useEffect(() => {
-    if (selectedUserId) {
-      const user = users.find(u => u.id === parseInt(selectedUserId));
-      setResolvedUser(user || null);
-    } else {
-      setResolvedUser(null);
-    }
-  }, [selectedUserId, users]);
 
   const lookupBook = async () => {
     if (!isbnInput.trim()) return;
@@ -158,10 +344,9 @@ export default function CirculationPage() {
   });
 
   const resetForm = () => {
-    setSelectedUserId("");
+    setResolvedUser(null);
     setIsbnInput("");
     setResolvedBook(null);
-    setResolvedUser(null);
     setBookError("");
     const d = new Date();
     d.setDate(d.getDate() + 14);
@@ -186,7 +371,7 @@ export default function CirculationPage() {
         toast.error("This book does not have an active checkout");
         return;
       }
-      const user = users.find(u => u.id === activeCirc.userId);
+      const user = allUsers.find((u: any) => u.id === activeCirc.userId);
       if (!user) {
         toast.error("Could not find the borrower");
         return;
@@ -207,27 +392,15 @@ export default function CirculationPage() {
     if (!txSearch) return true;
     const search = txSearch.toLowerCase();
     const book = books.find(b => b.id === record.bookId);
-    const user = users.find(u => u.id === record.userId);
+    const user = allUsers.find((u: any) => u.id === record.userId);
     return (
       book?.title.toLowerCase().includes(search) ||
       book?.isbn.toLowerCase().includes(search) ||
-      user?.name.toLowerCase().includes(search) ||
+      user?.name?.toLowerCase().includes(search) ||
       user?.email?.toLowerCase().includes(search) ||
       String(record.id).includes(search)
     );
   });
-
-  const patronUsers = users.filter(u => u.status === "ACTIVE");
-
-  const filteredUsers = userSearch
-    ? patronUsers.filter(u =>
-        u.name.toLowerCase().includes(userSearch.toLowerCase()) ||
-        u.username.toLowerCase().includes(userSearch.toLowerCase()) ||
-        u.email.toLowerCase().includes(userSearch.toLowerCase()) ||
-        (u.studentId && u.studentId.toLowerCase().includes(userSearch.toLowerCase())) ||
-        (u.employeeId && u.employeeId.toLowerCase().includes(userSearch.toLowerCase()))
-      )
-    : patronUsers;
 
   return (
     <MainLayout>
@@ -252,52 +425,21 @@ export default function CirculationPage() {
             <CardDescription>Issue a book to a library member</CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-5 lg:grid-cols-2">
               <div className="space-y-2">
-                <Label className="flex items-center gap-1.5">
+                <Label className="flex items-center gap-1.5 text-sm font-medium">
                   <User className="h-3.5 w-3.5" />
                   Library Member
                 </Label>
-                <Select value={selectedUserId} onValueChange={setSelectedUserId}>
-                  <SelectTrigger data-testid="select-member" className="h-10">
-                    <SelectValue placeholder="Select a member..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <div className="p-2">
-                      <Input
-                        placeholder="Search members..."
-                        value={userSearch}
-                        onChange={(e) => setUserSearch(e.target.value)}
-                        className="h-8"
-                        data-testid="input-member-search"
-                      />
-                    </div>
-                    {filteredUsers.map(u => (
-                      <SelectItem key={u.id} value={String(u.id)}>
-                        <div className="flex items-center gap-2">
-                          <span>{u.name}</span>
-                          <span className="text-xs text-muted-foreground">
-                            ({u.role.toLowerCase()}{u.studentId ? ` - ${u.studentId}` : u.employeeId ? ` - ${u.employeeId}` : ""})
-                          </span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                    {filteredUsers.length === 0 && (
-                      <div className="py-4 text-center text-sm text-muted-foreground">No members found</div>
-                    )}
-                  </SelectContent>
-                </Select>
-                {resolvedUser && (
-                  <div className="text-xs text-muted-foreground p-2 bg-muted rounded-md">
-                    <span className="font-medium">{resolvedUser.name}</span> &middot; {resolvedUser.email}
-                    {resolvedUser.studentId && <> &middot; ID: {resolvedUser.studentId}</>}
-                    {resolvedUser.employeeId && <> &middot; Emp: {resolvedUser.employeeId}</>}
-                  </div>
-                )}
+                <MemberSearchBox
+                  selectedUser={resolvedUser}
+                  onSelect={setResolvedUser}
+                  onClear={() => setResolvedUser(null)}
+                />
               </div>
 
               <div className="space-y-2">
-                <Label className="flex items-center gap-1.5">
+                <Label className="flex items-center gap-1.5 text-sm font-medium">
                   <Hash className="h-3.5 w-3.5" />
                   Book ISBN
                 </Label>
@@ -361,7 +503,7 @@ export default function CirculationPage() {
                   data-testid="button-reset-checkout"
                 >
                   <RotateCcw className="h-4 w-4" />
-                  Reset
+                  Checkout New
                 </Button>
                 <Button
                   onClick={handleIssue}
@@ -486,7 +628,7 @@ export default function CirculationPage() {
             <TableBody>
               {filteredTransactions.map((record) => {
                 const book = books.find(b => b.id === record.bookId);
-                const user = users.find(u => u.id === record.userId);
+                const user = allUsers.find((u: any) => u.id === record.userId);
 
                 return (
                   <TableRow key={record.id} data-testid={`row-transaction-${record.id}`}>
@@ -495,7 +637,7 @@ export default function CirculationPage() {
                       <div className="flex flex-col">
                         <span className="font-medium text-sm">{book?.title || "Unknown"}</span>
                         <span className="text-xs text-muted-foreground">
-                          ISBN: {book?.isbn ? formatIsbn(book.isbn) : "-"} &middot; {book?.author}
+                          ISBN: {book?.isbn ? formatIsbn(book.isbn) : "-"} · {book?.author}
                         </span>
                       </div>
                     </TableCell>

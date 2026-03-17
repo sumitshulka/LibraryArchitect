@@ -471,6 +471,47 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/users/search", async (req, res) => {
+    try {
+      const q = (req.query.q as string || "").trim();
+      const role = req.query.role as string;
+      const department = req.query.department as string;
+      const status = req.query.status as string || "ACTIVE";
+      const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
+
+      const allUsers = await storage.getAllUsers();
+      
+      let filtered = allUsers.filter(u => {
+        if (status && u.status !== status) return false;
+        if (role && u.role !== role) return false;
+        if (department && u.department !== department) return false;
+        if (q) {
+          const search = q.toLowerCase();
+          return (
+            u.name.toLowerCase().includes(search) ||
+            u.username.toLowerCase().includes(search) ||
+            u.email.toLowerCase().includes(search) ||
+            (u.studentId && u.studentId.toLowerCase().includes(search)) ||
+            (u.employeeId && u.employeeId.toLowerCase().includes(search)) ||
+            (u.externalId && u.externalId.toLowerCase().includes(search)) ||
+            (u.phone && u.phone.includes(search))
+          );
+        }
+        return true;
+      });
+
+      const totalCount = filtered.length;
+      filtered = filtered.slice(0, limit);
+
+      const safeUsers = filtered.map(({ password, ...rest }) => rest);
+
+      res.json({ users: safeUsers, totalCount });
+    } catch (error) {
+      console.error("Error searching users:", error);
+      res.status(500).json({ error: "Failed to search users" });
+    }
+  });
+
   app.get("/api/users/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
