@@ -26,7 +26,10 @@ export function Sidebar() {
 
       <div className="flex-1 py-6 flex flex-col gap-1 px-3">
         {visibleItems.map((item) => {
-          const isActive = location === item.href || (item.href !== '/' && location.startsWith(item.href));
+          const hasMoreSpecificMatch = visibleItems.some(
+            other => other.href !== item.href && other.href.startsWith(item.href) && location.startsWith(other.href)
+          );
+          const isActive = !hasMoreSpecificMatch && (location === item.href || (item.href !== '/' && location.startsWith(item.href)));
           return (
             <Link key={item.href} href={item.href} className={cn(
                 "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors cursor-pointer",
