@@ -160,6 +160,7 @@ export interface IStorage {
   updateCirculation(id: number, circ: Partial<InsertCirculation>): Promise<Circulation | undefined>;
   getAllCirculation(): Promise<Circulation[]>;
   getActiveCirculationByBook(bookId: number): Promise<Circulation | undefined>;
+  getActiveCirculationByBookAll(bookId: number): Promise<Circulation[]>;
   getCirculationByUser(userId: number): Promise<Circulation[]>;
   
   // Inventory (legacy)
@@ -641,6 +642,15 @@ export class DBStorage implements IStorage {
       )
     );
     return circ;
+  }
+
+  async getActiveCirculationByBookAll(bookId: number): Promise<Circulation[]> {
+    return await db.select().from(circulation).where(
+      and(
+        eq(circulation.bookId, bookId),
+        or(eq(circulation.status, 'ACTIVE'), eq(circulation.status, 'OVERDUE'))
+      )
+    );
   }
 
   async getCirculationByUser(userId: number): Promise<Circulation[]> {

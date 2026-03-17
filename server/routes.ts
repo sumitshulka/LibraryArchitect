@@ -152,8 +152,15 @@ export async function registerRoutes(
         inTransit: number;
       }> = {};
       
+      // Get active circulations for this book to cross-reference copy statuses
+      const activeCirculations = await storage.getActiveCirculationByBookAll(bookId);
+      // Build a set of copy IDs that are actively checked out via circulation records
+      const activeCopyIds = new Set(activeCirculations.filter(c => c.bookCopyId).map(c => c.bookCopyId!));
+      // Count circulations without a specific copy (legacy records)
+      const circulationsWithoutCopy = activeCirculations.filter(c => !c.bookCopyId).length;
+
       for (const copy of copies) {
-        const libId = copy.libraryId || 0; // Use 0 for unallocated copies
+        const libId = copy.libraryId || 0;
         if (!libraryAllocations[libId]) {
           const lib = libId ? libraryMap.get(libId) : null;
           libraryAllocations[libId] = {
@@ -171,13 +178,54 @@ export async function registerRoutes(
         }
         
         libraryAllocations[libId].total++;
-        switch (copy.status) {
+
+        // If copy is marked AVAILABLE but has an active circulation, count as checked out
+        const effectiveStatus = (copy.status === "AVAILABLE" && activeCopyIds.has(copy.id))
+          ? "CHECKED_OUT"
+          : copy.status;
+
+        switch (effectiveStatus) {
           case "AVAILABLE": libraryAllocations[libId].available++; break;
           case "CHECKED_OUT": libraryAllocations[libId].checkedOut++; break;
           case "RESERVED": libraryAllocations[libId].reserved++; break;
           case "DAMAGED": libraryAllocations[libId].damaged++; break;
           case "LOST": libraryAllocations[libId].lost++; break;
           case "IN_TRANSIT": libraryAllocations[libId].inTransit++; break;
+        }
+      }
+
+      // For circulations without a specific copy, adjust the unallocated bucket
+      // These are legacy records where no copy was selected — reduce available, increase checkedOut
+      if (circulationsWithoutCopy > 0) {
+        const unallocId = 0;
+        if (!libraryAllocations[unallocId]) {
+          libraryAllocations[unallocId] = {
+            libraryId: 0,
+            libraryName: "Unallocated",
+            libraryCode: "N/A",
+            total: 0,
+            available: 0,
+            checkedOut: 0,
+            reserved: 0,
+            damaged: 0,
+            lost: 0,
+            inTransit: 0,
+          };
+        }
+        // Move copies from available to checkedOut for legacy circulations
+        const adjust = Math.min(circulationsWithoutCopy, libraryAllocations[unallocId].available);
+        libraryAllocations[unallocId].available -= adjust;
+        libraryAllocations[unallocId].checkedOut += adjust;
+        // If not enough unallocated copies, check the circulation's library
+        const remaining = circulationsWithoutCopy - adjust;
+        if (remaining > 0) {
+          for (const circ of activeCirculations.filter(c => !c.bookCopyId)) {
+            const circLibId = circ.libraryId || 0;
+            if (libraryAllocations[circLibId] && libraryAllocations[circLibId].available > 0) {
+              libraryAllocations[circLibId].available--;
+              libraryAllocations[circLibId].checkedOut++;
+            }
+          }
         }
       }
       
