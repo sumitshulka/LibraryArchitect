@@ -183,6 +183,18 @@ Lists all library staff users for an ERP integration.
 **DELETE /api/erp/library-users/:externalId?appId=...**
 Deactivates a library staff user (soft delete to INACTIVE status).
 
+**PATCH /api/erp/library-users/:externalId/status?appId=...**
+Update user status (works for both staff and patrons). Send `{ "status": "INACTIVE" }` or `{ "status": "ACTIVE" }`.
+- Inactive staff cannot log in (local or SSO)
+- Inactive patrons cannot check out books and cannot log in via SSO
+- Can also be used to reactivate users by setting status back to ACTIVE
+
+### ERP Transaction API Endpoints
+All endpoints require `X-Secret-Key` header and `appId` query parameter.
+
+**GET /api/erp/transactions?appId=...&externalId=...&status=ACTIVE,OVERDUE**
+Returns circulation transactions. Use `externalId` to filter by student, `status` to filter by transaction status.
+
 ### ERP Catalog API Endpoints
 All endpoints require `X-Secret-Key` header and `appId` query parameter.
 

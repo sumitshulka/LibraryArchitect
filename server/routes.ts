@@ -652,6 +652,14 @@ export async function registerRoutes(
         }
       }
       
+      const checkoutUser = await storage.getUser(validated.userId);
+      if (!checkoutUser) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      if (checkoutUser.status === 'INACTIVE') {
+        return res.status(403).json({ error: "This member is inactive and cannot checkout books" });
+      }
+
       // Check for active circulation
       const activeCirc = await storage.getActiveCirculationByBook(validated.bookId);
       if (activeCirc) {
@@ -1938,9 +1946,8 @@ export async function registerRoutes(
           erpIntegrationId: integration.id,
         });
       } else {
-        // Check if staff user is still active
-        if (mappedUser.category === 'STAFF' && user.status !== 'ACTIVE') {
-          logAudit(req, { category: 'AUTHENTICATION', action: 'SSO_LOGIN_FAILED', status: 'FAILURE', userId: user.id, userName: user.username, details: { reason: 'Inactive staff account', appId: payload.appId } });
+        if (user.status === 'INACTIVE') {
+          logAudit(req, { category: 'AUTHENTICATION', action: 'SSO_LOGIN_FAILED', status: 'FAILURE', userId: user.id, userName: user.username, details: { reason: 'Inactive account', appId: payload.appId, category: user.category } });
           return res.redirect('/login?error=account_inactive');
         }
         
@@ -2641,6 +2648,60 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Library user removal error:", error);
       res.status(500).json({ error: "Failed to remove library user" });
+    }
+  });
+
+  app.patch("/api/erp/library-users/:externalId/status", async (req, res) => {
+    try {
+      const { externalId } = req.params;
+      const appId = req.query.appId as string;
+      const secretKey = req.headers['x-secret-key'] as string;
+      const { status } = req.body;
+
+      if (!appId) {
+        return res.status(400).json({ error: "appId query parameter required" });
+      }
+      if (!secretKey) {
+        return res.status(401).json({ error: "X-Secret-Key header required" });
+      }
+      if (!status || !['ACTIVE', 'INACTIVE'].includes(status)) {
+        return res.status(400).json({ error: "status must be 'ACTIVE' or 'INACTIVE'" });
+      }
+
+      const integration = await storage.getErpIntegrationByAppId(appId);
+      if (!integration) {
+        return res.status(404).json({ error: "ERP integration not found with this App ID" });
+      }
+
+      const { verifySecretKey } = await import('./sso');
+      if (!verifySecretKey(secretKey, integration.secretHash, integration.secretSalt)) {
+        return res.status(401).json({ error: "Invalid secret key" });
+      }
+
+      const user = await storage.getUserByExternalId(externalId, integration.id);
+      if (!user) {
+        return res.status(404).json({ error: "User not found with this external ID" });
+      }
+
+      if (user.status === status) {
+        return res.json({
+          message: `User is already ${status}`,
+          user: { id: user.id, externalId: user.externalId, name: user.name, role: user.role, category: user.category, status: user.status },
+        });
+      }
+
+      await storage.updateUser(user.id, { status });
+
+      const action = status === 'INACTIVE' ? 'ERP_USER_DEACTIVATED' : 'ERP_USER_REACTIVATED';
+      logAudit(req, { category: 'ERP_INTEGRATION', action, targetType: 'user', targetId: String(user.id), details: { externalId, name: user.name, role: user.role, category: user.category, previousStatus: user.status, newStatus: status, appId } });
+
+      res.json({
+        message: `User status updated to ${status}`,
+        user: { id: user.id, externalId: user.externalId, name: user.name, role: user.role, category: user.category, status },
+      });
+    } catch (error) {
+      console.error("User status update error:", error);
+      res.status(500).json({ error: "Failed to update user status" });
     }
   });
 

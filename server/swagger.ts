@@ -1583,7 +1583,114 @@ Each attribute type (e.g., "Program", "Semester", "Subject Type") contains its a
           },
         },
       },
-    },
+      '/api/erp/library-users/{externalId}/status': {
+        patch: {
+          tags: ['ERP User Provisioning'],
+          summary: 'Update user status (activate/deactivate)',
+          description: `Update the status of a library staff member or patron. 
+
+**When set to INACTIVE:**
+- **Staff (Admin/Librarian):** Cannot log in to the library console (both local login and SSO are blocked)
+- **Patrons (Student/Faculty):** Cannot check out any books. SSO login is also blocked.
+
+**When set back to ACTIVE:**
+- User regains full access according to their role.
+
+**Use Cases:**
+- Student graduates or is suspended → ERP sends INACTIVE status
+- Employee leaves the institution → ERP sends INACTIVE status
+- Student rejoins or is reinstated → ERP sends ACTIVE status`,
+          parameters: [
+            {
+              name: 'X-Secret-Key',
+              in: 'header',
+              required: true,
+              schema: { type: 'string' },
+              description: 'The secret key configured for this ERP integration',
+            },
+            {
+              name: 'externalId',
+              in: 'path',
+              required: true,
+              schema: { type: 'string' },
+              description: 'The external ID of the user (student roll number, employee ID, etc.)',
+            },
+            {
+              name: 'appId',
+              in: 'query',
+              required: true,
+              schema: { type: 'string' },
+              description: 'The ERP integration App ID',
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['status'],
+                  properties: {
+                    status: {
+                      type: 'string',
+                      enum: ['ACTIVE', 'INACTIVE'],
+                      description: 'The new status for the user',
+                    },
+                  },
+                },
+                examples: {
+                  deactivate: {
+                    summary: 'Mark user as inactive',
+                    value: { status: 'INACTIVE' },
+                  },
+                  reactivate: {
+                    summary: 'Reactivate user',
+                    value: { status: 'ACTIVE' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': {
+              description: 'User status updated successfully',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      message: { type: 'string', example: 'User status updated to INACTIVE' },
+                      user: {
+                        type: 'object',
+                        properties: {
+                          id: { type: 'integer', example: 5 },
+                          externalId: { type: 'string', example: '202601001' },
+                          name: { type: 'string', example: 'John Doe' },
+                          role: { type: 'string', example: 'STUDENT' },
+                          category: { type: 'string', example: 'PATRON' },
+                          status: { type: 'string', example: 'INACTIVE' },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            '400': {
+              description: 'Missing appId or invalid status value',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+            },
+            '401': {
+              description: 'Missing or invalid secret key',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+            },
+            '404': {
+              description: 'ERP integration or user not found',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+            },
+          },
+        },
+      },
       '/api/erp/transactions': {
         get: {
           tags: ['ERP Transactions'],
@@ -1732,6 +1839,7 @@ Each attribute type (e.g., "Program", "Semester", "Subject Type") contains its a
           },
         },
       },
+    },
   },
   apis: [],
 };
