@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { circulationApi, booksApi } from "@/lib/api";
+import { circulationApi, booksApi, bookCopiesApi } from "@/lib/api";
 import {
   Table,
   TableBody,
@@ -45,12 +45,12 @@ import {
 } from "@/components/ui/tabs";
 import {
   Search, BookOpen, RefreshCw, AlertCircle, CheckCircle2,
-  Loader2, ArrowRight, RotateCcw, User, BookCopy, Calendar, Hash,
-  X, Filter,
+  Loader2, ArrowRight, RotateCcw, User, BookCopy as BookCopyIcon, Calendar, Hash,
+  X, Filter, Tag,
 } from "lucide-react";
 import { formatIsbn } from "@/lib/isbn";
 import { toast } from "sonner";
-import type { Book, User as UserType } from "@shared/schema";
+import type { Book, User as UserType, BookCopy as BookCopyType } from "@shared/schema";
 
 type SafeUser = Omit<UserType, "password">;
 
@@ -253,6 +253,9 @@ export default function CirculationPage() {
   const [bookError, setBookError] = useState("");
   const [isLookingUpBook, setIsLookingUpBook] = useState(false);
   const [showConfirmation, setShowConfirmation] = useState(false);
+  const [availableCopies, setAvailableCopies] = useState<BookCopyType[]>([]);
+  const [selectedCopy, setSelectedCopy] = useState<BookCopyType | null>(null);
+  const [hasCopiesWithSSN, setHasCopiesWithSSN] = useState(false);
   const [dueDate, setDueDate] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() + 14);
@@ -288,6 +291,9 @@ export default function CirculationPage() {
     if (!isbnInput.trim()) return;
     setBookError("");
     setResolvedBook(null);
+    setAvailableCopies([]);
+    setSelectedCopy(null);
+    setHasCopiesWithSSN(false);
     setIsLookingUpBook(true);
     try {
       const cleanIsbn = isbnInput.replace(/[-\s]/g, "");
@@ -303,6 +309,17 @@ export default function CirculationPage() {
         return;
       }
       setResolvedBook(book);
+
+      try {
+        const copies = await bookCopiesApi.getByBook(book.id);
+        const issuableCopies = copies.filter(c => c.status === "AVAILABLE");
+        const copiesWithSSN = issuableCopies.filter(c => c.internalSSN || c.userDefinedSSN);
+        if (copiesWithSSN.length > 0) {
+          setAvailableCopies(issuableCopies);
+          setHasCopiesWithSSN(true);
+        }
+      } catch {
+      }
     } finally {
       setIsLookingUpBook(false);
     }
@@ -311,6 +328,10 @@ export default function CirculationPage() {
   const handleIssue = () => {
     if (!resolvedUser || !resolvedBook) {
       toast.error("Please select a member and look up a valid book");
+      return;
+    }
+    if (hasCopiesWithSSN && !selectedCopy) {
+      toast.error("Please select a copy (SSN) before issuing");
       return;
     }
     setShowConfirmation(true);
@@ -322,6 +343,7 @@ export default function CirculationPage() {
         bookId: resolvedBook!.id,
         userId: resolvedUser!.id,
         dueDate: new Date(dueDate),
+        ...(selectedCopy ? { bookCopyId: selectedCopy.id } : {}),
       }),
     onSuccess: () => {
       toast.success("Book issued successfully!");
@@ -354,6 +376,9 @@ export default function CirculationPage() {
     setIsbnInput("");
     setResolvedBook(null);
     setBookError("");
+    setAvailableCopies([]);
+    setSelectedCopy(null);
+    setHasCopiesWithSSN(false);
     const d = new Date();
     d.setDate(d.getDate() + 14);
     setDueDate(d.toISOString().split("T")[0]);
@@ -465,7 +490,7 @@ export default function CirculationPage() {
                     <Input
                       placeholder="Enter or scan ISBN..."
                       value={isbnInput}
-                      onChange={(e) => { setIsbnInput(e.target.value); setBookError(""); setResolvedBook(null); }}
+                      onChange={(e) => { setIsbnInput(e.target.value); setBookError(""); setResolvedBook(null); setAvailableCopies([]); setSelectedCopy(null); setHasCopiesWithSSN(false); }}
                       onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); lookupBook(); } }}
                       className="h-10"
                       data-testid="input-isbn"
@@ -498,6 +523,69 @@ export default function CirculationPage() {
                 </div>
               </div>
 
+              {hasCopiesWithSSN && resolvedBook && (
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-1.5 text-sm font-medium">
+                    <Tag className="h-3.5 w-3.5" />
+                    Select Copy (SSN)
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    This book has {availableCopies.length} available {availableCopies.length === 1 ? "copy" : "copies"}. Select the specific copy to issue.
+                  </p>
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {availableCopies.map((copy) => {
+                      const ssn = copy.userDefinedSSN || copy.internalSSN;
+                      const isSelected = selectedCopy?.id === copy.id;
+                      return (
+                        <button
+                          key={copy.id}
+                          onClick={() => setSelectedCopy(isSelected ? null : copy)}
+                          className={`text-left p-3 rounded-lg border-2 transition-all ${
+                            isSelected
+                              ? "border-primary bg-primary/5 ring-1 ring-primary/20"
+                              : "border-border hover:border-primary/40 hover:bg-muted/50"
+                          }`}
+                          data-testid={`button-select-copy-${copy.id}`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              {ssn && (
+                                <p className="text-sm font-semibold font-mono truncate" data-testid={`text-copy-ssn-${copy.id}`}>
+                                  SSN: {ssn}
+                                </p>
+                              )}
+                              <p className="text-xs text-muted-foreground mt-0.5">
+                                Barcode: {copy.barcode}
+                              </p>
+                              {copy.shelfLocation && (
+                                <p className="text-xs text-muted-foreground">
+                                  Shelf: {copy.shelfLocation}
+                                </p>
+                              )}
+                              {copy.condition && (
+                                <p className="text-xs text-muted-foreground">
+                                  Condition: {copy.condition}
+                                </p>
+                              )}
+                            </div>
+                            <div className={`shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                              isSelected ? "border-primary bg-primary" : "border-muted-foreground/30"
+                            }`}>
+                              {isSelected && <CheckCircle2 className="h-3 w-3 text-primary-foreground" />}
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {!selectedCopy && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3" /> Please select a copy before issuing
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div className="flex items-end gap-4">
                 <div className="space-y-2 w-48">
                   <Label className="flex items-center gap-1.5">
@@ -525,7 +613,7 @@ export default function CirculationPage() {
                   </Button>
                   <Button
                     onClick={handleIssue}
-                    disabled={!resolvedUser || !resolvedBook}
+                    disabled={!resolvedUser || !resolvedBook || (hasCopiesWithSSN && !selectedCopy)}
                     className="gap-1.5"
                     data-testid="button-issue"
                   >
@@ -649,7 +737,7 @@ export default function CirculationPage() {
           </div>
         ) : filteredTransactions.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-            <BookCopy className="h-10 w-10 mb-2 opacity-50" />
+            <BookCopyIcon className="h-10 w-10 mb-2 opacity-50" />
             <p className="text-sm">{txSearch ? "No matching transactions" : "No active transactions"}</p>
           </div>
         ) : (
@@ -776,6 +864,27 @@ export default function CirculationPage() {
                       <p className="text-xs text-muted-foreground">Author</p>
                       <p className="text-sm">{resolvedBook.author}</p>
                     </div>
+                    {selectedCopy && (
+                      <>
+                        <Separator className="my-1" />
+                        <div>
+                          <p className="text-xs text-muted-foreground">SSN</p>
+                          <p className="text-sm font-semibold font-mono" data-testid="text-confirm-ssn">
+                            {selectedCopy.userDefinedSSN || selectedCopy.internalSSN}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Barcode</p>
+                          <p className="text-sm font-mono">{selectedCopy.barcode}</p>
+                        </div>
+                        {selectedCopy.shelfLocation && (
+                          <div>
+                            <p className="text-xs text-muted-foreground">Shelf</p>
+                            <p className="text-sm">{selectedCopy.shelfLocation}</p>
+                          </div>
+                        )}
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
