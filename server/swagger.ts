@@ -102,6 +102,20 @@ The system supports three authentication modes:
         description: 'Book checkout and return operations',
       },
       {
+        name: 'ERP Transactions',
+        description: `API endpoints for ERP systems to retrieve circulation transactions (issued/returned books).
+
+**Common Use Cases:**
+- Show a student the books currently issued to them in the ERP student portal
+- Display overdue books and fine information
+- Get the complete borrowing history for a student or staff member
+
+**Usage:**
+- Pass \`externalId\` (student roll number or employee ID) to filter transactions for a specific user
+- Pass \`status=ACTIVE\` to get only currently issued books, or \`status=ACTIVE,OVERDUE\` to include overdue items
+- Omit both filters to get all transactions across all users`,
+      },
+      {
         name: 'ERP Catalog',
         description: `API endpoints for ERP systems to browse the library catalog on behalf of students.
 
@@ -1570,6 +1584,154 @@ Each attribute type (e.g., "Program", "Semester", "Subject Type") contains its a
         },
       },
     },
+      '/api/erp/transactions': {
+        get: {
+          tags: ['ERP Transactions'],
+          summary: 'Get circulation transactions',
+          description: 'Retrieve circulation transactions (issued/returned books) for an ERP integration. Use the `externalId` filter to get books issued to a specific student or staff member. Use the `status` filter to get only active checkouts, returned books, or overdue items.',
+          parameters: [
+            {
+              name: 'X-Secret-Key',
+              in: 'header',
+              required: true,
+              schema: { type: 'string' },
+              description: 'The secret key configured for this ERP integration',
+            },
+            {
+              name: 'appId',
+              in: 'query',
+              required: true,
+              schema: { type: 'string' },
+              description: 'The ERP integration App ID',
+            },
+            {
+              name: 'externalId',
+              in: 'query',
+              required: false,
+              schema: { type: 'string' },
+              description: 'Filter by student/staff external ID to get books issued to a specific user (e.g., student roll number or employee ID)',
+            },
+            {
+              name: 'status',
+              in: 'query',
+              required: false,
+              schema: { type: 'string', example: 'ACTIVE,OVERDUE' },
+              description: 'Comma-separated list of statuses to filter by. Valid values: ACTIVE, RETURNED, OVERDUE, LOST. Example: "ACTIVE" to get only currently issued books, or "ACTIVE,OVERDUE" to include overdue items.',
+            },
+          ],
+          responses: {
+            '200': {
+              description: 'List of transactions',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean', example: true },
+                      totalCount: { type: 'integer', example: 2 },
+                      transactions: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            transactionId: { type: 'integer', example: 1 },
+                            status: { type: 'string', enum: ['ACTIVE', 'RETURNED', 'OVERDUE', 'LOST'], example: 'ACTIVE' },
+                            member: {
+                              type: 'object',
+                              properties: {
+                                memberId: { type: 'string', example: '202601001', description: 'Student ID, employee ID, or external ID' },
+                                name: { type: 'string', example: 'John Doe' },
+                                email: { type: 'string', example: 'john@university.edu' },
+                                role: { type: 'string', example: 'STUDENT' },
+                              },
+                            },
+                            book: {
+                              type: 'object',
+                              properties: {
+                                bookId: { type: 'integer', example: 1 },
+                                isbn: { type: 'string', example: '9781234567890' },
+                                title: { type: 'string', example: 'Data Structures' },
+                                author: { type: 'string', example: 'Author Name' },
+                                publisher: { type: 'string', example: 'Publisher' },
+                                category: { type: 'string', example: 'Computer Science' },
+                              },
+                            },
+                            issueDate: { type: 'string', format: 'date-time', example: '2026-03-01T10:00:00.000Z' },
+                            dueDate: { type: 'string', format: 'date-time', example: '2026-03-15T10:00:00.000Z' },
+                            returnDate: { type: 'string', format: 'date-time', nullable: true, example: null },
+                            fineAmount: { type: 'string', nullable: true, example: '0' },
+                            fineStatus: { type: 'string', nullable: true, example: null },
+                            renewalCount: { type: 'integer', example: 0 },
+                          },
+                        },
+                      },
+                    },
+                  },
+                  examples: {
+                    activeBooks: {
+                      summary: 'Books currently issued to a student',
+                      value: {
+                        success: true,
+                        totalCount: 2,
+                        transactions: [
+                          {
+                            transactionId: 5,
+                            status: 'ACTIVE',
+                            member: { memberId: '202601001', name: 'Arijit Singh', email: 'arijit@university.edu', role: 'STUDENT' },
+                            book: { bookId: 1, isbn: '9781234567890', title: 'Data Structures & Algorithms', author: 'Thomas Cormen', publisher: 'MIT Press', category: 'Computer Science' },
+                            issueDate: '2026-03-01T10:00:00.000Z',
+                            dueDate: '2026-03-15T10:00:00.000Z',
+                            returnDate: null,
+                            fineAmount: '0',
+                            fineStatus: null,
+                            renewalCount: 0,
+                          },
+                          {
+                            transactionId: 7,
+                            status: 'OVERDUE',
+                            member: { memberId: '202601001', name: 'Arijit Singh', email: 'arijit@university.edu', role: 'STUDENT' },
+                            book: { bookId: 3, isbn: '9780987654321', title: 'Operating Systems', author: 'Silberschatz', publisher: 'Wiley', category: 'Computer Science' },
+                            issueDate: '2026-02-01T10:00:00.000Z',
+                            dueDate: '2026-02-15T10:00:00.000Z',
+                            returnDate: null,
+                            fineAmount: '30',
+                            fineStatus: 'PENDING',
+                            renewalCount: 0,
+                          },
+                        ],
+                      },
+                    },
+                    emptyResult: {
+                      summary: 'No books issued to this student',
+                      value: {
+                        success: true,
+                        totalCount: 0,
+                        transactions: [],
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            '400': {
+              description: 'Missing appId parameter',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+            },
+            '401': {
+              description: 'Missing or invalid secret key',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+            },
+            '403': {
+              description: 'ERP integration is disabled',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+            },
+            '404': {
+              description: 'ERP integration not found',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+            },
+          },
+        },
+      },
   },
   apis: [],
 };
