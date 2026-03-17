@@ -614,7 +614,12 @@ export async function registerRoutes(
 
   app.post("/api/circulation/checkout", async (req, res) => {
     try {
-      const validated = insertCirculationSchema.parse(req.body);
+      const body = {
+        ...req.body,
+        dueDate: req.body.dueDate ? new Date(req.body.dueDate) : undefined,
+        returnDate: req.body.returnDate ? new Date(req.body.returnDate) : undefined,
+      };
+      const validated = insertCirculationSchema.parse(body);
       
       // Check if book is available
       const book = await storage.getBook(validated.bookId);
