@@ -253,3 +253,18 @@ Searches the catalog using attribute filters and/or text search. At least one fi
 - Custom Vite plugins for Replit development environment
 - Meta image plugin automatically updates OpenGraph images with Replit deployment URLs
 - Development banner and error overlay in development mode only
+
+## Circulation & Direct Checkout
+
+### Frontend Flow
+The Circulation page (`client/src/modules/circulation/CirculationPage.tsx`) provides:
+- **Direct Checkout**: Select member from dropdown, enter book ISBN, look up book, review confirmation dialog (member ID, name, book details, issue/return dates), then confirm issue
+- **Quick Return**: Enter ISBN, see borrower details and due status, process return
+- **Active Transactions**: Searchable table showing all active/overdue checkouts with inline return action
+- **Checkout New (Reset)**: Resets the form after issuing
+
+### ERP Transaction API
+- **GET /api/erp/transactions?appId=...** - Returns circulation transactions for ERP integration
+  - Requires `X-Secret-Key` header
+  - Optional filters: `externalId` (filter by student), `status` (comma-separated: ACTIVE,RETURNED,OVERDUE,LOST)
+  - Returns enriched transaction data with member and book details

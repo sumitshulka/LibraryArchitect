@@ -2920,6 +2920,95 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/erp/transactions", async (req, res) => {
+    try {
+      const appId = req.query.appId as string;
+      const secretKey = req.headers['x-secret-key'] as string;
+      const externalId = req.query.externalId as string;
+      const status = req.query.status as string;
+
+      if (!appId) {
+        return res.status(400).json({ error: "appId query parameter is required" });
+      }
+      if (!secretKey) {
+        return res.status(401).json({ error: "X-Secret-Key header is required" });
+      }
+
+      const integration = await storage.getErpIntegrationByAppId(appId);
+      if (!integration) {
+        return res.status(404).json({ error: "ERP integration not found" });
+      }
+      if (!integration.isActive) {
+        return res.status(403).json({ error: "ERP integration is disabled" });
+      }
+
+      const { verifySecretKey } = await import('./sso');
+      if (!verifySecretKey(secretKey, integration.secretHash, integration.secretSalt)) {
+        return res.status(401).json({ error: "Invalid secret key" });
+      }
+
+      let userFilter: number | undefined;
+      if (externalId) {
+        const user = await storage.getUserByExternalId(externalId, integration.id);
+        if (!user) {
+          return res.json({ success: true, transactions: [] });
+        }
+        userFilter = user.id;
+      }
+
+      const allCirculation = userFilter
+        ? await storage.getCirculationByUser(userFilter)
+        : await storage.getAllCirculation();
+
+      let filtered = allCirculation;
+      if (status) {
+        const statuses = status.toUpperCase().split(",");
+        filtered = filtered.filter(c => statuses.includes(c.status));
+      }
+
+      const allBooks = await storage.getAllBooks();
+      const allUsers = await storage.getAllUsers();
+
+      const transactions = filtered.map(c => {
+        const book = allBooks.find(b => b.id === c.bookId);
+        const user = allUsers.find(u => u.id === c.userId);
+        return {
+          transactionId: c.id,
+          status: c.status,
+          member: user ? {
+            memberId: user.studentId || user.employeeId || user.externalId || String(user.id),
+            name: user.name,
+            email: user.email,
+            role: user.role,
+          } : null,
+          book: book ? {
+            bookId: book.id,
+            isbn: book.isbn,
+            title: book.title,
+            author: book.author,
+            publisher: book.publisher,
+            category: book.category,
+          } : null,
+          issueDate: c.checkoutDate,
+          dueDate: c.dueDate,
+          returnDate: c.returnDate,
+          fineAmount: c.fineAmount,
+          fineStatus: c.fineStatus,
+          renewalCount: c.renewalCount,
+        };
+      });
+
+      res.json({
+        success: true,
+        totalCount: transactions.length,
+        transactions,
+      });
+    } catch (error) {
+      console.error("ERP transactions error:", error);
+      res.status(500).json({ error: "Failed to fetch transactions" });
+    }
+  });
+
   // SSO Test Endpoints (for development/testing only)
   app.post("/api/sso/test/generate-token", async (req, res) => {
     try {
