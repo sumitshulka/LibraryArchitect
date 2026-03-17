@@ -26,6 +26,9 @@ import { fromZodError } from "zod-validation-error";
 import crypto from "crypto";
 import nodemailer from "nodemailer";
 import * as XLSX from "xlsx";
+import { passwordResetOtps } from "@shared/schema";
+import { db } from "./db";
+import { eq, and, gt } from "drizzle-orm";
 import multer from "multer";
 import { setupSwagger } from "./swagger";
 import { logAudit, invalidateAuditConfigCache } from "./audit";
@@ -2082,6 +2085,200 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Change password error:", error);
       res.status(500).json({ error: "Failed to change password" });
+    }
+  });
+
+  app.post("/api/auth/forgot-password", async (req, res) => {
+    try {
+      const { identifier } = req.body;
+      if (!identifier) {
+        return res.status(400).json({ error: "Username or email is required" });
+      }
+
+      let user = await storage.getUserByUsername(identifier);
+      if (!user) {
+        user = await storage.getUserByEmail(identifier);
+      }
+
+      if (!user || !user.password) {
+        return res.status(404).json({ error: "No account found with that username or email" });
+      }
+
+      if (user.status === "INACTIVE") {
+        return res.status(403).json({ error: "This account has been deactivated" });
+      }
+
+      const hostConfig = await storage.getSystemConfig("smtp_host");
+      const portConfig = await storage.getSystemConfig("smtp_port");
+      const secureConfig = await storage.getSystemConfig("smtp_secure");
+      const userConfig = await storage.getSystemConfig("smtp_user");
+      const passConfig = await storage.getSystemConfig("smtp_pass");
+      const fromConfig = await storage.getSystemConfig("smtp_from");
+
+      if (!hostConfig || !userConfig || !passConfig) {
+        return res.status(500).json({ error: "Email is not configured. Please contact the administrator." });
+      }
+
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+      await db.update(passwordResetOtps)
+        .set({ used: true })
+        .where(and(eq(passwordResetOtps.userId, user.id), eq(passwordResetOtps.used, false)));
+
+      await db.insert(passwordResetOtps).values({
+        userId: user.id,
+        otp,
+        expiresAt,
+      });
+
+      const transporter = nodemailer.createTransport({
+        host: hostConfig.value,
+        port: parseInt(portConfig?.value || "587"),
+        secure: secureConfig?.value === "true",
+        auth: {
+          user: userConfig.value,
+          pass: passConfig.value,
+        },
+      });
+
+      await transporter.sendMail({
+        from: fromConfig?.value || userConfig.value,
+        to: user.email,
+        subject: "LibraTech - Password Reset OTP",
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <div style="background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%); color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0;">
+              <h1 style="margin: 0; font-size: 28px;">LibraTech</h1>
+              <p style="margin: 5px 0 0; opacity: 0.9; font-size: 14px;">Library Management System</p>
+            </div>
+            <div style="padding: 30px; background: #ffffff; border: 1px solid #e5e7eb; border-top: none;">
+              <h2 style="color: #1e293b; margin-top: 0;">Password Reset Request</h2>
+              <p style="color: #475569;">Hello <strong>${user.name}</strong>,</p>
+              <p style="color: #475569;">We received a request to reset your password. Use the OTP below to proceed:</p>
+              <div style="background: #f1f5f9; border: 2px dashed #3b82f6; border-radius: 12px; padding: 24px; text-align: center; margin: 24px 0;">
+                <span style="font-size: 36px; font-weight: bold; letter-spacing: 8px; color: #1e40af; font-family: 'Courier New', monospace;">${otp}</span>
+              </div>
+              <p style="color: #ef4444; font-size: 14px; font-weight: 500;">This OTP expires in 10 minutes.</p>
+              <p style="color: #94a3b8; font-size: 13px;">If you did not request this reset, please ignore this email. Your password will remain unchanged.</p>
+            </div>
+            <div style="background: #f8fafc; padding: 16px; text-align: center; font-size: 12px; color: #94a3b8; border-radius: 0 0 8px 8px; border: 1px solid #e5e7eb; border-top: none;">
+              <p style="margin: 0;">This is an automated email from LibraTech. Do not reply.</p>
+            </div>
+          </div>
+        `,
+      });
+
+      const maskedEmail = user.email.replace(/(.{2})(.*)(@.*)/, "$1***$3");
+
+      await logAudit({
+        userId: user.id,
+        username: user.username,
+        action: "Password reset OTP requested",
+        category: "AUTHENTICATION",
+        status: "SUCCESS",
+        ipAddress: req.ip || "unknown",
+        metadata: { email: maskedEmail },
+      });
+
+      res.json({ success: true, email: maskedEmail, message: `OTP sent to ${maskedEmail}` });
+    } catch (error: any) {
+      console.error("Forgot password error:", error);
+      if (error.code === "EAUTH" || error.code === "ESOCKET" || error.code === "ECONNECTION") {
+        return res.status(500).json({ error: "Failed to send email. Please contact the administrator." });
+      }
+      res.status(500).json({ error: "An unexpected error occurred. Please try again." });
+    }
+  });
+
+  app.post("/api/auth/verify-otp", async (req, res) => {
+    try {
+      const { identifier, otp } = req.body;
+      if (!identifier || !otp) {
+        return res.status(400).json({ error: "Username/email and OTP are required" });
+      }
+
+      let user = await storage.getUserByUsername(identifier);
+      if (!user) {
+        user = await storage.getUserByEmail(identifier);
+      }
+      if (!user) {
+        return res.status(404).json({ error: "No account found" });
+      }
+
+      const [resetRecord] = await db.select().from(passwordResetOtps)
+        .where(and(
+          eq(passwordResetOtps.userId, user.id),
+          eq(passwordResetOtps.otp, otp),
+          eq(passwordResetOtps.used, false),
+          gt(passwordResetOtps.expiresAt, new Date())
+        ));
+
+      if (!resetRecord) {
+        return res.status(400).json({ error: "Invalid or expired OTP. Please request a new one." });
+      }
+
+      const resetToken = crypto.randomBytes(32).toString('hex');
+
+      await db.update(passwordResetOtps)
+        .set({ used: true })
+        .where(eq(passwordResetOtps.id, resetRecord.id));
+
+      res.json({ success: true, resetToken, userId: user.id });
+    } catch (error) {
+      console.error("Verify OTP error:", error);
+      res.status(500).json({ error: "Failed to verify OTP" });
+    }
+  });
+
+  app.post("/api/auth/reset-password", async (req, res) => {
+    try {
+      const { identifier, resetToken, newPassword, confirmPassword } = req.body;
+
+      if (!identifier || !resetToken || !newPassword || !confirmPassword) {
+        return res.status(400).json({ error: "All fields are required" });
+      }
+
+      if (newPassword !== confirmPassword) {
+        return res.status(400).json({ error: "Passwords do not match" });
+      }
+
+      if (newPassword.length < 6) {
+        return res.status(400).json({ error: "Password must be at least 6 characters" });
+      }
+
+      const hasLetters = /[a-zA-Z]/.test(newPassword);
+      const hasNumbers = /[0-9]/.test(newPassword);
+      if (!hasLetters || !hasNumbers) {
+        return res.status(400).json({ error: "Password must contain both letters and numbers" });
+      }
+
+      let user = await storage.getUserByUsername(identifier);
+      if (!user) {
+        user = await storage.getUserByEmail(identifier);
+      }
+      if (!user) {
+        return res.status(404).json({ error: "No account found" });
+      }
+
+      const { hashPassword } = await import('./sso');
+      const hashedPassword = hashPassword(newPassword);
+      await storage.updateUser(user.id, { password: hashedPassword });
+
+      await logAudit({
+        userId: user.id,
+        username: user.username,
+        action: "Password reset completed via OTP",
+        category: "AUTHENTICATION",
+        status: "SUCCESS",
+        ipAddress: req.ip || "unknown",
+        metadata: {},
+      });
+
+      res.json({ success: true, message: "Password reset successfully. You can now log in with your new password." });
+    } catch (error) {
+      console.error("Reset password error:", error);
+      res.status(500).json({ error: "Failed to reset password" });
     }
   });
 

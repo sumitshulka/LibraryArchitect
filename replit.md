@@ -88,6 +88,7 @@ The system uses PostgreSQL enums and tables for:
 10. **Search Attribute Types** - Configurable filter categories (e.g., Tags, Programs, Courses, Semester, Subject Type) that librarians define for refined catalog search
 11. **Search Attribute Values** - Individual values within each attribute type (e.g., "Computer Science" under Programs, "Semester 1" under Semester)
 12. **Resource Search Attributes** - Junction table linking books to attribute values, enabling multi-faceted search filtering
+13. **Password Reset OTPs** - OTP codes for forgot password flow, with expiration and used tracking
 
 ## Initial Setup & Bootstrap
 
@@ -107,6 +108,26 @@ When the system is first installed, a bootstrap process automatically:
   - Request: `{ "username": "admin", "password": "admin123" }`
   - Returns: User session cookie and user info
   - Only available in LOCAL or HYBRID auth modes
+
+### Forgot Password Flow
+Uses email-based OTP verification:
+1. **POST /api/auth/forgot-password** - Request OTP by username or email
+   - Validates user exists and has a local password
+   - Sends 6-digit OTP via configured SMTP (expires in 10 minutes)
+   - Returns masked email address
+2. **POST /api/auth/verify-otp** - Verify OTP code
+   - Returns a reset token on success
+3. **POST /api/auth/reset-password** - Set new password
+   - Requires reset token, new password (min 6 chars, must contain letters + numbers)
+   - Password requirements enforced on both frontend and backend
+
+### Email Provider Configuration
+Settings > Notifications allows admin to configure SMTP email:
+- Pre-populated settings for: Gmail, Google Workspace, Outlook, O365, Yahoo, Zoho, SendGrid, Amazon SES
+- Custom/Other SMTP option with manual host/port/TLS
+- App password field (masked in API responses)
+- Test email functionality to verify configuration
+- Config stored as system_config entries with category "email"
 
 ## SSO Authentication & User Provisioning
 

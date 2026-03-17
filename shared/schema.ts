@@ -170,6 +170,15 @@ export const sessions = pgTable("sessions", {
   userAgent: text("user_agent"),
 });
 
+export const passwordResetOtps = pgTable("password_reset_otps", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  otp: text("otp").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  used: boolean("used").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const erpIntegrationWhitelist = pgTable("erp_integration_whitelist", {
   id: serial("id").primaryKey(),
   integrationId: integer("integration_id").notNull().references(() => erpIntegrations.id, { onDelete: 'cascade' }),
