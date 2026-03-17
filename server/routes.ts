@@ -24,6 +24,7 @@ import {
 import { z } from "zod";
 import { fromZodError } from "zod-validation-error";
 import crypto from "crypto";
+import nodemailer from "nodemailer";
 import * as XLSX from "xlsx";
 import multer from "multer";
 import { setupSwagger } from "./swagger";
@@ -4825,6 +4826,182 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error fetching dashboard stats:", error);
       res.status(500).json({ error: "Failed to fetch dashboard statistics" });
+    }
+  });
+
+  const emailConfigSchema = z.object({
+    provider: z.string().min(1),
+    smtpHost: z.string().min(1),
+    smtpPort: z.string().min(1),
+    smtpSecure: z.enum(["true", "false"]),
+    smtpUser: z.string().min(1),
+    smtpPass: z.string().min(1),
+    smtpFrom: z.string().optional(),
+  });
+
+  app.get("/api/email-config", async (req, res) => {
+    try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+
+      const keys = ["smtp_provider", "smtp_host", "smtp_port", "smtp_secure", "smtp_user", "smtp_pass", "smtp_from"];
+      const configs: Record<string, string> = {};
+      for (const key of keys) {
+        const config = await storage.getSystemConfig(key);
+        if (config) {
+          configs[key.replace("smtp_", "").replace("provider", "smtpProvider")] = 
+            key === "smtp_pass" ? "••••••••" : config.value;
+        }
+      }
+
+      const providerConfig = await storage.getSystemConfig("smtp_provider");
+      const hostConfig = await storage.getSystemConfig("smtp_host");
+      const portConfig = await storage.getSystemConfig("smtp_port");
+      const secureConfig = await storage.getSystemConfig("smtp_secure");
+      const userConfig = await storage.getSystemConfig("smtp_user");
+      const passConfig = await storage.getSystemConfig("smtp_pass");
+      const fromConfig = await storage.getSystemConfig("smtp_from");
+
+      res.json({
+        configured: !!hostConfig,
+        provider: providerConfig?.value || "",
+        smtpHost: hostConfig?.value || "",
+        smtpPort: portConfig?.value || "",
+        smtpSecure: secureConfig?.value || "true",
+        smtpUser: userConfig?.value || "",
+        smtpPass: passConfig ? "••••••••" : "",
+        smtpFrom: fromConfig?.value || "",
+      });
+    } catch (error) {
+      console.error("Error fetching email config:", error);
+      res.status(500).json({ error: "Failed to fetch email configuration" });
+    }
+  });
+
+  app.post("/api/email-config", async (req, res) => {
+    try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+
+      const validated = emailConfigSchema.parse(req.body);
+
+      await storage.setSystemConfig({ key: "smtp_provider", value: validated.provider, category: "email", description: "Email provider name" });
+      await storage.setSystemConfig({ key: "smtp_host", value: validated.smtpHost, category: "email", description: "SMTP server host" });
+      await storage.setSystemConfig({ key: "smtp_port", value: validated.smtpPort, category: "email", description: "SMTP server port" });
+      await storage.setSystemConfig({ key: "smtp_secure", value: validated.smtpSecure, category: "email", description: "Use TLS/SSL" });
+      await storage.setSystemConfig({ key: "smtp_user", value: validated.smtpUser, category: "email", description: "SMTP username/email" });
+      if (validated.smtpPass && validated.smtpPass !== "••••••••") {
+        await storage.setSystemConfig({ key: "smtp_pass", value: validated.smtpPass, category: "email", description: "SMTP app password" });
+      }
+      await storage.setSystemConfig({ key: "smtp_from", value: validated.smtpFrom || validated.smtpUser, category: "email", description: "From email address" });
+
+      await logAudit({
+        userId: currentUser.id,
+        username: currentUser.username,
+        action: "Email configuration updated",
+        category: "SYSTEM_CONFIG",
+        status: "SUCCESS",
+        ipAddress: req.ip || "unknown",
+        metadata: { provider: validated.provider, smtpHost: validated.smtpHost },
+      });
+
+      res.json({ success: true, message: "Email configuration saved successfully" });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).message });
+      }
+      console.error("Error saving email config:", error);
+      res.status(500).json({ error: "Failed to save email configuration" });
+    }
+  });
+
+  app.post("/api/email-config/test", async (req, res) => {
+    try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+
+      const { testEmail } = req.body;
+      if (!testEmail) {
+        return res.status(400).json({ error: "Test email address is required" });
+      }
+
+      const hostConfig = await storage.getSystemConfig("smtp_host");
+      const portConfig = await storage.getSystemConfig("smtp_port");
+      const secureConfig = await storage.getSystemConfig("smtp_secure");
+      const userConfig = await storage.getSystemConfig("smtp_user");
+      const passConfig = await storage.getSystemConfig("smtp_pass");
+      const fromConfig = await storage.getSystemConfig("smtp_from");
+
+      if (!hostConfig || !portConfig || !userConfig || !passConfig) {
+        return res.status(400).json({ error: "Email is not configured. Please save the configuration first." });
+      }
+
+      const transporter = nodemailer.createTransport({
+        host: hostConfig.value,
+        port: parseInt(portConfig.value),
+        secure: secureConfig?.value === "true",
+        auth: {
+          user: userConfig.value,
+          pass: passConfig.value,
+        },
+      });
+
+      await transporter.verify();
+
+      await transporter.sendMail({
+        from: fromConfig?.value || userConfig.value,
+        to: testEmail,
+        subject: "LibraTech - Test Email",
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <div style="background: #1e40af; color: white; padding: 20px; text-align: center;">
+              <h1 style="margin: 0;">LibraTech</h1>
+              <p style="margin: 5px 0 0; opacity: 0.9;">Library Management System</p>
+            </div>
+            <div style="padding: 30px; background: #f9fafb;">
+              <h2 style="color: #1e40af;">Email Configuration Test</h2>
+              <p>This is a test email from LibraTech to confirm that your email settings are working correctly.</p>
+              <div style="background: white; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin: 20px 0;">
+                <p style="margin: 0;"><strong>Status:</strong> <span style="color: #16a34a;">✓ Email delivery successful</span></p>
+                <p style="margin: 8px 0 0;"><strong>Sent at:</strong> ${new Date().toLocaleString()}</p>
+              </div>
+              <p style="color: #6b7280; font-size: 14px;">If you received this email, your SMTP settings are configured correctly.</p>
+            </div>
+            <div style="background: #e5e7eb; padding: 15px; text-align: center; font-size: 12px; color: #6b7280;">
+              <p style="margin: 0;">This is an automated test email from LibraTech.</p>
+            </div>
+          </div>
+        `,
+      });
+
+      await logAudit({
+        userId: currentUser.id,
+        username: currentUser.username,
+        action: "Test email sent successfully",
+        category: "SYSTEM_CONFIG",
+        status: "SUCCESS",
+        ipAddress: req.ip || "unknown",
+        metadata: { testEmail },
+      });
+
+      res.json({ success: true, message: `Test email sent successfully to ${testEmail}` });
+    } catch (error: any) {
+      console.error("Email test failed:", error);
+
+      let errorMessage = "Failed to send test email";
+      if (error.code === "EAUTH") {
+        errorMessage = "Authentication failed. Check your email and app password.";
+      } else if (error.code === "ESOCKET" || error.code === "ECONNECTION") {
+        errorMessage = "Could not connect to SMTP server. Check host and port settings.";
+      } else if (error.code === "ETIMEDOUT") {
+        errorMessage = "Connection timed out. Check your SMTP server settings.";
+      } else if (error.responseCode === 535) {
+        errorMessage = "Authentication failed. For Gmail/GWS, use an App Password instead of your account password.";
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
+      res.status(400).json({ error: errorMessage });
     }
   });
 

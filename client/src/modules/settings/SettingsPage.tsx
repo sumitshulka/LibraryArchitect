@@ -2204,6 +2204,378 @@ function AuditLoggingConfig() {
   );
 }
 
+const EMAIL_PROVIDERS = [
+  { value: "gmail", label: "Gmail", host: "smtp.gmail.com", port: "587", secure: "false" },
+  { value: "gws", label: "Google Workspace (GWS)", host: "smtp.gmail.com", port: "587", secure: "false" },
+  { value: "outlook", label: "Outlook / Hotmail", host: "smtp-mail.outlook.com", port: "587", secure: "false" },
+  { value: "o365", label: "Microsoft 365 (O365)", host: "smtp.office365.com", port: "587", secure: "false" },
+  { value: "yahoo", label: "Yahoo Mail", host: "smtp.mail.yahoo.com", port: "465", secure: "true" },
+  { value: "zoho", label: "Zoho Mail", host: "smtp.zoho.com", port: "465", secure: "true" },
+  { value: "sendgrid", label: "SendGrid", host: "smtp.sendgrid.net", port: "587", secure: "false" },
+  { value: "ses", label: "Amazon SES", host: "email-smtp.us-east-1.amazonaws.com", port: "587", secure: "false" },
+  { value: "custom", label: "Custom / Other SMTP", host: "", port: "587", secure: "true" },
+];
+
+function EmailProviderSettings() {
+  const queryClient = useQueryClient();
+  const [provider, setProvider] = useState("");
+  const [smtpHost, setSmtpHost] = useState("");
+  const [smtpPort, setSmtpPort] = useState("587");
+  const [smtpSecure, setSmtpSecure] = useState("false");
+  const [smtpUser, setSmtpUser] = useState("");
+  const [smtpPass, setSmtpPass] = useState("");
+  const [smtpFrom, setSmtpFrom] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
+  const [testEmail, setTestEmail] = useState("");
+  const [showTestDialog, setShowTestDialog] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [isConfigured, setIsConfigured] = useState(false);
+
+  const { data: emailConfig, isLoading } = useQuery({
+    queryKey: ["/api/email-config"],
+    queryFn: async () => {
+      const res = await fetch("/api/email-config");
+      if (!res.ok) throw new Error("Failed to fetch email config");
+      return res.json();
+    },
+  });
+
+  useEffect(() => {
+    if (emailConfig) {
+      setProvider(emailConfig.provider || "");
+      setSmtpHost(emailConfig.smtpHost || "");
+      setSmtpPort(emailConfig.smtpPort || "587");
+      setSmtpSecure(emailConfig.smtpSecure || "true");
+      setSmtpUser(emailConfig.smtpUser || "");
+      setSmtpPass(emailConfig.smtpPass || "");
+      setSmtpFrom(emailConfig.smtpFrom || "");
+      setIsConfigured(emailConfig.configured || false);
+      if (emailConfig.provider === "custom") {
+        setShowAdvanced(true);
+      }
+    }
+  }, [emailConfig]);
+
+  const handleProviderChange = (value: string) => {
+    setProvider(value);
+    const preset = EMAIL_PROVIDERS.find(p => p.value === value);
+    if (preset && value !== "custom") {
+      setSmtpHost(preset.host);
+      setSmtpPort(preset.port);
+      setSmtpSecure(preset.secure);
+      setShowAdvanced(false);
+    } else {
+      setSmtpHost("");
+      setSmtpPort("587");
+      setSmtpSecure("true");
+      setShowAdvanced(true);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!provider || !smtpHost || !smtpUser || !smtpPass) {
+      toast.error("Please fill in all required fields");
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const res = await fetch("/api/email-config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider,
+          smtpHost,
+          smtpPort,
+          smtpSecure,
+          smtpUser,
+          smtpPass: smtpPass === "••••••••" ? undefined : smtpPass,
+          smtpFrom: smtpFrom || smtpUser,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to save");
+      }
+      toast.success("Email configuration saved successfully");
+      setIsConfigured(true);
+      queryClient.invalidateQueries({ queryKey: ["/api/email-config"] });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to save email configuration");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleTest = async () => {
+    if (!testEmail) {
+      toast.error("Please enter a test email address");
+      return;
+    }
+    setIsTesting(true);
+    try {
+      const res = await fetch("/api/email-config/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ testEmail }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Test failed");
+      toast.success(data.message);
+      setShowTestDialog(false);
+      setTestEmail("");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to send test email");
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
+  const selectedProvider = EMAIL_PROVIDERS.find(p => p.value === provider);
+  const providerHint = provider === "gmail" || provider === "gws"
+    ? "Use an App Password (not your regular password). Enable 2FA first, then create an App Password at myaccount.google.com > Security > App Passwords."
+    : provider === "outlook" || provider === "o365"
+    ? "Use an App Password if you have 2FA enabled. Otherwise, you may need to enable SMTP AUTH in your admin settings."
+    : provider === "yahoo"
+    ? "Generate an App Password at login.yahoo.com > Account Security > App Passwords."
+    : null;
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardContent className="flex items-center justify-center py-10">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <>
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Mail className="h-5 w-5" />
+                Email Provider
+              </CardTitle>
+              <CardDescription>Configure your SMTP email provider for sending notifications and alerts.</CardDescription>
+            </div>
+            {isConfigured && (
+              <Badge variant="outline" className="gap-1 text-green-700 border-green-300 bg-green-50">
+                <CheckCircle2 className="h-3 w-3" />
+                Configured
+              </Badge>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="space-y-2">
+            <Label htmlFor="email-provider">Email Provider</Label>
+            <Select value={provider} onValueChange={handleProviderChange}>
+              <SelectTrigger id="email-provider" data-testid="select-email-provider">
+                <SelectValue placeholder="Select an email provider" />
+              </SelectTrigger>
+              <SelectContent>
+                {EMAIL_PROVIDERS.map(p => (
+                  <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {provider && (
+            <>
+              {providerHint && (
+                <Alert>
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertTitle>Important</AlertTitle>
+                  <AlertDescription className="text-xs">{providerHint}</AlertDescription>
+                </Alert>
+              )}
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="smtp-user">Email Address / Username</Label>
+                  <Input
+                    id="smtp-user"
+                    type="email"
+                    value={smtpUser}
+                    onChange={(e) => setSmtpUser(e.target.value)}
+                    placeholder="your-email@example.com"
+                    data-testid="input-smtp-user"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="smtp-pass">App Password</Label>
+                  <div className="relative">
+                    <Input
+                      id="smtp-pass"
+                      type={showPassword ? "text" : "password"}
+                      value={smtpPass}
+                      onChange={(e) => setSmtpPass(e.target.value)}
+                      placeholder="Enter app password"
+                      className="pr-10"
+                      data-testid="input-smtp-pass"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="absolute right-0 top-0 h-full px-3"
+                      onClick={() => setShowPassword(!showPassword)}
+                    >
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="smtp-from">From Address (optional)</Label>
+                <Input
+                  id="smtp-from"
+                  type="email"
+                  value={smtpFrom}
+                  onChange={(e) => setSmtpFrom(e.target.value)}
+                  placeholder={smtpUser || "library@yourdomain.com"}
+                  data-testid="input-smtp-from"
+                />
+                <p className="text-xs text-muted-foreground">
+                  The "From" address for outgoing emails. Defaults to the email address above if left empty.
+                </p>
+              </div>
+
+              <div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1 text-xs px-0"
+                  onClick={() => setShowAdvanced(!showAdvanced)}
+                  data-testid="button-toggle-smtp-advanced"
+                >
+                  {showAdvanced ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                  {showAdvanced ? "Hide" : "Show"} SMTP Settings
+                </Button>
+
+                {showAdvanced && (
+                  <div className="grid gap-4 md:grid-cols-3 mt-3 p-4 bg-muted/50 rounded-lg border">
+                    <div className="space-y-2">
+                      <Label htmlFor="smtp-host">SMTP Host</Label>
+                      <Input
+                        id="smtp-host"
+                        value={smtpHost}
+                        onChange={(e) => setSmtpHost(e.target.value)}
+                        placeholder="smtp.example.com"
+                        data-testid="input-smtp-host"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="smtp-port">SMTP Port</Label>
+                      <Input
+                        id="smtp-port"
+                        value={smtpPort}
+                        onChange={(e) => setSmtpPort(e.target.value)}
+                        placeholder="587"
+                        data-testid="input-smtp-port"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="smtp-secure">Connection Security</Label>
+                      <Select value={smtpSecure} onValueChange={setSmtpSecure}>
+                        <SelectTrigger id="smtp-secure" data-testid="select-smtp-secure">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="false">STARTTLS (Port 587)</SelectItem>
+                          <SelectItem value="true">SSL/TLS (Port 465)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <Separator />
+
+              <div className="flex items-center justify-between">
+                <div className="flex gap-2">
+                  <Button
+                    onClick={handleSave}
+                    disabled={isSaving || !provider || !smtpHost || !smtpUser || !smtpPass}
+                    data-testid="button-save-email-config"
+                  >
+                    {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Save Configuration
+                  </Button>
+                  {isConfigured && (
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowTestDialog(true)}
+                      data-testid="button-test-email"
+                      className="gap-2"
+                    >
+                      <Send className="h-4 w-4" />
+                      Send Test Email
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog open={showTestDialog} onOpenChange={setShowTestDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Send Test Email</DialogTitle>
+            <DialogDescription>
+              Send a test email to verify your email configuration is working correctly.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="test-email">Recipient Email</Label>
+              <Input
+                id="test-email"
+                type="email"
+                value={testEmail}
+                onChange={(e) => setTestEmail(e.target.value)}
+                placeholder="Enter email address to send test to"
+                data-testid="input-test-email"
+              />
+            </div>
+            {selectedProvider && (
+              <div className="text-xs text-muted-foreground bg-muted p-3 rounded-lg space-y-1">
+                <p><strong>Provider:</strong> {selectedProvider.label}</p>
+                <p><strong>SMTP:</strong> {smtpHost}:{smtpPort}</p>
+                <p><strong>From:</strong> {smtpFrom || smtpUser}</p>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowTestDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleTest}
+              disabled={isTesting || !testEmail}
+              data-testid="button-send-test-email"
+              className="gap-2"
+            >
+              {isTesting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              {isTesting ? "Sending..." : "Send Test"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 export default function SettingsPage() {
   const queryClient = useQueryClient();
   
@@ -2744,10 +3116,11 @@ export default function SettingsPage() {
             </TabsContent>
 
             <TabsContent value="notifications" className="mt-0 space-y-6">
+              <EmailProviderSettings />
               <Card>
                 <CardHeader>
                   <CardTitle>Email Notifications</CardTitle>
-                  <CardDescription>Configure automated email alerts.</CardDescription>
+                  <CardDescription>Configure automated email alerts. These require a working email provider configured above.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex items-center justify-between">
