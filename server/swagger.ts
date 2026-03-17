@@ -101,6 +101,19 @@ The system supports three authentication modes:
         name: 'Circulation',
         description: 'Book checkout and return operations',
       },
+      {
+        name: 'ERP Catalog',
+        description: `API endpoints for ERP systems to browse the library catalog on behalf of students.
+
+**Flow:**
+1. ERP calls \`GET /api/erp/catalog/search-attributes\` to get available filter options (attribute types and their values)
+2. Student selects desired attribute values in the ERP console
+3. ERP calls \`GET /api/erp/catalog/search\` with the selected attribute value IDs
+4. If results exceed the configured limit (default: 50), the API returns a message asking the student to refine the search
+5. The catalog limit is configurable by the library admin in Settings > Catalog Settings
+
+**Authentication:** All endpoints require the \`X-Secret-Key\` header matching the ERP integration's secret key, and the \`appId\` query parameter.`,
+      },
     ],
     components: {
       securitySchemes: {
@@ -1313,6 +1326,245 @@ The response from ERP is mapped using the configured field mappings in pull endp
                   },
                 },
               },
+            },
+          },
+        },
+      },
+      '/api/erp/catalog/search-attributes': {
+        get: {
+          tags: ['ERP Catalog'],
+          summary: 'Get available search attribute filters',
+          description: `Returns all active search attribute types and their values that students can use to filter the catalog.
+
+The ERP system should call this endpoint to populate filter dropdowns/checkboxes in the student's catalog browsing interface.
+
+**Example response structure:**
+Each attribute type (e.g., "Program", "Semester", "Subject Type") contains its available values that students can select to narrow their search.`,
+          security: [{ erpSecretKey: [] }],
+          parameters: [
+            {
+              name: 'appId',
+              in: 'query',
+              required: true,
+              schema: { type: 'string' },
+              description: 'ERP integration App ID',
+              example: 'UNIV_ERP_001',
+            },
+          ],
+          responses: {
+            '200': {
+              description: 'List of search attribute types with their values',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      searchAttributes: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            id: { type: 'integer', example: 1 },
+                            name: { type: 'string', example: 'Program' },
+                            description: { type: 'string', nullable: true, example: 'Academic program' },
+                            values: {
+                              type: 'array',
+                              items: {
+                                type: 'object',
+                                properties: {
+                                  id: { type: 'integer', example: 1 },
+                                  value: { type: 'string', example: 'Computer Science' },
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                  examples: {
+                    withData: {
+                      summary: 'Attributes with values',
+                      value: {
+                        searchAttributes: [
+                          {
+                            id: 1,
+                            name: 'Program',
+                            description: 'Academic program the resource is relevant to',
+                            values: [
+                              { id: 1, value: 'Computer Science' },
+                              { id: 2, value: 'Mechanical Engineering' },
+                              { id: 3, value: 'Electronics' },
+                            ],
+                          },
+                          {
+                            id: 2,
+                            name: 'Semester',
+                            description: 'Semester relevance',
+                            values: [
+                              { id: 4, value: 'Semester 1' },
+                              { id: 5, value: 'Semester 2' },
+                              { id: 6, value: 'Semester 3' },
+                            ],
+                          },
+                          {
+                            id: 3,
+                            name: 'Subject Type',
+                            description: null,
+                            values: [
+                              { id: 7, value: 'Core' },
+                              { id: 8, value: 'Elective' },
+                            ],
+                          },
+                        ],
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            '400': {
+              description: 'Missing appId parameter',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+            },
+            '401': {
+              description: 'Missing or invalid secret key',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+            },
+            '404': {
+              description: 'ERP integration not found',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+            },
+          },
+        },
+      },
+      '/api/erp/catalog/search': {
+        get: {
+          tags: ['ERP Catalog'],
+          summary: 'Search catalog by attributes',
+          description: `Search the library catalog using search attribute filters and/or text search.
+
+**Important behavior:**
+- At least one filter must be provided: \`attributeValueIds\` and/or \`q\` (text search)
+- If results exceed the configured maximum (default: 50, configurable in Settings), the API returns \`success: false\` with a message asking the student to refine the search — no book data is returned
+- When results are within the limit, \`success: true\` and the matching books are returned
+- The maximum result limit is configurable by the library admin under Settings > Catalog Settings
+
+**Recommended flow:**
+1. First call \`GET /api/erp/catalog/search-attributes\` to get filter options
+2. Student selects attribute values (e.g., Program=CS, Semester=3)
+3. Call this endpoint with the selected value IDs
+4. If too many results, prompt student to select more filters`,
+          security: [{ erpSecretKey: [] }],
+          parameters: [
+            {
+              name: 'appId',
+              in: 'query',
+              required: true,
+              schema: { type: 'string' },
+              description: 'ERP integration App ID',
+              example: 'UNIV_ERP_001',
+            },
+            {
+              name: 'attributeValueIds',
+              in: 'query',
+              required: false,
+              schema: { type: 'string' },
+              description: 'Comma-separated list of search attribute value IDs to filter by. Get available IDs from the search-attributes endpoint.',
+              example: '1,4,7',
+            },
+            {
+              name: 'q',
+              in: 'query',
+              required: false,
+              schema: { type: 'string' },
+              description: 'Text search query to match against book title, author, or ISBN',
+              example: 'data structures',
+            },
+          ],
+          responses: {
+            '200': {
+              description: 'Search results (may indicate limit exceeded)',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean', description: 'false if results exceed the maximum allowed limit' },
+                      message: { type: 'string', description: 'Present when success is false, asking user to refine search' },
+                      totalCount: { type: 'integer', description: 'Total number of matching books' },
+                      maxAllowed: { type: 'integer', description: 'Current configured maximum results limit' },
+                      books: {
+                        type: 'array',
+                        description: 'Empty array when success is false (limit exceeded)',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            id: { type: 'integer', example: 1 },
+                            isbn: { type: 'string', example: '978-0-13-468599-1' },
+                            title: { type: 'string', example: 'Data Structures and Algorithms' },
+                            author: { type: 'string', example: 'Alfred V. Aho' },
+                            publisher: { type: 'string', example: 'Pearson' },
+                            publishedYear: { type: 'integer', example: 2018 },
+                            category: { type: 'string', example: 'Programming' },
+                            format: { type: 'string', enum: ['PHYSICAL', 'EBOOK', 'AUDIOBOOK'] },
+                            status: { type: 'string', enum: ['AVAILABLE', 'CHECKED_OUT', 'RESERVED', 'LOST', 'MAINTENANCE'] },
+                            coverUrl: { type: 'string', nullable: true },
+                            shelfLocation: { type: 'string', nullable: true },
+                          },
+                        },
+                      },
+                    },
+                  },
+                  examples: {
+                    successfulSearch: {
+                      summary: 'Successful search (within limit)',
+                      value: {
+                        success: true,
+                        totalCount: 3,
+                        maxAllowed: 50,
+                        books: [
+                          {
+                            id: 1,
+                            isbn: '978-0-13-468599-1',
+                            title: 'Data Structures and Algorithms',
+                            author: 'Alfred V. Aho',
+                            publisher: 'Pearson',
+                            publishedYear: 2018,
+                            category: 'Programming',
+                            format: 'PHYSICAL',
+                            status: 'AVAILABLE',
+                            coverUrl: null,
+                            shelfLocation: 'A-12-3',
+                          },
+                        ],
+                      },
+                    },
+                    limitExceeded: {
+                      summary: 'Too many results — refine search',
+                      value: {
+                        success: false,
+                        message: 'Your search returned 127 results which exceeds the maximum of 50. Please refine your search by selecting more specific filters.',
+                        totalCount: 127,
+                        maxAllowed: 50,
+                        books: [],
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            '400': {
+              description: 'Missing required parameters or no filters provided',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+            },
+            '401': {
+              description: 'Missing or invalid secret key',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+            },
+            '404': {
+              description: 'ERP integration not found',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
             },
           },
         },

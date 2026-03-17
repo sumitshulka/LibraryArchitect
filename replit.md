@@ -162,6 +162,17 @@ Lists all library staff users for an ERP integration.
 **DELETE /api/erp/library-users/:externalId?appId=...**
 Deactivates a library staff user (soft delete to INACTIVE status).
 
+### ERP Catalog API Endpoints
+All endpoints require `X-Secret-Key` header and `appId` query parameter.
+
+**GET /api/erp/catalog/search-attributes?appId=...**
+Returns all active search attribute types with their values for populating student filter UI.
+
+**GET /api/erp/catalog/search?appId=...&attributeValueIds=1,4,7&q=keyword**
+Searches the catalog using attribute filters and/or text search. At least one filter required.
+- If results exceed the configurable limit (default: 50), returns `success: false` with a message to refine search
+- The limit is configurable in Settings > Catalog Settings (`erp_catalog_limit` config key)
+
 ### Security Features
 - Token signature verification with length validation
 - Timestamp expiration check (5-minute window)

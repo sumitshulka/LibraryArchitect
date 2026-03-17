@@ -83,6 +83,17 @@ export async function bootstrapSystem(): Promise<void> {
     }
     log("Audit logging configuration initialized.");
 
+    const catalogLimit = await storage.getSystemConfig("erp_catalog_limit");
+    if (!catalogLimit) {
+      await storage.setSystemConfig({
+        key: "erp_catalog_limit",
+        value: "50",
+        category: "catalog",
+        description: "Maximum number of books returned in ERP catalog search before requiring refinement",
+      });
+      log("ERP catalog limit set to default (50).");
+    }
+
     log("Bootstrap check completed.");
   } catch (error) {
     console.error(`Bootstrap error: ${error}`);

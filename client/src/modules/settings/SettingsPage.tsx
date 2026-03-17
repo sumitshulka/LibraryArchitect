@@ -47,7 +47,7 @@ import {
   Building2, Lock, Globe, Mail, Database, BookOpen, Plus, Pencil, Trash2, 
   Key, RefreshCw, Shield, Copy, Eye, EyeOff, AlertTriangle, CheckCircle2, Link2, Coins,
   ArrowDownToLine, Play, Clock, Settings2, Zap, Send, ChevronDown, ChevronUp,
-  Users, Repeat, Layers, PieChart
+  Users, Repeat, Layers, PieChart, Loader2
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { resourceTypesApi, categoriesApi, erpIntegrationsApi, configApi, type ErpIntegrationPublic, type ErpCredentials, type ErpPullEndpoint } from "@/lib/api";
@@ -2254,6 +2254,40 @@ export default function SettingsPage() {
     currencyMutation.mutate(currencyCode);
   };
 
+  const erpCatalogLimitConfig = systemConfigs.find(c => c.key === "erp_catalog_limit");
+  const [catalogLimitValue, setCatalogLimitValue] = useState("");
+
+  useEffect(() => {
+    if (erpCatalogLimitConfig) {
+      setCatalogLimitValue(erpCatalogLimitConfig.value);
+    }
+  }, [erpCatalogLimitConfig?.value]);
+
+  const catalogLimitMutation = useMutation({
+    mutationFn: (limit: string) => configApi.set({
+      key: "erp_catalog_limit",
+      value: limit,
+      category: "catalog",
+      description: "Maximum number of books returned in ERP catalog search before requiring refinement",
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["system-config"] });
+      toast.success("ERP catalog limit updated successfully");
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+
+  const handleCatalogLimitSave = () => {
+    const num = parseInt(catalogLimitValue, 10);
+    if (isNaN(num) || num < 1) {
+      toast.error("Please enter a valid number greater than 0");
+      return;
+    }
+    catalogLimitMutation.mutate(String(num));
+  };
+
   const deleteMutation = useMutation({
     mutationFn: resourceTypesApi.delete,
     onSuccess: () => {
@@ -2625,6 +2659,45 @@ export default function SettingsPage() {
                       </TableBody>
                     </Table>
                   )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>ERP Catalog Search Limit</CardTitle>
+                  <CardDescription>
+                    Set the maximum number of books returned when students search the catalog via ERP integration. 
+                    If a search returns more results than this limit, the student will be asked to refine their search with more specific filters.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-end gap-4">
+                    <div className="grid gap-2 flex-1 max-w-xs">
+                      <Label htmlFor="erp-catalog-limit">Maximum Results</Label>
+                      <Input
+                        id="erp-catalog-limit"
+                        type="number"
+                        min="1"
+                        value={catalogLimitValue}
+                        onChange={(e) => setCatalogLimitValue(e.target.value)}
+                        placeholder="50"
+                        data-testid="input-erp-catalog-limit"
+                      />
+                    </div>
+                    <Button
+                      onClick={handleCatalogLimitSave}
+                      disabled={catalogLimitMutation.isPending}
+                      data-testid="button-save-catalog-limit"
+                    >
+                      {catalogLimitMutation.isPending ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : null}
+                      Save
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Current limit: {erpCatalogLimitConfig?.value || "50"} books. Students searching via ERP will need to use search attributes to narrow results below this threshold.
+                  </p>
                 </CardContent>
               </Card>
             </TabsContent>

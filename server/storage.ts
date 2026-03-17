@@ -1930,6 +1930,57 @@ export class DBStorage implements IStorage {
     
     return results.map(r => r.bookId);
   }
+
+  async searchCatalogByAttributes(options: {
+    attributeValueIds: number[];
+    searchQuery?: string;
+    limit: number;
+  }): Promise<{ books: Book[]; totalCount: number; limitExceeded: boolean }> {
+    const { attributeValueIds, searchQuery, limit } = options;
+
+    let bookIds: number[] | null = null;
+
+    if (attributeValueIds.length > 0) {
+      const attrResults = await db.selectDistinct({ bookId: resourceSearchAttributes.bookId })
+        .from(resourceSearchAttributes)
+        .where(inArray(resourceSearchAttributes.attributeValueId, attributeValueIds));
+      bookIds = attrResults.map(r => r.bookId);
+      if (bookIds.length === 0) {
+        return { books: [], totalCount: 0, limitExceeded: false };
+      }
+    }
+
+    const conditions: any[] = [];
+    if (bookIds !== null) {
+      conditions.push(inArray(books.id, bookIds));
+    }
+    if (searchQuery) {
+      const pattern = `%${searchQuery}%`;
+      conditions.push(or(
+        like(books.title, pattern),
+        like(books.author, pattern),
+        like(books.isbn, pattern)
+      ));
+    }
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const countResult = await db.select({ count: sql<number>`count(*)` })
+      .from(books)
+      .where(whereClause);
+    const totalCount = Number(countResult[0].count);
+
+    if (totalCount > limit) {
+      return { books: [], totalCount, limitExceeded: true };
+    }
+
+    const results = await db.select().from(books)
+      .where(whereClause)
+      .orderBy(asc(books.title))
+      .limit(limit);
+
+    return { books: results, totalCount, limitExceeded: false };
+  }
 }
 
 export const storage = new DBStorage();
