@@ -280,7 +280,7 @@ export const circulationApi = {
     return res.json();
   },
 
-  checkout: async (data: { bookId: number; userId: number; dueDate: Date; bookCopyId?: number }): Promise<Circulation> => {
+  checkout: async (data: { bookId: number; userId: number; dueDate: Date; bookCopyId?: number; libraryId?: number }): Promise<Circulation> => {
     const res = await fetch(`${API_BASE}/circulation/checkout`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

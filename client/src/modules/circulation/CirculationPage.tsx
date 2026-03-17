@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { circulationApi, booksApi, bookCopiesApi } from "@/lib/api";
+import { circulationApi, booksApi, bookCopiesApi, librariesApi, libraryMembershipsApi } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import {
   Table,
   TableBody,
@@ -46,11 +47,11 @@ import {
 import {
   Search, BookOpen, RefreshCw, AlertCircle, CheckCircle2,
   Loader2, ArrowRight, RotateCcw, User, BookCopy as BookCopyIcon, Calendar, Hash,
-  X, Filter, Tag,
+  X, Filter, Tag, Building2,
 } from "lucide-react";
 import { formatIsbn } from "@/lib/isbn";
 import { toast } from "sonner";
-import type { Book, User as UserType, BookCopy as BookCopyType } from "@shared/schema";
+import type { Book, User as UserType, BookCopy as BookCopyType, Library, LibraryMembership } from "@shared/schema";
 
 type SafeUser = Omit<UserType, "password">;
 
@@ -246,6 +247,7 @@ function MemberSearchBox({
 
 export default function CirculationPage() {
   const queryClient = useQueryClient();
+  const { user: currentUser } = useAuth();
 
   const [resolvedBook, setResolvedBook] = useState<Book | null>(null);
   const [resolvedUser, setResolvedUser] = useState<SafeUser | null>(null);
@@ -256,6 +258,7 @@ export default function CirculationPage() {
   const [availableCopies, setAvailableCopies] = useState<BookCopyType[]>([]);
   const [selectedCopy, setSelectedCopy] = useState<BookCopyType | null>(null);
   const [hasCopiesWithSSN, setHasCopiesWithSSN] = useState(false);
+  const [selectedLibraryId, setSelectedLibraryId] = useState<number | null>(null);
   const [dueDate, setDueDate] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() + 14);
@@ -265,6 +268,31 @@ export default function CirculationPage() {
   const [returnIsbn, setReturnIsbn] = useState("");
   const [returnInfo, setReturnInfo] = useState<{ circulationId: number; book: Book; user: SafeUser; dueDate: string; isOverdue: boolean } | null>(null);
   const [isLookingUpReturn, setIsLookingUpReturn] = useState(false);
+
+  const isAdmin = currentUser?.role === 'ADMIN';
+
+  const { data: libraries = [] } = useQuery({
+    queryKey: ["libraries-active"],
+    queryFn: () => librariesApi.getActive(),
+  });
+
+  const { data: userMemberships = [] } = useQuery<LibraryMembership[]>({
+    queryKey: ["user-memberships", currentUser?.id],
+    queryFn: () => libraryMembershipsApi.getByUser(currentUser!.id),
+    enabled: !!currentUser && !isAdmin,
+  });
+
+  const assignedLibrary = !isAdmin && userMemberships.length > 0
+    ? userMemberships.find(m => m.isPrimaryLibrary && m.isActive) || userMemberships.find(m => m.isActive) || null
+    : null;
+
+  useEffect(() => {
+    if (assignedLibrary && !selectedLibraryId) {
+      setSelectedLibraryId(assignedLibrary.libraryId);
+    }
+  }, [assignedLibrary, selectedLibraryId]);
+
+  const selectedLibrary = libraries.find(l => l.id === selectedLibraryId) || null;
 
   const { data: circulation = [], isLoading: isLoadingCirculation } = useQuery({
     queryKey: ["circulation"],
@@ -311,12 +339,14 @@ export default function CirculationPage() {
       setResolvedBook(book);
 
       try {
-        const copies = await bookCopiesApi.getByBook(book.id);
+        const copies = selectedLibraryId
+          ? await bookCopiesApi.getByBookAndLibrary(book.id, selectedLibraryId)
+          : await bookCopiesApi.getByBook(book.id);
         const issuableCopies = copies.filter(c => c.status === "AVAILABLE");
-        const copiesWithSSN = issuableCopies.filter(c => c.internalSSN || c.userDefinedSSN);
-        if (copiesWithSSN.length > 0) {
-          setAvailableCopies(issuableCopies);
-          setHasCopiesWithSSN(true);
+        setAvailableCopies(issuableCopies);
+        setHasCopiesWithSSN(issuableCopies.length > 0);
+        if (issuableCopies.length === 1) {
+          setSelectedCopy(issuableCopies[0]);
         }
       } catch {
       }
@@ -326,12 +356,20 @@ export default function CirculationPage() {
   };
 
   const handleIssue = () => {
+    if (!selectedLibraryId) {
+      toast.error("Please select a library before issuing");
+      return;
+    }
     if (!resolvedUser || !resolvedBook) {
       toast.error("Please select a member and look up a valid book");
       return;
     }
+    if (availableCopies.length === 0 && selectedLibraryId) {
+      toast.error("No available copies at the selected library");
+      return;
+    }
     if (hasCopiesWithSSN && !selectedCopy) {
-      toast.error("Please select a copy (SSN) before issuing");
+      toast.error("Please select a copy before issuing");
       return;
     }
     setShowConfirmation(true);
@@ -343,6 +381,7 @@ export default function CirculationPage() {
         bookId: resolvedBook!.id,
         userId: resolvedUser!.id,
         dueDate: new Date(dueDate),
+        libraryId: selectedLibraryId!,
         ...(selectedCopy ? { bookCopyId: selectedCopy.id } : {}),
       }),
     onSuccess: () => {
@@ -382,6 +421,17 @@ export default function CirculationPage() {
     const d = new Date();
     d.setDate(d.getDate() + 14);
     setDueDate(d.toISOString().split("T")[0]);
+  };
+
+  const handleLibraryChange = (libId: string) => {
+    const id = parseInt(libId);
+    setSelectedLibraryId(id);
+    setResolvedBook(null);
+    setIsbnInput("");
+    setBookError("");
+    setAvailableCopies([]);
+    setSelectedCopy(null);
+    setHasCopiesWithSSN(false);
   };
 
   const lookupReturn = () => {
@@ -468,6 +518,46 @@ export default function CirculationPage() {
               <CardDescription>Search for a library member, look up a book by ISBN, and confirm checkout</CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
+              <div className="space-y-2">
+                <Label className="flex items-center gap-1.5 text-sm font-medium">
+                  <Building2 className="h-3.5 w-3.5" />
+                  Issuing Library
+                </Label>
+                {isAdmin ? (
+                  <Select
+                    value={selectedLibraryId ? String(selectedLibraryId) : ""}
+                    onValueChange={handleLibraryChange}
+                  >
+                    <SelectTrigger className="h-10 w-full max-w-md" data-testid="select-library">
+                      <SelectValue placeholder="Select a library..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {libraries.map((lib) => (
+                        <SelectItem key={lib.id} value={String(lib.id)} data-testid={`select-library-${lib.id}`}>
+                          {lib.name} ({lib.code})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : selectedLibrary ? (
+                  <div className="flex items-center gap-2 h-10 px-3 bg-muted/50 border rounded-md w-full max-w-md">
+                    <Building2 className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium" data-testid="text-assigned-library">
+                      {selectedLibrary.name} ({selectedLibrary.code})
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                    <AlertCircle className="h-3 w-3" /> No library assigned. Contact an administrator.
+                  </p>
+                )}
+                {!selectedLibraryId && isAdmin && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                    <AlertCircle className="h-3 w-3" /> You must select a library before issuing books
+                  </p>
+                )}
+              </div>
+
               <div className="grid gap-5 lg:grid-cols-2">
                 <div className="space-y-2">
                   <Label className="flex items-center gap-1.5 text-sm font-medium">
@@ -523,14 +613,23 @@ export default function CirculationPage() {
                 </div>
               </div>
 
+              {resolvedBook && selectedLibraryId && availableCopies.length === 0 && !isLookingUpBook && (
+                <div className="text-xs p-2 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-md flex items-center gap-1.5">
+                  <AlertCircle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                  <span className="text-amber-700 dark:text-amber-300">
+                    No available copies of this book at {selectedLibrary?.name || 'the selected library'}. The book cannot be issued from this library.
+                  </span>
+                </div>
+              )}
+
               {hasCopiesWithSSN && resolvedBook && (
                 <div className="space-y-2">
                   <Label className="flex items-center gap-1.5 text-sm font-medium">
                     <Tag className="h-3.5 w-3.5" />
-                    Select Copy (SSN)
+                    Select Copy{selectedLibrary ? ` from ${selectedLibrary.name}` : ''}
                   </Label>
                   <p className="text-xs text-muted-foreground">
-                    This book has {availableCopies.length} available {availableCopies.length === 1 ? "copy" : "copies"}. Select the specific copy to issue.
+                    {availableCopies.length} available {availableCopies.length === 1 ? "copy" : "copies"}{selectedLibrary ? ` at ${selectedLibrary.name}` : ''}. Select the specific copy to issue.
                   </p>
                   <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                     {availableCopies.map((copy) => {
@@ -613,7 +712,7 @@ export default function CirculationPage() {
                   </Button>
                   <Button
                     onClick={handleIssue}
-                    disabled={!resolvedUser || !resolvedBook || (hasCopiesWithSSN && !selectedCopy)}
+                    disabled={!selectedLibraryId || !resolvedUser || !resolvedBook || (hasCopiesWithSSN && !selectedCopy) || (resolvedBook && selectedLibraryId && availableCopies.length === 0)}
                     className="gap-1.5"
                     data-testid="button-issue"
                   >
@@ -888,6 +987,16 @@ export default function CirculationPage() {
                   </div>
                 </div>
               </div>
+
+              {selectedLibrary && (
+                <div className="flex items-center gap-2 p-3 bg-violet-50 dark:bg-violet-950 rounded-lg border border-violet-200 dark:border-violet-800">
+                  <Building2 className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Issuing Library</p>
+                    <p className="text-sm font-semibold" data-testid="text-confirm-library">{selectedLibrary.name} ({selectedLibrary.code})</p>
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-4 p-4 bg-blue-50 dark:bg-blue-950 rounded-lg border border-blue-200 dark:border-blue-800">
                 <div>

@@ -614,12 +614,47 @@ export async function registerRoutes(
 
   app.post("/api/circulation/checkout", async (req, res) => {
     try {
+      const sessionId = req.cookies?.session_id;
+      if (!sessionId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      const sessionData = await storage.getSession(sessionId);
+      if (!sessionData) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+      const issuingUser = await storage.getUser(sessionData.userId);
+      if (!issuingUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
       const body = {
         ...req.body,
         dueDate: req.body.dueDate ? new Date(req.body.dueDate) : undefined,
         returnDate: req.body.returnDate ? new Date(req.body.returnDate) : undefined,
       };
       const validated = insertCirculationSchema.parse(body);
+
+      // Library validation
+      if (!validated.libraryId) {
+        return res.status(400).json({ error: "Library selection is required for checkout" });
+      }
+
+      const library = await storage.getLibrary(validated.libraryId);
+      if (!library) {
+        return res.status(404).json({ error: "Selected library not found" });
+      }
+
+      // Enforce library assignment rules
+      if (issuingUser.role === 'ADMIN') {
+        // Admin must explicitly select a library (already validated above)
+      } else {
+        // Non-admin staff must be assigned to the library they're issuing from
+        const memberships = await storage.getMembershipsByUser(issuingUser.id);
+        const assignedLibraryIds = memberships.filter(m => m.isActive).map(m => m.libraryId);
+        if (!assignedLibraryIds.includes(validated.libraryId)) {
+          return res.status(403).json({ error: "You can only issue books from your assigned library" });
+        }
+      }
       
       // Check if book is available
       const book = await storage.getBook(validated.bookId);
@@ -636,6 +671,11 @@ export async function registerRoutes(
         const copy = await storage.getBookCopy(validated.bookCopyId);
         if (!copy) {
           return res.status(404).json({ error: "Book copy not found" });
+        }
+
+        // Ensure the copy belongs to the selected library
+        if (copy.libraryId !== validated.libraryId) {
+          return res.status(400).json({ error: "This copy does not belong to the selected library" });
         }
         
         // Prevent checkout for non-available copies
@@ -666,13 +706,18 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Book is already checked out" });
       }
       
-      // Create circulation record
+      // Create circulation record with libraryId
       const circulation = await storage.createCirculation(validated);
       
       // Update book status
       await storage.updateBook(validated.bookId, { status: 'CHECKED_OUT' });
+
+      // Update copy status if specific copy selected
+      if (validated.bookCopyId) {
+        await storage.updateBookCopy(validated.bookCopyId, { status: 'CHECKED_OUT' });
+      }
       
-      logAudit(req, { category: 'CIRCULATION', action: 'CHECKOUT', targetType: 'circulation', targetId: String(circulation.id), details: { bookId: validated.bookId, bookTitle: book.title, userId: validated.userId, bookCopyId: validated.bookCopyId } });
+      logAudit(req, { category: 'CIRCULATION', action: 'CHECKOUT', targetType: 'circulation', targetId: String(circulation.id), details: { bookId: validated.bookId, bookTitle: book.title, userId: validated.userId, bookCopyId: validated.bookCopyId, libraryId: validated.libraryId, libraryName: library.name } });
       res.status(201).json(circulation);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -715,8 +760,13 @@ export async function registerRoutes(
       
       // Update book status
       await storage.updateBook(circ.bookId, { status: 'AVAILABLE' });
+
+      // Restore book copy status back to AVAILABLE (return to the same library it was issued from)
+      if (circ.bookCopyId) {
+        await storage.updateBookCopy(circ.bookCopyId, { status: 'AVAILABLE' });
+      }
       
-      logAudit(req, { category: 'CIRCULATION', action: 'RETURN', targetType: 'circulation', targetId: String(id), details: { bookId: circ.bookId, userId: circ.userId, isOverdue, fineAmount } });
+      logAudit(req, { category: 'CIRCULATION', action: 'RETURN', targetType: 'circulation', targetId: String(id), details: { bookId: circ.bookId, userId: circ.userId, isOverdue, fineAmount, libraryId: circ.libraryId } });
       res.json(updated);
     } catch (error) {
       console.error("Error returning book:", error);
