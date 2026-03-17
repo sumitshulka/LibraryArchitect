@@ -1134,41 +1134,41 @@ export class DBStorage implements IStorage {
   }
 
   async getRecentCirculationByBook(bookId: number, limit: number = 10): Promise<Circulation[]> {
-    // Get all copy IDs for this book
     const copies = await db.select({ id: bookCopies.id })
       .from(bookCopies)
       .where(eq(bookCopies.bookId, bookId));
     
-    if (copies.length === 0) return [];
-    
     const copyIds = copies.map(c => c.id);
     
-    // Get recent circulation records for these copies
+    const conditions = [eq(circulation.bookId, bookId)];
+    if (copyIds.length > 0) {
+      conditions.push(inArray(circulation.bookCopyId, copyIds));
+    }
+    
     return await db.select().from(circulation)
-      .where(inArray(circulation.bookCopyId, copyIds))
+      .where(or(...conditions))
       .orderBy(desc(circulation.checkoutDate))
       .limit(limit);
   }
 
   async getBookFinesSummary(bookId: number): Promise<{ paidFines: number; outstandingFines: number; waivedFines: number }> {
-    // Get all copy IDs for this book
     const copies = await db.select({ id: bookCopies.id })
       .from(bookCopies)
       .where(eq(bookCopies.bookId, bookId));
     
-    if (copies.length === 0) {
-      return { paidFines: 0, outstandingFines: 0, waivedFines: 0 };
-    }
-    
     const copyIds = copies.map(c => c.id);
     
-    // Get all circulation records for these copies with fines
+    const conditions = [eq(circulation.bookId, bookId)];
+    if (copyIds.length > 0) {
+      conditions.push(inArray(circulation.bookCopyId, copyIds));
+    }
+    
     const circulationRecords = await db.select({
       fineAmount: circulation.fineAmount,
       fineStatus: circulation.fineStatus,
     })
       .from(circulation)
-      .where(inArray(circulation.bookCopyId, copyIds));
+      .where(or(...conditions));
     
     let paidFines = 0;
     let outstandingFines = 0;

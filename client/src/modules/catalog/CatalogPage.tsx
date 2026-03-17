@@ -591,15 +591,27 @@ function BookDetailsSheet({
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {dashboard.recentCirculation.map((record) => (
+                    {dashboard.recentCirculation.map((record: any) => (
                       <div key={record.id} className="p-3 border rounded-lg text-sm">
                         <div className="flex items-center justify-between mb-1">
-                          <Badge variant={record.status === "ACTIVE" ? "default" : "secondary"}>
-                            {record.status}
-                          </Badge>
-                          <span className="text-xs text-muted-foreground">
-                            Copy #{record.bookCopyId}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <Badge variant={record.status === "ACTIVE" ? "default" : record.status === "OVERDUE" ? "destructive" : "secondary"}>
+                              {record.status}
+                            </Badge>
+                            {record.userName && (
+                              <span className="text-xs font-medium">{record.userName}</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {record.libraryName && (
+                              <span className="text-xs text-muted-foreground">{record.libraryName}</span>
+                            )}
+                            {record.bookCopyId && (
+                              <Badge variant="outline" className="text-xs font-mono">
+                                Copy #{record.bookCopyId}
+                              </Badge>
+                            )}
+                          </div>
                         </div>
                         <div className="grid grid-cols-2 gap-1 text-xs">
                           <div>

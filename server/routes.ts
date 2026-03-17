@@ -181,8 +181,20 @@ export async function registerRoutes(
         }
       }
       
-      // Get recent circulation records for this book's copies
-      const recentCirculation = await storage.getRecentCirculationByBook(bookId, 10);
+      // Get recent circulation records for this book
+      const recentCirculationRaw = await storage.getRecentCirculationByBook(bookId, 10);
+      
+      // Enrich with user info
+      const recentCirculation = await Promise.all(recentCirculationRaw.map(async (record) => {
+        const user = await storage.getUser(record.userId);
+        const library = record.libraryId ? libraryMap.get(record.libraryId) : null;
+        return {
+          ...record,
+          userName: user?.name || 'Unknown',
+          userEmail: user?.email || '',
+          libraryName: library?.name || null,
+        };
+      }));
       
       // Calculate financial information
       const finesData = await storage.getBookFinesSummary(bookId);
