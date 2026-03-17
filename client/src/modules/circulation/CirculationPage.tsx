@@ -38,6 +38,12 @@ import {
 } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
+import {
   Search, BookOpen, RefreshCw, AlertCircle, CheckCircle2,
   Loader2, ArrowRight, RotateCcw, User, BookCopy, Calendar, Hash,
   X, Filter,
@@ -415,176 +421,210 @@ export default function CirculationPage() {
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3 mt-6">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <BookOpen className="h-5 w-5" />
-              Direct Checkout
-            </CardTitle>
-            <CardDescription>Issue a book to a library member</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <div className="grid gap-5 lg:grid-cols-2">
-              <div className="space-y-2">
-                <Label className="flex items-center gap-1.5 text-sm font-medium">
-                  <User className="h-3.5 w-3.5" />
-                  Library Member
-                </Label>
-                <MemberSearchBox
-                  selectedUser={resolvedUser}
-                  onSelect={setResolvedUser}
-                  onClear={() => setResolvedUser(null)}
-                />
+      <Tabs defaultValue="checkout" className="mt-6">
+        <TabsList data-testid="tabs-circulation">
+          <TabsTrigger value="checkout" className="gap-1.5" data-testid="tab-checkout">
+            <BookOpen className="h-4 w-4" />
+            Direct Checkout
+          </TabsTrigger>
+          <TabsTrigger value="return" className="gap-1.5" data-testid="tab-return">
+            <RefreshCw className="h-4 w-4" />
+            Quick Return
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="checkout">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <BookOpen className="h-5 w-5" />
+                Issue a Book
+              </CardTitle>
+              <CardDescription>Search for a library member, look up a book by ISBN, and confirm checkout</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <div className="grid gap-5 lg:grid-cols-2">
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-1.5 text-sm font-medium">
+                    <User className="h-3.5 w-3.5" />
+                    Library Member
+                  </Label>
+                  <MemberSearchBox
+                    selectedUser={resolvedUser}
+                    onSelect={setResolvedUser}
+                    onClear={() => setResolvedUser(null)}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-1.5 text-sm font-medium">
+                    <Hash className="h-3.5 w-3.5" />
+                    Book ISBN
+                  </Label>
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Enter or scan ISBN..."
+                      value={isbnInput}
+                      onChange={(e) => { setIsbnInput(e.target.value); setBookError(""); setResolvedBook(null); }}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); lookupBook(); } }}
+                      className="h-10"
+                      data-testid="input-isbn"
+                    />
+                    <Button
+                      variant="secondary"
+                      onClick={lookupBook}
+                      disabled={isLookingUpBook || !isbnInput.trim()}
+                      className="h-10 px-3"
+                      data-testid="button-lookup-isbn"
+                    >
+                      {isLookingUpBook ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                  {bookError && (
+                    <p className="text-xs text-red-600 flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3" /> {bookError}
+                    </p>
+                  )}
+                  {resolvedBook && (
+                    <div className="text-xs p-2 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-md space-y-0.5">
+                      <div className="flex items-center gap-1 text-green-700 dark:text-green-400 font-medium">
+                        <CheckCircle2 className="h-3 w-3" /> Book Found
+                      </div>
+                      <p className="font-medium text-foreground">{resolvedBook.title}</p>
+                      <p className="text-muted-foreground">by {resolvedBook.author}</p>
+                      <p className="text-muted-foreground">ISBN: {formatIsbn(resolvedBook.isbn)}</p>
+                    </div>
+                  )}
+                </div>
               </div>
 
-              <div className="space-y-2">
-                <Label className="flex items-center gap-1.5 text-sm font-medium">
-                  <Hash className="h-3.5 w-3.5" />
-                  Book ISBN
-                </Label>
-                <div className="flex gap-2">
+              <div className="flex items-end gap-4">
+                <div className="space-y-2 w-48">
+                  <Label className="flex items-center gap-1.5">
+                    <Calendar className="h-3.5 w-3.5" />
+                    Due Date
+                  </Label>
                   <Input
-                    placeholder="Enter or scan ISBN..."
-                    value={isbnInput}
-                    onChange={(e) => { setIsbnInput(e.target.value); setBookError(""); setResolvedBook(null); }}
-                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); lookupBook(); } }}
+                    type="date"
+                    value={dueDate}
+                    onChange={(e) => setDueDate(e.target.value)}
+                    min={new Date().toISOString().split("T")[0]}
                     className="h-10"
-                    data-testid="input-isbn"
+                    data-testid="input-due-date"
                   />
+                </div>
+                <div className="flex gap-2 ml-auto">
                   <Button
-                    variant="secondary"
-                    onClick={lookupBook}
-                    disabled={isLookingUpBook || !isbnInput.trim()}
-                    className="h-10 px-3"
-                    data-testid="button-lookup-isbn"
+                    variant="outline"
+                    onClick={resetForm}
+                    className="gap-1.5"
+                    data-testid="button-reset-checkout"
                   >
-                    {isLookingUpBook ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                    <RotateCcw className="h-4 w-4" />
+                    Checkout New
+                  </Button>
+                  <Button
+                    onClick={handleIssue}
+                    disabled={!resolvedUser || !resolvedBook}
+                    className="gap-1.5"
+                    data-testid="button-issue"
+                  >
+                    <ArrowRight className="h-4 w-4" />
+                    Issue Book
                   </Button>
                 </div>
-                {bookError && (
-                  <p className="text-xs text-red-600 flex items-center gap-1">
-                    <AlertCircle className="h-3 w-3" /> {bookError}
-                  </p>
-                )}
-                {resolvedBook && (
-                  <div className="text-xs p-2 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-md space-y-0.5">
-                    <div className="flex items-center gap-1 text-green-700 dark:text-green-400 font-medium">
-                      <CheckCircle2 className="h-3 w-3" /> Book Found
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="return">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <RefreshCw className="h-5 w-5" />
+                Process a Return
+              </CardTitle>
+              <CardDescription>Scan or enter the book ISBN to look up the active checkout and process the return</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-6 lg:grid-cols-2">
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-1.5 text-sm font-medium">
+                      <Hash className="h-3.5 w-3.5" />
+                      Book ISBN
+                    </Label>
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Enter or scan ISBN to return..."
+                        value={returnIsbn}
+                        onChange={(e) => { setReturnIsbn(e.target.value); setReturnInfo(null); }}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); lookupReturn(); } }}
+                        className="h-10 flex-1"
+                        data-testid="input-return-isbn"
+                      />
+                      <Button
+                        variant="secondary"
+                        onClick={lookupReturn}
+                        disabled={isLookingUpReturn || !returnIsbn.trim()}
+                        className="h-10"
+                        data-testid="button-lookup-return"
+                      >
+                        {isLookingUpReturn ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Search className="h-4 w-4 mr-1.5" />Look Up</>}
+                      </Button>
                     </div>
-                    <p className="font-medium text-foreground">{resolvedBook.title}</p>
-                    <p className="text-muted-foreground">by {resolvedBook.author}</p>
-                    <p className="text-muted-foreground">ISBN: {formatIsbn(resolvedBook.isbn)}</p>
+                  </div>
+                  {!returnInfo && (
+                    <div className="p-6 bg-muted/50 rounded-lg text-sm text-muted-foreground text-center border border-dashed flex flex-col items-center justify-center min-h-[140px]">
+                      <RefreshCw className="h-8 w-8 mb-2 opacity-40" />
+                      <p>Enter a book ISBN above to look up the active checkout</p>
+                    </div>
+                  )}
+                </div>
+
+                {returnInfo && (
+                  <div className="space-y-4">
+                    <div className="p-4 bg-muted/50 rounded-lg border space-y-4">
+                      <div className="space-y-1">
+                        <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Book</p>
+                        <p className="text-sm font-semibold">{returnInfo.book.title}</p>
+                        <p className="text-xs text-muted-foreground">by {returnInfo.book.author} · ISBN: {formatIsbn(returnInfo.book.isbn)}</p>
+                      </div>
+                      <Separator />
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Borrower</p>
+                          <p className="text-sm font-medium mt-0.5">{returnInfo.user.name}</p>
+                          <p className="text-xs text-muted-foreground">{returnInfo.user.email}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Due Date</p>
+                          <p className={`text-sm font-medium mt-0.5 ${returnInfo.isOverdue ? "text-red-600" : ""}`}>
+                            {returnInfo.dueDate}
+                          </p>
+                          {returnInfo.isOverdue && (
+                            <Badge variant="destructive" className="text-[10px] mt-1">Overdue</Badge>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <Button
+                      className="w-full gap-1.5"
+                      onClick={() => returnMutation.mutate(returnInfo.circulationId)}
+                      disabled={returnMutation.isPending}
+                      data-testid="button-process-return"
+                    >
+                      {returnMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                      Process Return
+                    </Button>
                   </div>
                 )}
               </div>
-            </div>
-
-            <div className="flex items-end gap-4">
-              <div className="space-y-2 w-48">
-                <Label className="flex items-center gap-1.5">
-                  <Calendar className="h-3.5 w-3.5" />
-                  Due Date
-                </Label>
-                <Input
-                  type="date"
-                  value={dueDate}
-                  onChange={(e) => setDueDate(e.target.value)}
-                  min={new Date().toISOString().split("T")[0]}
-                  className="h-10"
-                  data-testid="input-due-date"
-                />
-              </div>
-              <div className="flex gap-2 ml-auto">
-                <Button
-                  variant="outline"
-                  onClick={resetForm}
-                  className="gap-1.5"
-                  data-testid="button-reset-checkout"
-                >
-                  <RotateCcw className="h-4 w-4" />
-                  Checkout New
-                </Button>
-                <Button
-                  onClick={handleIssue}
-                  disabled={!resolvedUser || !resolvedBook}
-                  className="gap-1.5"
-                  data-testid="button-issue"
-                >
-                  <ArrowRight className="h-4 w-4" />
-                  Issue Book
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <RefreshCw className="h-5 w-5" />
-              Quick Return
-            </CardTitle>
-            <CardDescription>Process a book return</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label>Book ISBN</Label>
-              <div className="flex gap-2">
-                <Input
-                  placeholder="Scan ISBN to return..."
-                  value={returnIsbn}
-                  onChange={(e) => { setReturnIsbn(e.target.value); setReturnInfo(null); }}
-                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); lookupReturn(); } }}
-                  className="flex-1"
-                  data-testid="input-return-isbn"
-                />
-                <Button
-                  variant="secondary"
-                  onClick={lookupReturn}
-                  disabled={isLookingUpReturn || !returnIsbn.trim()}
-                  data-testid="button-lookup-return"
-                >
-                  {isLookingUpReturn ? <Loader2 className="h-4 w-4 animate-spin" /> : "Check"}
-                </Button>
-              </div>
-            </div>
-            {returnInfo ? (
-              <div className="space-y-3 p-3 bg-muted/50 rounded-lg border">
-                <div className="space-y-1">
-                  <p className="text-sm font-medium">{returnInfo.book.title}</p>
-                  <p className="text-xs text-muted-foreground">by {returnInfo.book.author}</p>
-                  <p className="text-xs text-muted-foreground">ISBN: {formatIsbn(returnInfo.book.isbn)}</p>
-                </div>
-                <Separator />
-                <div className="space-y-1">
-                  <p className="text-xs"><span className="text-muted-foreground">Borrower:</span> {returnInfo.user.name}</p>
-                  <p className="text-xs">
-                    <span className="text-muted-foreground">Due:</span>{" "}
-                    <span className={returnInfo.isOverdue ? "text-red-600 font-medium" : ""}>
-                      {returnInfo.dueDate}
-                      {returnInfo.isOverdue && " (Overdue)"}
-                    </span>
-                  </p>
-                </div>
-                <Button
-                  className="w-full gap-1.5"
-                  onClick={() => returnMutation.mutate(returnInfo.circulationId)}
-                  disabled={returnMutation.isPending}
-                  data-testid="button-process-return"
-                >
-                  {returnMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                  Process Return
-                </Button>
-              </div>
-            ) : (
-              <div className="p-4 bg-muted/50 rounded-md text-sm text-muted-foreground text-center border border-dashed flex items-center justify-center min-h-[120px]">
-                Scan a book ISBN to see return details
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       <div className="bg-card rounded-lg border shadow-sm mt-6">
         <div className="p-4 border-b flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
