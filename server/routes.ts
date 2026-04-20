@@ -38,7 +38,7 @@ import { logAudit, invalidateAuditConfigCache } from "./audit";
 const MAX_WHITELIST_ENTRIES = 5;
 
 function getSessionId(req: any): string | undefined {
-  const cookieId = getSessionId(req);
+  const cookieId = req.cookies && req.cookies.session_id;
   if (cookieId) return cookieId;
   const auth = req.headers?.authorization || req.headers?.Authorization;
   if (typeof auth === 'string' && auth.toLowerCase().startsWith('bearer ')) {
