@@ -42,6 +42,22 @@ Preferred communication style: Simple, everyday language.
 - **Direct Checkout**: Frontend flow supports searching for members and books, selecting copies from the chosen library, and confirming issue.
 - **Quick Return**: Facilitates quick book returns, ensuring books go back to their issuing library.
 
+### Reservation Workflow
+- **Schema**: `reservations` (one row per held copy: `userId`, `bookId`, `bookCopyId`, `libraryId`, `reservedFor`, `expiresAt`, `status` ACTIVE|FULFILLED|CANCELLED|EXPIRED, fulfilment links). `reservation_pickups` (OTP envelope spanning multiple reservations: `otp`, `expiresAt` 15 min, `status`, `reservationIds` jsonb int[]).
+- **Hold semantics**: On creation, `server/reservations.ts` finds an AVAILABLE copy in the chosen library and flips it to RESERVED, linking it to the reservation. Per-library `policies.reservationDays` (default 7) controls expiry. `expireStaleReservations` runs on every list/create call and frees stale RESERVED copies back to AVAILABLE.
+- **API** (`server/reservations.ts`, mounted via `registerReservationRoutes`):
+  - `POST /api/reservations` — staff can pass `userId` (on-behalf); patrons reserve for themselves. Bulk by passing multiple `items: [{bookId, libraryId, reservedFor?}]`.
+  - `GET /api/reservations` — staff sees all (filterable by status/library/book/userId/dates); patrons see only their own.
+  - `GET /api/books/:bookId/reservations?libraryId=` — list active holds on a book at a library (used by checkout flow hint).
+  - `DELETE /api/reservations/:id` — staff or owner cancels; copy is returned to AVAILABLE.
+  - `POST /api/reservations/pickup/initiate` — body `{reservationIds, userIdentifier}`. Validates that all reservations belong to the same patron whose `studentId`/`employeeId`/`externalId`/`username` matches (case-insensitive), creates a `reservation_pickup` row with a 6-digit OTP and 15-min expiry, emails it via the configured SMTP, returns masked email.
+  - `POST /api/reservations/pickup/confirm` — body `{pickupId, otp}`. Verifies OTP/expiry, creates a circulation record per reservation (CHECKED_OUT, due-date from library policy), marks each copy CHECKED_OUT, fulfils reservations and stamps `fulfilledCirculationId`.
+- **Frontend**:
+  - `/reservations` (`client/src/modules/circulation/ReservationsPage.tsx`) — staff page with filters (status/library/patron/book), bulk-create dialog (patron picker + library + multi-book), per-row Cancel, and a 4-step Pickup Wizard (scan SSN/barcode → enter patron identifier → email OTP → confirm & issue).
+  - Catalog detail panel (`CatalogPage.tsx`) shows a per-library "Reserve a copy" button for STUDENT/FACULTY users when copies are available; "You have an active reservation here" indicator when one already exists.
+  - Checkout (`CirculationPage.tsx`) shows a `BookReservationsHint` panel listing active holds for the selected book/library when no copies are available, deep-linking to the Reservations page.
+- **Audit**: Reservation create/cancel/fulfill, pickup initiate/confirm are logged under category `CIRCULATION` (action prefixes `RESERVATION_*`, `PICKUP_*`).
+
 ### Fine Collection Workflow
 - **Schema**: `payment_methods`, `fine_payments` (per-payment ledger), `fine_waiver_requests` (approval queue). Circulation rows track `fineAmount`, `finePaidAmount`, `fineWaivedAmount`, `damageCost`, `damagePaidAmount`, `damageWaivedAmount`, `damageStatus`.
 - **Accrued Fine**: Calculated live via `server/fines.ts#calculateAccruedFine` using each library's `policies.finePerDay`, `gracePeriodDays`, and `maxFineCap`. Active circulation rows expose `accruedFine`/`daysOverdue` when fetched with `?enrich=true`.

@@ -34,6 +34,7 @@ import { eq, and, gt } from "drizzle-orm";
 import multer from "multer";
 import { setupSwagger } from "./swagger";
 import { logAudit, invalidateAuditConfigCache } from "./audit";
+import { registerReservationRoutes } from "./reservations";
 
 const MAX_WHITELIST_ENTRIES = 5;
 
@@ -6095,6 +6096,8 @@ export async function registerRoutes(
       res.status(400).json({ error: errorMessage });
     }
   });
+
+  registerReservationRoutes(app);
 
   return httpServer;
 }

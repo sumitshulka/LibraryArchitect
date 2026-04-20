@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { circulationApi, booksApi, bookCopiesApi, librariesApi, libraryMembershipsApi } from "@/lib/api";
+import { circulationApi, booksApi, bookCopiesApi, librariesApi, libraryMembershipsApi, reservationsApi } from "@/lib/api";
+import { Link } from "wouter";
 import { useCurrency } from "@/lib/useCurrency";
 import { ReturnBookDialog } from "./ReturnBookDialog";
 import { useAuth } from "@/lib/auth";
@@ -620,11 +621,14 @@ export default function CirculationPage() {
               </div>
 
               {resolvedBook && selectedLibraryId && availableCopies.length === 0 && !isLookingUpBook && (
-                <div className="text-xs p-2 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-md flex items-center gap-1.5">
-                  <AlertCircle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-                  <span className="text-amber-700 dark:text-amber-300">
-                    No available copies of this book at {selectedLibrary?.name || 'the selected library'}. The book cannot be issued from this library.
-                  </span>
+                <div className="space-y-2">
+                  <div className="text-xs p-2 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-md flex items-center gap-1.5">
+                    <AlertCircle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                    <span className="text-amber-700 dark:text-amber-300">
+                      No available copies of this book at {selectedLibrary?.name || 'the selected library'}.
+                    </span>
+                  </div>
+                  <BookReservationsHint bookId={resolvedBook.id} libraryId={selectedLibraryId} />
                 </div>
               )}
 
@@ -1063,5 +1067,31 @@ export default function CirculationPage() {
         onClose={() => setReturnDialogId(null)}
       />
     </MainLayout>
+  );
+}
+
+function BookReservationsHint({ bookId, libraryId }: { bookId: number; libraryId: number }) {
+  const { data: reservations = [] } = useQuery({
+    queryKey: ["book-reservations", bookId, libraryId],
+    queryFn: () => reservationsApi.forBook(bookId, libraryId),
+  });
+  const active = reservations.filter((r: any) => r.status === 'ACTIVE');
+  if (active.length === 0) return null;
+  return (
+    <div className="text-xs p-2 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-md space-y-1.5">
+      <div className="font-medium text-blue-700 dark:text-blue-300 flex items-center justify-between">
+        <span>{active.length} active reservation{active.length === 1 ? '' : 's'} on this book at this library</span>
+        <Link href="/reservations" className="underline text-blue-700 dark:text-blue-300" data-testid="link-go-to-reservations">Manage →</Link>
+      </div>
+      <ul className="space-y-0.5">
+        {active.slice(0, 5).map((r: any) => (
+          <li key={r.id} className="text-blue-900 dark:text-blue-200 flex justify-between gap-2">
+            <span>• {r.userName} <span className="text-muted-foreground">({r.userIdentifier})</span></span>
+            <span className="font-mono text-[10px]">{r.copySSN || r.copyBarcode || ''}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="text-[11px] text-muted-foreground">Reserved copies are held for the patron. Use the Reservations page to process pickup or cancel a hold to free a copy.</p>
+    </div>
   );
 }

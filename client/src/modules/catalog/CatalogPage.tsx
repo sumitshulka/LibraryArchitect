@@ -56,9 +56,10 @@ import {
   DollarSign, ShoppingCart, Receipt, ImageIcon, Globe, Tags, Save, Pencil
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { booksApi, searchAttributesApi, resourceTypesApi, categoriesApi, type BookDashboard, type BookLibraryAllocation, type ResourceSearchAttribute } from "@/lib/api";
-import type { Book, Circulation } from "@shared/schema";
+import { booksApi, searchAttributesApi, resourceTypesApi, categoriesApi, reservationsApi, type BookDashboard, type BookLibraryAllocation, type ResourceSearchAttribute } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
+import type { Book, Circulation } from "@shared/schema";
 import { format } from "date-fns";
 import { useCurrency } from "@/lib/useCurrency";
 import { formatIsbn } from "@/lib/isbn";
@@ -574,6 +575,7 @@ function BookDetailsSheet({
                               )}
                             </div>
                           )}
+                          <PatronReserveAction bookId={selectedBookId!} libraryId={alloc.libraryId} canReserve={alloc.available > 0} />
                         </CardContent>
                       </Card>
                     ))}
@@ -1178,5 +1180,43 @@ export default function CatalogPage() {
         onOpenChange={setEditDialogOpen}
       />
     </MainLayout>
+  );
+}
+
+function PatronReserveAction({ bookId, libraryId, canReserve }: { bookId: number; libraryId: number; canReserve: boolean }) {
+  const { user } = useAuth();
+  const qc = useQueryClient();
+  const isPatron = user?.role === 'STUDENT' || user?.role === 'FACULTY';
+  const { data: existing = [] } = useQuery({
+    queryKey: ["my-reservation-for", bookId, libraryId, user?.id],
+    queryFn: () => reservationsApi.list({ userId: user!.id, bookId, libraryId, status: 'ACTIVE' }),
+    enabled: !!user && isPatron,
+  });
+  const mut = useMutation({
+    mutationFn: () => reservationsApi.create({ items: [{ bookId, libraryId }] }),
+    onSuccess: (res: any) => {
+      if (res.created?.length) toast.success("Reservation placed");
+      if (res.failed?.length) toast.error(res.failed[0].error || "Could not reserve");
+      qc.invalidateQueries({ queryKey: ["my-reservation-for", bookId, libraryId] });
+      qc.invalidateQueries({ queryKey: ["reservations"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  if (!isPatron) return null;
+  if (existing.length > 0) {
+    return (
+      <div className="mt-2 text-xs text-blue-700 dark:text-blue-300 flex items-center gap-1">
+        <CheckCircle2 className="h-3 w-3" /> You have an active reservation here.
+      </div>
+    );
+  }
+  return (
+    <div className="mt-2">
+      <Button size="sm" variant="outline" disabled={!canReserve || mut.isPending}
+        onClick={() => mut.mutate()} data-testid={`button-reserve-${libraryId}`}>
+        {mut.isPending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Clock className="h-3 w-3 mr-1" />}
+        {canReserve ? 'Reserve a copy' : 'No copies to reserve'}
+      </Button>
+    </div>
   );
 }

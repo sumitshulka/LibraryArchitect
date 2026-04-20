@@ -19,6 +19,8 @@ export const damageStatusEnum = pgEnum('damage_status', ['NONE', 'OUTSTANDING', 
 export const paymentTypeEnum = pgEnum('payment_type', ['FINE', 'DAMAGE']);
 export const waiverRequestTypeEnum = pgEnum('waiver_request_type', ['FINE', 'DAMAGE']);
 export const waiverRequestStatusEnum = pgEnum('waiver_request_status', ['PENDING', 'APPROVED', 'REJECTED']);
+export const reservationStatusEnum = pgEnum('reservation_status', ['ACTIVE', 'FULFILLED', 'CANCELLED', 'EXPIRED']);
+export const reservationPickupStatusEnum = pgEnum('reservation_pickup_status', ['PENDING', 'CONFIRMED', 'EXPIRED', 'CANCELLED']);
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -419,6 +421,37 @@ export const auditLogs = pgTable("audit_logs", {
   errorMessage: text("error_message"),
 });
 
+export const reservations = pgTable("reservations", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  bookId: integer("book_id").notNull().references(() => books.id),
+  bookCopyId: integer("book_copy_id").references(() => bookCopies.id),
+  libraryId: integer("library_id").notNull().references(() => libraries.id),
+  reservedFor: timestamp("reserved_for").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at").notNull(),
+  status: reservationStatusEnum("status").notNull().default('ACTIVE'),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdBy: integer("created_by").references(() => users.id),
+  cancelledAt: timestamp("cancelled_at"),
+  cancelledBy: integer("cancelled_by").references(() => users.id),
+  cancelReason: text("cancel_reason"),
+  fulfilledAt: timestamp("fulfilled_at"),
+  fulfilledCirculationId: integer("fulfilled_circulation_id"),
+});
+
+export const reservationPickups = pgTable("reservation_pickups", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  otp: text("otp").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  status: reservationPickupStatusEnum("status").notNull().default('PENDING'),
+  reservationIds: jsonb("reservation_ids").$type<number[]>().notNull(),
+  createdBy: integer("created_by").notNull().references(() => users.id),
+  confirmedAt: timestamp("confirmed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const staffAllocationActionEnum = pgEnum('staff_allocation_action', ['ALLOCATED', 'DEALLOCATED']);
 
 // Audit log for staff library allocations
@@ -694,3 +727,25 @@ export type FinePayment = typeof finePayments.$inferSelect;
 
 export type InsertFineWaiverRequest = z.infer<typeof insertFineWaiverRequestSchema>;
 export type FineWaiverRequest = typeof fineWaiverRequests.$inferSelect;
+
+export const insertReservationSchema = createInsertSchema(reservations).omit({
+  id: true,
+  createdAt: true,
+  cancelledAt: true,
+  cancelledBy: true,
+  cancelReason: true,
+  fulfilledAt: true,
+  fulfilledCirculationId: true,
+  status: true,
+});
+export type InsertReservation = z.infer<typeof insertReservationSchema>;
+export type Reservation = typeof reservations.$inferSelect;
+
+export const insertReservationPickupSchema = createInsertSchema(reservationPickups).omit({
+  id: true,
+  createdAt: true,
+  confirmedAt: true,
+  status: true,
+});
+export type InsertReservationPickup = z.infer<typeof insertReservationPickupSchema>;
+export type ReservationPickup = typeof reservationPickups.$inferSelect;

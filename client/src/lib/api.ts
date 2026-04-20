@@ -413,6 +413,67 @@ export const fineWaiverRequestsApi = {
   },
 };
 
+export interface ReservationApi {
+  id: number;
+  userId: number;
+  bookId: number;
+  bookCopyId: number | null;
+  libraryId: number;
+  reservedFor: string;
+  expiresAt: string;
+  status: 'ACTIVE' | 'FULFILLED' | 'CANCELLED' | 'EXPIRED';
+  notes: string | null;
+  createdAt: string;
+  cancelledAt?: string | null;
+  cancelReason?: string | null;
+  fulfilledAt?: string | null;
+  fulfilledCirculationId?: number | null;
+  // enrichment
+  bookTitle?: string;
+  bookAuthor?: string;
+  userName?: string;
+  userEmail?: string;
+  userIdentifier?: string;
+  libraryName?: string;
+  copyBarcode?: string;
+  copySSN?: string | null;
+}
+
+export const reservationsApi = {
+  list: async (filters: { userId?: number; libraryId?: number; bookId?: number; status?: string; fromDate?: string; toDate?: string } = {}): Promise<ReservationApi[]> => {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([k, v]) => { if (v !== undefined && v !== '') params.set(k, String(v)); });
+    const res = await fetch(`${API_BASE}/reservations?${params.toString()}`);
+    if (!res.ok) throw new Error("Failed to fetch reservations");
+    return res.json();
+  },
+  create: async (data: { userId?: number; items: { bookId: number; libraryId: number; reservedFor?: string; notes?: string }[] }): Promise<{ created: ReservationApi[]; failed: any[] }> => {
+    const res = await fetch(`${API_BASE}/reservations`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error || "Failed to create reservation"); }
+    return res.json();
+  },
+  cancel: async (id: number, reason?: string): Promise<void> => {
+    const res = await fetch(`${API_BASE}/reservations/${id}`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }) });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error || "Failed to cancel"); }
+  },
+  forBook: async (bookId: number, libraryId?: number): Promise<ReservationApi[]> => {
+    const url = `${API_BASE}/books/${bookId}/reservations${libraryId ? `?libraryId=${libraryId}` : ''}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("Failed to fetch book reservations");
+    return res.json();
+  },
+  initiatePickup: async (data: { reservationIds: number[]; userIdentifier: string }): Promise<{ pickupId: number; expiresAt: string; maskedEmail: string; reservationCount: number }> => {
+    const res = await fetch(`${API_BASE}/reservations/pickup/initiate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error || "Failed to initiate pickup"); }
+    return res.json();
+  },
+  confirmPickup: async (data: { pickupId: number; otp: string }): Promise<{ success: boolean; circulations: any[] }> => {
+    const res = await fetch(`${API_BASE}/reservations/pickup/confirm`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error || "Failed to confirm pickup"); }
+    return res.json();
+  },
+};
+
 export const finesReportApi = {
   get: async (filters: { from?: string; to?: string; libraryId?: number; methodId?: number; type?: 'FINE' | 'DAMAGE' } = {}): Promise<any> => {
     const params = new URLSearchParams();

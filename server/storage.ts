@@ -54,9 +54,15 @@ import {
   type InsertFinePayment,
   type FineWaiverRequest,
   type InsertFineWaiverRequest,
+  type Reservation,
+  type InsertReservation,
+  type ReservationPickup,
+  type InsertReservationPickup,
   paymentMethods,
   finePayments,
   fineWaiverRequests,
+  reservations,
+  reservationPickups,
   users,
   books,
   circulation,
@@ -2095,6 +2101,68 @@ export class DBStorage implements IStorage {
   async updateFineWaiverRequest(id: number, data: Partial<{ status: 'PENDING' | 'APPROVED' | 'REJECTED'; reviewedBy: number; reviewedAt: Date; reviewNotes: string }>): Promise<FineWaiverRequest | undefined> {
     const [r] = await db.update(fineWaiverRequests).set(data as any).where(eq(fineWaiverRequests.id, id)).returning();
     return r;
+  }
+
+  // ===== Reservations =====
+  async createReservationRow(data: InsertReservation): Promise<Reservation> {
+    const [r] = await db.insert(reservations).values(data).returning();
+    return r;
+  }
+  async getReservation(id: number): Promise<Reservation | undefined> {
+    const [r] = await db.select().from(reservations).where(eq(reservations.id, id));
+    return r;
+  }
+  async listReservations(filters: {
+    userId?: number;
+    libraryId?: number;
+    bookId?: number;
+    status?: 'ACTIVE' | 'FULFILLED' | 'CANCELLED' | 'EXPIRED';
+    fromDate?: Date;
+    toDate?: Date;
+  } = {}): Promise<Reservation[]> {
+    const conds: any[] = [];
+    if (filters.userId) conds.push(eq(reservations.userId, filters.userId));
+    if (filters.libraryId) conds.push(eq(reservations.libraryId, filters.libraryId));
+    if (filters.bookId) conds.push(eq(reservations.bookId, filters.bookId));
+    if (filters.status) conds.push(eq(reservations.status, filters.status));
+    if (filters.fromDate) conds.push(sql`${reservations.reservedFor} >= ${filters.fromDate}`);
+    if (filters.toDate) conds.push(sql`${reservations.reservedFor} <= ${filters.toDate}`);
+    const where = conds.length ? and(...conds) : undefined;
+    return await db.select().from(reservations).where(where).orderBy(desc(reservations.createdAt));
+  }
+  async updateReservation(id: number, data: Partial<Reservation>): Promise<Reservation | undefined> {
+    const [r] = await db.update(reservations).set(data as any).where(eq(reservations.id, id)).returning();
+    return r;
+  }
+  async getActiveReservationsForBookCopies(copyIds: number[]): Promise<Reservation[]> {
+    if (copyIds.length === 0) return [];
+    return await db.select().from(reservations).where(
+      and(eq(reservations.status, 'ACTIVE'), inArray(reservations.bookCopyId, copyIds))
+    );
+  }
+  async getActiveReservationsForBook(bookId: number, libraryId?: number): Promise<Reservation[]> {
+    const conds: any[] = [eq(reservations.bookId, bookId), eq(reservations.status, 'ACTIVE')];
+    if (libraryId) conds.push(eq(reservations.libraryId, libraryId));
+    return await db.select().from(reservations).where(and(...conds)).orderBy(asc(reservations.createdAt));
+  }
+  async findExpiredActiveReservations(now: Date): Promise<Reservation[]> {
+    return await db.select().from(reservations).where(
+      and(eq(reservations.status, 'ACTIVE'), sql`${reservations.expiresAt} < ${now}`)
+    );
+  }
+
+  // ===== Reservation Pickups =====
+  async createReservationPickup(data: InsertReservationPickup): Promise<ReservationPickup> {
+    const [p] = await db.insert(reservationPickups).values(data as any).returning();
+    return p;
+  }
+  async getReservationPickup(id: number): Promise<ReservationPickup | undefined> {
+    const [p] = await db.select().from(reservationPickups).where(eq(reservationPickups.id, id));
+    return p;
+  }
+  async updateReservationPickup(id: number, data: Partial<ReservationPickup>): Promise<ReservationPickup | undefined> {
+    const [p] = await db.update(reservationPickups).set(data as any).where(eq(reservationPickups.id, id)).returning();
+    return p;
   }
 }
 
