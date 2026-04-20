@@ -71,6 +71,7 @@ export const books = pgTable("books", {
   shelfLocation: text("shelf_location"),
   marcRecord: text("marc_record"),
   acquisitionDate: timestamp("acquisition_date"),
+  unitPrice: integer("unit_price"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

@@ -402,6 +402,12 @@ function BookDetailsSheet({
                       <span className="text-muted-foreground">Year:</span>
                       <span className="ml-2">{dashboard.book.publishedYear || "-"}</span>
                     </div>
+                    <div>
+                      <span className="text-muted-foreground">Unit Price:</span>
+                      <span className="ml-2" data-testid="text-book-unit-price">
+                        {dashboard.book.unitPrice != null ? formatCurrency(dashboard.book.unitPrice) : "-"}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -675,7 +681,7 @@ function EditBookDialog({ book, open, onOpenChange }: { book: Book | null; open:
         status: book.status || "AVAILABLE",
         format: book.format || "PHYSICAL",
         coverUrl: book.coverUrl || "",
-        unitPrice: book.unitPrice != null ? String(book.unitPrice) : "",
+        unitPrice: book.unitPrice != null ? (book.unitPrice / 100).toFixed(2) : "",
       });
     }
   }, [book, open]);
@@ -720,7 +726,7 @@ function EditBookDialog({ book, open, onOpenChange }: { book: Book | null; open:
       status: formData.status as Book["status"],
       format: formData.format as Book["format"],
       coverUrl: formData.coverUrl || null,
-      unitPrice: formData.unitPrice ? Number(formData.unitPrice) : null,
+      unitPrice: formData.unitPrice ? Math.round(parseFloat(formData.unitPrice) * 100) : null,
     };
     updateMutation.mutate(updates);
   };
