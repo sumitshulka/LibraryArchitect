@@ -13,14 +13,14 @@ const PICKUP_OTP_TTL_MINUTES = 15;
 
 // ----- Helpers -----
 
-async function resolveLibraryReservationDays(libraryId: number): Promise<number> {
+export async function resolveLibraryReservationDays(libraryId: number): Promise<number> {
   const lib = await storage.getLibrary(libraryId);
   const globals = await loadGlobalCirculationDefaults();
   const days = lib?.policies?.reservationDays ?? globals.reservationDays ?? 7;
   return Math.max(1, days);
 }
 
-async function expireStaleReservationsInternal(): Promise<number> {
+export async function expireStaleReservationsInternal(): Promise<number> {
   const now = new Date();
   const stale = await storage.findExpiredActiveReservations(now);
   if (stale.length === 0) return 0;
@@ -37,7 +37,7 @@ async function expireStaleReservationsInternal(): Promise<number> {
   return stale.length;
 }
 
-async function findHoldableCopy(bookId: number, libraryId: number) {
+export async function findHoldableCopy(bookId: number, libraryId: number) {
   // Pick first AVAILABLE copy in this library for the given book.
   const copies = await storage.getBookCopiesByBookAndLibrary(bookId, libraryId);
   return copies.find(c => c.status === 'AVAILABLE');
@@ -45,7 +45,7 @@ async function findHoldableCopy(bookId: number, libraryId: number) {
 
 // Atomically claim an AVAILABLE copy by flipping it to RESERVED.
 // Returns the claimed copy or undefined if another request beat us to it.
-async function claimAvailableCopyAtomically(copyId: number) {
+export async function claimAvailableCopyAtomically(copyId: number) {
   const rows = await db
     .update(bookCopies)
     .set({ status: 'RESERVED' as any, updatedAt: new Date() })

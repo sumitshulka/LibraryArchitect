@@ -116,6 +116,18 @@ The system supports three authentication modes:
 - Omit both filters to get all transactions across all users`,
       },
       {
+        name: 'ERP Books',
+        description: 'List, look up status, and reserve books from an ERP. All endpoints are authenticated with `appId` (query/body) + `X-Secret-Key` header.',
+      },
+      {
+        name: 'ERP Reservations',
+        description: 'Create reservations on behalf of patrons known to the ERP via their externalId.',
+      },
+      {
+        name: 'ERP Fines',
+        description: 'Per-patron fine breakdown and ERP-wide fine summary.',
+      },
+      {
         name: 'ERP Catalog',
         description: `API endpoints for ERP systems to browse the library catalog on behalf of students.
 
@@ -1835,6 +1847,195 @@ Each attribute type (e.g., "Program", "Semester", "Subject Type") contains its a
             '404': {
               description: 'ERP integration not found',
               content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+            },
+          },
+        },
+      },
+      '/api/erp/books': {
+        get: {
+          tags: ['ERP Books'],
+          summary: 'List books with optional search & attribute filters',
+          description: 'Returns one or more books. Supports free-text search (`q`), ISBN lookup (`isbn`), and faceted filtering by `attributeValueIds` (CSV). Each book includes per-library copy availability.',
+          parameters: [
+            { name: 'X-Secret-Key', in: 'header', required: true, schema: { type: 'string' } },
+            { name: 'appId', in: 'query', required: true, schema: { type: 'string' } },
+            { name: 'q', in: 'query', required: false, schema: { type: 'string' }, description: 'Free text search across title/author/ISBN' },
+            { name: 'isbn', in: 'query', required: false, schema: { type: 'string' }, description: 'Exact ISBN lookup' },
+            { name: 'attributeValueIds', in: 'query', required: false, schema: { type: 'string' }, description: 'Comma-separated search attribute value IDs' },
+            { name: 'limit', in: 'query', required: false, schema: { type: 'integer', default: 50, maximum: 200 } },
+            { name: 'offset', in: 'query', required: false, schema: { type: 'integer', default: 0 } },
+          ],
+          responses: {
+            '200': {
+              description: 'List of books with availability per library',
+              content: { 'application/json': { schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean' },
+                  totalCount: { type: 'integer' },
+                  limit: { type: 'integer' },
+                  offset: { type: 'integer' },
+                  books: { type: 'array', items: {
+                    type: 'object',
+                    properties: {
+                      bookId: { type: 'integer' }, isbn: { type: 'string' }, title: { type: 'string' }, author: { type: 'string' },
+                      publisher: { type: 'string' }, publishedYear: { type: 'integer' }, category: { type: 'string' }, format: { type: 'string' },
+                      coverUrl: { type: 'string' },
+                      totalCopies: { type: 'integer' }, availableCopies: { type: 'integer' },
+                      libraries: { type: 'array', items: {
+                        type: 'object',
+                        properties: {
+                          libraryId: { type: 'integer' }, libraryCode: { type: 'string' }, libraryName: { type: 'string' },
+                          total: { type: 'integer' }, available: { type: 'integer' }, reserved: { type: 'integer' }, checkedOut: { type: 'integer' },
+                        },
+                      } },
+                    },
+                  } },
+                },
+              } } },
+            },
+            '401': { description: 'Missing/invalid secret key', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+            '404': { description: 'ERP integration not found', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          },
+        },
+      },
+      '/api/erp/books/{idOrIsbn}/status': {
+        get: {
+          tags: ['ERP Books'],
+          summary: 'Get book status (availability + optional patron context)',
+          description: 'Returns aggregate copy status for the book (available/reserved/checked out/lost/maintenance). When `externalId` is provided, also returns the patron\'s relationship to this book: `RESERVED`, `CHECKED_OUT`, `RETURNED`, or `NONE`.',
+          parameters: [
+            { name: 'X-Secret-Key', in: 'header', required: true, schema: { type: 'string' } },
+            { name: 'appId', in: 'query', required: true, schema: { type: 'string' } },
+            { name: 'idOrIsbn', in: 'path', required: true, schema: { type: 'string' }, description: 'Book ID (numeric) or ISBN' },
+            { name: 'externalId', in: 'query', required: false, schema: { type: 'string' }, description: 'Patron external ID for personalised status' },
+          ],
+          responses: {
+            '200': {
+              description: 'Book status',
+              content: { 'application/json': { schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean' },
+                  book: { type: 'object', properties: { bookId: { type: 'integer' }, isbn: { type: 'string' }, title: { type: 'string' }, author: { type: 'string' } } },
+                  copies: { type: 'object', properties: { total: { type: 'integer' }, available: { type: 'integer' }, reserved: { type: 'integer' }, checkedOut: { type: 'integer' }, lost: { type: 'integer' }, maintenance: { type: 'integer' } } },
+                  patronStatus: { type: 'object', nullable: true, properties: {
+                    externalId: { type: 'string' }, found: { type: 'boolean' },
+                    status: { type: 'string', enum: ['NONE', 'RESERVED', 'CHECKED_OUT', 'RETURNED'] },
+                    patron: { type: 'object', properties: { name: { type: 'string' }, email: { type: 'string' }, role: { type: 'string' } } },
+                    reservation: { type: 'object', nullable: true },
+                    checkout: { type: 'object', nullable: true },
+                    lastReturned: { type: 'object', nullable: true },
+                  } },
+                },
+              } } },
+            },
+            '404': { description: 'Book or integration not found' },
+          },
+        },
+      },
+      '/api/erp/reservations': {
+        post: {
+          tags: ['ERP Reservations'],
+          summary: 'Create a book reservation on behalf of a patron',
+          description: 'Reserves an available copy for a patron known to the ERP. If `libraryId` is omitted, the system picks the first library that has an available copy and atomically holds it.',
+          requestBody: {
+            required: true,
+            content: { 'application/json': { schema: {
+              type: 'object',
+              required: ['appId', 'externalId'],
+              properties: {
+                appId: { type: 'string' },
+                externalId: { type: 'string', description: 'Patron external ID known to the ERP' },
+                bookId: { type: 'integer', description: 'Either bookId or isbn is required' },
+                isbn: { type: 'string' },
+                libraryId: { type: 'integer', description: 'Optional. Auto-selected if omitted.' },
+                reservedFor: { type: 'string', format: 'date-time', description: 'Defaults to now.' },
+                notes: { type: 'string' },
+              },
+            } } },
+          },
+          parameters: [
+            { name: 'X-Secret-Key', in: 'header', required: true, schema: { type: 'string' } },
+          ],
+          responses: {
+            '201': {
+              description: 'Reservation created',
+              content: { 'application/json': { schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean' },
+                  reservation: { type: 'object', properties: {
+                    reservationId: { type: 'integer' },
+                    status: { type: 'string', example: 'ACTIVE' },
+                    patron: { type: 'object' }, book: { type: 'object' }, library: { type: 'object' }, copy: { type: 'object' },
+                    reservedFor: { type: 'string', format: 'date-time' }, expiresAt: { type: 'string', format: 'date-time' },
+                  } },
+                },
+              } } },
+            },
+            '400': { description: 'Missing required fields' },
+            '404': { description: 'Patron, book, or integration not found' },
+            '409': { description: 'No copies available to reserve' },
+          },
+        },
+      },
+      '/api/erp/users/{externalId}/fines': {
+        get: {
+          tags: ['ERP Fines'],
+          summary: 'Get fine information for a patron',
+          description: 'Returns per-circulation fine, damage cost, payments, waivers, and live-accrued fine on currently open loans, plus aggregated totals.',
+          parameters: [
+            { name: 'X-Secret-Key', in: 'header', required: true, schema: { type: 'string' } },
+            { name: 'appId', in: 'query', required: true, schema: { type: 'string' } },
+            { name: 'externalId', in: 'path', required: true, schema: { type: 'string' } },
+          ],
+          responses: {
+            '200': {
+              description: 'Patron fine breakdown',
+              content: { 'application/json': { schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean' },
+                  patron: { type: 'object', properties: { externalId: { type: 'string' }, name: { type: 'string' }, email: { type: 'string' }, role: { type: 'string' } } },
+                  totals: { type: 'object', properties: { assessed: { type: 'number' }, paid: { type: 'number' }, waived: { type: 'number' }, outstanding: { type: 'number' }, accruedOnOpenLoans: { type: 'number' } } },
+                  items: { type: 'array', items: {
+                    type: 'object',
+                    properties: {
+                      circulationId: { type: 'integer' }, status: { type: 'string' }, isOverdue: { type: 'boolean' }, daysOverdue: { type: 'integer' },
+                      book: { type: 'object' }, checkoutDate: { type: 'string', format: 'date-time' }, dueDate: { type: 'string', format: 'date-time' }, returnDate: { type: 'string', format: 'date-time', nullable: true },
+                      fine: { type: 'object', properties: { assessed: { type: 'number' }, paid: { type: 'number' }, waived: { type: 'number' }, outstanding: { type: 'number' }, accruedIfOpen: { type: 'number' } } },
+                      damage: { type: 'object', properties: { cost: { type: 'number' }, paid: { type: 'number' }, waived: { type: 'number' }, outstanding: { type: 'number' } } },
+                    },
+                  } },
+                },
+              } } },
+            },
+            '404': { description: 'Patron not found' },
+          },
+        },
+      },
+      '/api/erp/fines/summary': {
+        get: {
+          tags: ['ERP Fines'],
+          summary: 'ERP-wide fine aggregates',
+          description: 'Returns ERP-wide fine totals, open/overdue loan counts, and per-library breakdown.',
+          parameters: [
+            { name: 'X-Secret-Key', in: 'header', required: true, schema: { type: 'string' } },
+            { name: 'appId', in: 'query', required: true, schema: { type: 'string' } },
+          ],
+          responses: {
+            '200': {
+              description: 'Aggregated fine information',
+              content: { 'application/json': { schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean' },
+                  totals: { type: 'object', properties: { assessed: { type: 'number' }, paid: { type: 'number' }, waived: { type: 'number' }, outstanding: { type: 'number' }, accruedOnOpenLoans: { type: 'number' } } },
+                  loans: { type: 'object', properties: { open: { type: 'integer' }, overdue: { type: 'integer' }, total: { type: 'integer' } } },
+                  byLibrary: { type: 'array', items: { type: 'object', properties: { libraryId: { type: 'integer' }, libraryName: { type: 'string' }, assessed: { type: 'number' }, paid: { type: 'number' }, waived: { type: 'number' }, outstanding: { type: 'number' } } } },
+                },
+              } } },
             },
           },
         },

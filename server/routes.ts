@@ -35,6 +35,7 @@ import multer from "multer";
 import { setupSwagger } from "./swagger";
 import { logAudit, invalidateAuditConfigCache } from "./audit";
 import { registerReservationRoutes } from "./reservations";
+import { registerErpExtraRoutes } from "./erp-extra";
 
 const MAX_WHITELIST_ENTRIES = 5;
 
@@ -6098,6 +6099,7 @@ export async function registerRoutes(
   });
 
   registerReservationRoutes(app);
+  registerErpExtraRoutes(app);
 
   return httpServer;
 }
