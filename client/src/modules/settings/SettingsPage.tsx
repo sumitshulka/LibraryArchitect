@@ -57,13 +57,171 @@ import { useLocation } from "wouter";
 import { CURRENCIES, getCurrencyByCode } from "@/lib/currency";
 import { useCurrency } from "@/lib/useCurrency";
 
-function FinePerDayField() {
+import { circulationPolicyApi, type CirculationPolicy } from "@/lib/api";
+
+function CirculationRulesForm() {
   const { currency } = useCurrency();
+  const queryClient = useQueryClient();
+  const { data, isLoading } = useQuery({
+    queryKey: ["circulation-policy"],
+    queryFn: () => circulationPolicyApi.get(),
+  });
+
+  const [form, setForm] = useState<CirculationPolicy>({});
+
+  useEffect(() => {
+    if (data) setForm(data);
+  }, [data]);
+
+  const mutation = useMutation({
+    mutationFn: (payload: CirculationPolicy) => circulationPolicyApi.update(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["circulation-policy"] });
+      toast.success("Global circulation policy saved");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const numField = (key: keyof CirculationPolicy, val: string) => {
+    setForm((f) => ({ ...f, [key]: val === "" ? undefined : Number(val) }));
+  };
+  const boolField = (key: keyof CirculationPolicy, val: boolean) => {
+    setForm((f) => ({ ...f, [key]: val }));
+  };
+
+  const v = (k: keyof CirculationPolicy) => {
+    const x = form[k];
+    return x === undefined || x === null ? "" : String(x);
+  };
+
   return (
-    <div className="grid gap-2">
-      <Label htmlFor="fine-amount">Fine per Day ({currency.symbol})</Label>
-      <Input id="fine-amount" type="number" defaultValue="0.50" />
-    </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>Loan & Fine Policies</CardTitle>
+        <CardDescription>
+          Default rules applied to all libraries. Each library can override these on its own settings page.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div className="grid gap-2">
+            <Label htmlFor="loan-days">Default Loan Period (Days)</Label>
+            <Input
+              id="loan-days"
+              type="number"
+              min={0}
+              value={v("loanPeriodDays")}
+              onChange={(e) => numField("loanPeriodDays", e.target.value)}
+              data-testid="input-loan-days"
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="max-books">Max Books per User</Label>
+            <Input
+              id="max-books"
+              type="number"
+              min={0}
+              value={v("maxBooksPerUser")}
+              onChange={(e) => numField("maxBooksPerUser", e.target.value)}
+              data-testid="input-max-books"
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="renewal-limit">Renewal Limit</Label>
+            <Input
+              id="renewal-limit"
+              type="number"
+              min={0}
+              value={v("renewalLimit")}
+              onChange={(e) => numField("renewalLimit", e.target.value)}
+              data-testid="input-renewal-limit"
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="reservation-days">Reservation Hold (Days)</Label>
+            <Input
+              id="reservation-days"
+              type="number"
+              min={0}
+              value={v("reservationDays")}
+              onChange={(e) => numField("reservationDays", e.target.value)}
+              data-testid="input-reservation-days"
+            />
+          </div>
+        </div>
+        <Separator />
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <Label>Allow Renewals</Label>
+            <p className="text-xs text-muted-foreground">Patrons can renew items online</p>
+          </div>
+          <Switch
+            checked={form.allowRenewals ?? false}
+            onCheckedChange={(c) => boolField("allowRenewals", c)}
+            data-testid="switch-allow-renewals"
+          />
+        </div>
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <Label>Enable Late Fines</Label>
+            <p className="text-xs text-muted-foreground">Automatically calculate fines for overdue items</p>
+          </div>
+          <Switch
+            checked={form.enableLateFines ?? false}
+            onCheckedChange={(c) => boolField("enableLateFines", c)}
+            data-testid="switch-enable-fines"
+          />
+        </div>
+        <Separator />
+        <div className="grid grid-cols-2 gap-4">
+          <div className="grid gap-2">
+            <Label htmlFor="fine-amount">Fine per Day ({currency.symbol})</Label>
+            <Input
+              id="fine-amount"
+              type="number"
+              min={0}
+              step="0.01"
+              value={v("finePerDay")}
+              onChange={(e) => numField("finePerDay", e.target.value)}
+              data-testid="input-fine-per-day"
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="grace-days">Grace Period (Days)</Label>
+            <Input
+              id="grace-days"
+              type="number"
+              min={0}
+              value={v("gracePeriodDays")}
+              onChange={(e) => numField("gracePeriodDays", e.target.value)}
+              data-testid="input-grace-days"
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="fine-cap">Max Fine Cap ({currency.symbol})</Label>
+            <Input
+              id="fine-cap"
+              type="number"
+              min={0}
+              step="0.01"
+              value={v("maxFineCap")}
+              onChange={(e) => numField("maxFineCap", e.target.value)}
+              data-testid="input-max-fine-cap"
+            />
+            <p className="text-xs text-muted-foreground">Leave empty for no cap</p>
+          </div>
+        </div>
+        <div className="flex justify-end pt-2">
+          <Button
+            onClick={() => mutation.mutate(form)}
+            disabled={mutation.isPending || isLoading}
+            data-testid="button-save-circulation-policy"
+          >
+            {mutation.isPending ? "Saving…" : "Save Policy"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -3219,40 +3377,7 @@ export default function SettingsPage() {
             </TabsContent>
 
             <TabsContent value="circulation" className="mt-0 space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Loan Policies</CardTitle>
-                  <CardDescription>Set default borrowing durations and limits.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="grid gap-2">
-                      <Label htmlFor="student-days">Student Loan Period (Days)</Label>
-                      <Input id="student-days" type="number" defaultValue="14" />
-                    </div>
-                    <div className="grid gap-2">
-                      <Label htmlFor="staff-days">Staff Loan Period (Days)</Label>
-                      <Input id="staff-days" type="number" defaultValue="30" />
-                    </div>
-                  </div>
-                  <Separator />
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label>Allow Renewals</Label>
-                      <p className="text-xs text-muted-foreground">Patrons can renew items online</p>
-                    </div>
-                    <Switch defaultChecked />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label>Enable Late Fines</Label>
-                      <p className="text-xs text-muted-foreground">Automatically calculate fines for overdue items</p>
-                    </div>
-                    <Switch defaultChecked />
-                  </div>
-                  <FinePerDayField />
-                </CardContent>
-              </Card>
+              <CirculationRulesForm />
             </TabsContent>
 
             <TabsContent value="integration" className="mt-0">

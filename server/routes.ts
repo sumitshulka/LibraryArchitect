@@ -22,7 +22,7 @@ import {
   insertSearchAttributeValueSchema,
   insertPaymentMethodSchema,
 } from "@shared/schema";
-import { calculateAccruedFine, getCirculationFineSummary } from "./fines";
+import { calculateAccruedFine, getCirculationFineSummary, loadGlobalCirculationDefaults, invalidateCirculationPolicyCache, CIRCULATION_POLICY_KEY } from "./fines";
 import { z } from "zod";
 import { fromZodError } from "zod-validation-error";
 import crypto from "crypto";
@@ -698,6 +698,7 @@ export async function registerRoutes(
       // Enrich active rows with accrued fine info
       const libraries = await storage.getAllLibraries();
       const libMap = new Map(libraries.map(l => [l.id, l]));
+      const globalDefaults = await loadGlobalCirculationDefaults();
 
       const enriched = await Promise.all(circulations.map(async (c) => {
         const lib = c.libraryId ? libMap.get(c.libraryId) : null;
@@ -708,7 +709,7 @@ export async function registerRoutes(
           const damageOutstanding = Math.max(0, (c.damageCost ?? 0) - (c.damagePaidAmount ?? 0) - (c.damageWaivedAmount ?? 0));
           return { ...c, accruedFine: c.fineAmount ?? 0, daysOverdue: 0, isOverdue: false, fineOutstanding, damageOutstanding };
         }
-        const calc = calculateAccruedFine(c, lib || null);
+        const calc = calculateAccruedFine(c, lib || null, new Date(), globalDefaults);
         const fineOutstanding = Math.max(0, calc.fineCents - (c.finePaidAmount ?? 0) - (c.fineWaivedAmount ?? 0));
         return { ...c, accruedFine: calc.fineCents, daysOverdue: calc.daysOverdue, isOverdue: calc.isOverdue, fineOutstanding, damageOutstanding: 0 };
       }));
@@ -882,7 +883,8 @@ export async function registerRoutes(
 
       // Compute fine using policy
       const library = circ.libraryId ? await storage.getLibrary(circ.libraryId) : null;
-      const calc = calculateAccruedFine({ ...circ, returnDate }, library);
+      const globalDefaults = await loadGlobalCirculationDefaults();
+      const calc = calculateAccruedFine({ ...circ, returnDate }, library, new Date(), globalDefaults);
       const fineAmount = calc.fineCents;
       const isOverdue = calc.isOverdue;
       const daysOverdue = calc.daysOverdue;
@@ -1335,7 +1337,7 @@ export async function registerRoutes(
           totalOutstanding += Math.max(0, (c.fineAmount ?? 0) - (c.finePaidAmount ?? 0) - (c.fineWaivedAmount ?? 0));
           totalOutstanding += Math.max(0, (c.damageCost ?? 0) - (c.damagePaidAmount ?? 0) - (c.damageWaivedAmount ?? 0));
         } else {
-          const calc = calculateAccruedFine(c, lib || null);
+          const calc = calculateAccruedFine(c, lib || null, new Date(), await loadGlobalCirculationDefaults());
           totalOutstanding += Math.max(0, calc.fineCents - (c.finePaidAmount ?? 0) - (c.fineWaivedAmount ?? 0));
         }
         totalWaived += (c.fineWaivedAmount ?? 0) + (c.damageWaivedAmount ?? 0);
@@ -1951,6 +1953,7 @@ export async function registerRoutes(
       if (!currentUser) return;
       const validated = insertSystemConfigSchema.parse(req.body);
       const config = await storage.setSystemConfig(validated);
+      if (validated.key === CIRCULATION_POLICY_KEY) invalidateCirculationPolicyCache();
       logAudit(req, { category: 'SYSTEM_CONFIG', action: 'CONFIG_UPDATED', userId: currentUser.id, userName: currentUser.name, targetType: 'config', targetId: validated.key, details: { key: validated.key, value: validated.value } });
       res.json(config);
     } catch (error) {
@@ -1959,6 +1962,54 @@ export async function registerRoutes(
       }
       console.error("Error setting config:", error);
       res.status(500).json({ error: "Failed to set configuration" });
+    }
+  });
+
+  // ===== Circulation Policy (global defaults) =====
+  app.get("/api/circulation-policy", async (req, res) => {
+    try {
+      const staff = await requireStaff(req, res); if (!staff) return;
+      const defaults = await loadGlobalCirculationDefaults();
+      res.json(defaults);
+    } catch (error) {
+      console.error("Error fetching circulation policy:", error);
+      res.status(500).json({ error: "Failed to fetch circulation policy" });
+    }
+  });
+
+  app.put("/api/circulation-policy", async (req, res) => {
+    try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+      const policySchema = z.object({
+        finePerDay: z.number().min(0).optional().nullable(),
+        gracePeriodDays: z.number().int().min(0).optional().nullable(),
+        maxFineCap: z.number().min(0).optional().nullable(),
+        loanPeriodDays: z.number().int().min(0).optional().nullable(),
+        maxBooksPerUser: z.number().int().min(0).optional().nullable(),
+        renewalLimit: z.number().int().min(0).optional().nullable(),
+        reservationDays: z.number().int().min(0).optional().nullable(),
+        allowRenewals: z.boolean().optional().nullable(),
+        enableLateFines: z.boolean().optional().nullable(),
+      });
+      const validated = policySchema.parse(req.body || {});
+      const cleaned: Record<string, any> = {};
+      Object.entries(validated).forEach(([k, v]) => { if (v !== null && v !== undefined) cleaned[k] = v; });
+      const saved = await storage.setSystemConfig({
+        key: CIRCULATION_POLICY_KEY,
+        value: JSON.stringify(cleaned),
+        category: "circulation",
+        description: "Global default circulation policy (per-library overrides take precedence)",
+      });
+      invalidateCirculationPolicyCache();
+      logAudit(req, { category: 'SYSTEM_CONFIG', action: 'CIRCULATION_POLICY_UPDATED', userId: currentUser.id, userName: currentUser.name, targetType: 'config', targetId: CIRCULATION_POLICY_KEY, details: cleaned });
+      res.json(cleaned);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error saving circulation policy:", error);
+      res.status(500).json({ error: "Failed to save circulation policy" });
     }
   });
 

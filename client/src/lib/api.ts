@@ -482,6 +482,35 @@ export const configApi = {
   },
 };
 
+export interface CirculationPolicy {
+  finePerDay?: number;
+  gracePeriodDays?: number;
+  maxFineCap?: number;
+  loanPeriodDays?: number;
+  maxBooksPerUser?: number;
+  renewalLimit?: number;
+  reservationDays?: number;
+  allowRenewals?: boolean;
+  enableLateFines?: boolean;
+}
+
+export const circulationPolicyApi = {
+  get: async (): Promise<CirculationPolicy> => {
+    const res = await fetch(`${API_BASE}/circulation-policy`);
+    if (!res.ok) throw new Error(await readError(res, "Failed to fetch circulation policy"));
+    return res.json();
+  },
+  update: async (data: CirculationPolicy): Promise<CirculationPolicy> => {
+    const res = await fetch(`${API_BASE}/circulation-policy`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error(await readError(res, "Failed to save circulation policy"));
+    return res.json();
+  },
+};
+
 // Dashboard Stats API
 export interface DashboardStats {
   totalBooks: number;

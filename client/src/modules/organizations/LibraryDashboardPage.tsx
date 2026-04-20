@@ -1,8 +1,16 @@
 import { MainLayout } from "@/components/layout/MainLayout";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useParams, Link } from "wouter";
-import { librariesApi, type LibraryDashboardStats, type LibraryStaffMember } from "@/lib/api";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
+import { librariesApi, circulationPolicyApi, type LibraryDashboardStats, type LibraryStaffMember, type CirculationPolicy } from "@/lib/api";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { useAuth } from "@/lib/auth";
+import { useCurrency } from "@/lib/useCurrency";
+import { Settings as SettingsIcon } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -75,6 +83,166 @@ function MetricCard({
           </div>
           <Icon className={`h-8 w-8 ${iconStyles[variant]}`} />
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function LibraryPoliciesCard({ libraryId }: { libraryId: number }) {
+  const { user } = useAuth();
+  const { currency } = useCurrency();
+  const queryClient = useQueryClient();
+
+  const canEdit = user?.role === "ADMIN";
+
+  const { data: globalDefaults } = useQuery({
+    queryKey: ["circulation-policy"],
+    queryFn: () => circulationPolicyApi.get(),
+  });
+
+  const { data: library } = useQuery({
+    queryKey: ["library", libraryId],
+    queryFn: () => librariesApi.getById(libraryId),
+    enabled: libraryId > 0,
+  });
+
+  const [overrides, setOverrides] = useState<CirculationPolicy>({});
+
+  useEffect(() => {
+    if (library) {
+      setOverrides((library.policies || {}) as CirculationPolicy);
+    }
+  }, [library]);
+
+  const mutation = useMutation({
+    mutationFn: (payload: CirculationPolicy) =>
+      librariesApi.update(libraryId, { policies: payload as any }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["library", libraryId] });
+      toast.success("Library policy overrides saved");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const fields: Array<{
+    key: keyof CirculationPolicy;
+    label: string;
+    type: "number" | "switch";
+    step?: string;
+    suffix?: string;
+  }> = [
+    { key: "loanPeriodDays", label: "Loan Period (Days)", type: "number" },
+    { key: "maxBooksPerUser", label: "Max Books per User", type: "number" },
+    { key: "renewalLimit", label: "Renewal Limit", type: "number" },
+    { key: "reservationDays", label: "Reservation Hold (Days)", type: "number" },
+    { key: "finePerDay", label: `Fine per Day (${currency.symbol})`, type: "number", step: "0.01" },
+    { key: "gracePeriodDays", label: "Grace Period (Days)", type: "number" },
+    { key: "maxFineCap", label: `Max Fine Cap (${currency.symbol})`, type: "number", step: "0.01" },
+    { key: "allowRenewals", label: "Allow Renewals", type: "switch" },
+    { key: "enableLateFines", label: "Enable Late Fines", type: "switch" },
+  ];
+
+  const placeholderFor = (k: keyof CirculationPolicy) => {
+    const g = globalDefaults?.[k];
+    if (g === undefined || g === null) return "Default";
+    return `Default: ${g}`;
+  };
+
+  const setNum = (k: keyof CirculationPolicy, v: string) => {
+    setOverrides((o) => {
+      const next = { ...o };
+      if (v === "") delete (next as any)[k];
+      else (next as any)[k] = Number(v);
+      return next;
+    });
+  };
+
+  const setBoolOverride = (k: keyof CirculationPolicy, hasOverride: boolean, value: boolean) => {
+    setOverrides((o) => {
+      const next = { ...o };
+      if (!hasOverride) delete (next as any)[k];
+      else (next as any)[k] = value;
+      return next;
+    });
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <SettingsIcon className="h-5 w-5" />
+          Library Policy Overrides
+        </CardTitle>
+        <CardDescription>
+          Leave a field blank to inherit the global default. Filled values override the system-wide policy for this library only.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-4 md:grid-cols-2">
+          {fields.filter(f => f.type === "number").map((f) => (
+            <div key={f.key} className="grid gap-2">
+              <Label htmlFor={`lib-pol-${f.key}`}>{f.label}</Label>
+              <Input
+                id={`lib-pol-${f.key}`}
+                type="number"
+                min={0}
+                step={f.step}
+                placeholder={placeholderFor(f.key)}
+                value={overrides[f.key] === undefined || overrides[f.key] === null ? "" : String(overrides[f.key])}
+                onChange={(e) => setNum(f.key, e.target.value)}
+                disabled={!canEdit}
+                data-testid={`input-lib-policy-${f.key}`}
+              />
+            </div>
+          ))}
+        </div>
+        <Separator />
+        {fields.filter(f => f.type === "switch").map((f) => {
+          const hasOverride = overrides[f.key] !== undefined && overrides[f.key] !== null;
+          const effective = hasOverride ? Boolean(overrides[f.key]) : Boolean(globalDefaults?.[f.key]);
+          return (
+            <div key={f.key} className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label>{f.label}</Label>
+                <p className="text-xs text-muted-foreground">
+                  {hasOverride ? "Overriding global default" : `Inheriting global default (${String(globalDefaults?.[f.key] ?? "off")})`}
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={hasOverride}
+                    onChange={(e) => setBoolOverride(f.key, e.target.checked, effective)}
+                    disabled={!canEdit}
+                    data-testid={`check-override-${f.key}`}
+                  />
+                  Override
+                </label>
+                <Switch
+                  checked={effective}
+                  onCheckedChange={(c) => setBoolOverride(f.key, true, c)}
+                  disabled={!canEdit || !hasOverride}
+                  data-testid={`switch-lib-policy-${f.key}`}
+                />
+              </div>
+            </div>
+          );
+        })}
+        {canEdit && (
+          <div className="flex justify-end pt-2">
+            <Button
+              onClick={() => mutation.mutate(overrides)}
+              disabled={mutation.isPending}
+              data-testid="button-save-library-policy"
+            >
+              {mutation.isPending ? "Saving…" : "Save Overrides"}
+            </Button>
+          </div>
+        )}
+        {!canEdit && (
+          <p className="text-xs text-muted-foreground">Only system admins can edit policy overrides.</p>
+        )}
       </CardContent>
     </Card>
   );
@@ -291,6 +459,8 @@ export function LibraryDashboardPage() {
                 </CardContent>
               </Card>
             </div>
+
+            <LibraryPoliciesCard libraryId={libraryId} />
 
             <div className="grid gap-6 md:grid-cols-2">
               <Card>

@@ -31,6 +31,12 @@ Preferred communication style: Simple, everyday language.
 - **User Provisioning**: Staff (ADMIN/LIBRARIAN) must be pre-provisioned via ERP API; Patrons (STUDENT/FACULTY) are auto-provisioned on first SSO login.
 - **Security Features**: Token signature verification, timestamp expiration, origin/referer whitelist, secret key hashing, HTTP-only secure session cookies.
 
+### Circulation Policies (Global + Per-Library Overrides)
+- **Global defaults** are stored in `system_config` under key `circulation_policy` (JSON). Managed by admins via **Settings → Circulation Rules** (`PUT /api/circulation-policy`).
+- **Per-library overrides** live in the `libraries.policies` JSONB column. Edited from each library's dashboard via the "Library Policy Overrides" card (admins only). Blank fields inherit the global default.
+- **Resolution**: `server/fines.ts#mergeCirculationPolicy(globalDefaults, library)` returns the effective policy for a library by merging library overrides over global defaults. `calculateAccruedFine` uses the merged policy for `finePerDay`, `gracePeriodDays`, `maxFineCap`, and short-circuits to zero when `enableLateFines === false`.
+- `loadGlobalCirculationDefaults()` is cached for 30s; `invalidateCirculationPolicyCache()` is called whenever the policy is saved.
+
 ### Circulation & Library Rules
 - **Library-Based Checkout**: All checkouts are tied to a specific library. System Admins select the library; Librarians are restricted to their assigned library. `libraryId` is stored in circulation records.
 - **Direct Checkout**: Frontend flow supports searching for members and books, selecting copies from the chosen library, and confirming issue.
