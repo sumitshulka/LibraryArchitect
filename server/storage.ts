@@ -48,6 +48,15 @@ import {
   type InsertSearchAttributeValue,
   type ResourceSearchAttribute,
   type InsertResourceSearchAttribute,
+  type PaymentMethod,
+  type InsertPaymentMethod,
+  type FinePayment,
+  type InsertFinePayment,
+  type FineWaiverRequest,
+  type InsertFineWaiverRequest,
+  paymentMethods,
+  finePayments,
+  fineWaiverRequests,
   users,
   books,
   circulation,
@@ -162,6 +171,26 @@ export interface IStorage {
   getActiveCirculationByBook(bookId: number): Promise<Circulation | undefined>;
   getActiveCirculationByBookAll(bookId: number): Promise<Circulation[]>;
   getCirculationByUser(userId: number): Promise<Circulation[]>;
+  getActiveCirculations(): Promise<Circulation[]>;
+
+  // Payment Methods
+  getAllPaymentMethods(): Promise<PaymentMethod[]>;
+  getActivePaymentMethods(): Promise<PaymentMethod[]>;
+  getPaymentMethod(id: number): Promise<PaymentMethod | undefined>;
+  createPaymentMethod(data: InsertPaymentMethod): Promise<PaymentMethod>;
+  updatePaymentMethod(id: number, data: Partial<InsertPaymentMethod>): Promise<PaymentMethod | undefined>;
+  deletePaymentMethod(id: number): Promise<boolean>;
+
+  // Fine Payments
+  createFinePayment(data: InsertFinePayment): Promise<FinePayment>;
+  getFinePaymentsByCirculation(circulationId: number): Promise<FinePayment[]>;
+  getFinePayments(filters: { fromDate?: Date; toDate?: Date; libraryId?: number; paymentMethodId?: number; paymentType?: 'FINE' | 'DAMAGE' }): Promise<FinePayment[]>;
+
+  // Fine Waiver Requests
+  createFineWaiverRequest(data: InsertFineWaiverRequest): Promise<FineWaiverRequest>;
+  getFineWaiverRequest(id: number): Promise<FineWaiverRequest | undefined>;
+  getFineWaiverRequests(status?: 'PENDING' | 'APPROVED' | 'REJECTED'): Promise<FineWaiverRequest[]>;
+  updateFineWaiverRequest(id: number, data: Partial<{ status: 'PENDING' | 'APPROVED' | 'REJECTED'; reviewedBy: number; reviewedAt: Date; reviewNotes: string }>): Promise<FineWaiverRequest | undefined>;
   
   // Inventory (legacy)
   getInventory(id: number): Promise<Inventory | undefined>;
@@ -1990,6 +2019,82 @@ export class DBStorage implements IStorage {
       .limit(limit);
 
     return { books: results, totalCount, limitExceeded: false };
+  }
+
+  // ===== Active Circulations =====
+  async getActiveCirculations(): Promise<Circulation[]> {
+    return await db.select().from(circulation).where(
+      or(eq(circulation.status, 'ACTIVE'), eq(circulation.status, 'OVERDUE'))
+    ).orderBy(asc(circulation.dueDate));
+  }
+
+  // ===== Payment Methods =====
+  async getAllPaymentMethods(): Promise<PaymentMethod[]> {
+    return await db.select().from(paymentMethods).orderBy(asc(paymentMethods.sortOrder), asc(paymentMethods.name));
+  }
+  async getActivePaymentMethods(): Promise<PaymentMethod[]> {
+    return await db.select().from(paymentMethods).where(eq(paymentMethods.isActive, true)).orderBy(asc(paymentMethods.sortOrder), asc(paymentMethods.name));
+  }
+  async getPaymentMethod(id: number): Promise<PaymentMethod | undefined> {
+    const [pm] = await db.select().from(paymentMethods).where(eq(paymentMethods.id, id));
+    return pm;
+  }
+  async createPaymentMethod(data: InsertPaymentMethod): Promise<PaymentMethod> {
+    const [pm] = await db.insert(paymentMethods).values(data).returning();
+    return pm;
+  }
+  async updatePaymentMethod(id: number, data: Partial<InsertPaymentMethod>): Promise<PaymentMethod | undefined> {
+    const [pm] = await db.update(paymentMethods).set(data).where(eq(paymentMethods.id, id)).returning();
+    return pm;
+  }
+  async deletePaymentMethod(id: number): Promise<boolean> {
+    const result = await db.delete(paymentMethods).where(eq(paymentMethods.id, id)).returning();
+    return result.length > 0;
+  }
+
+  // ===== Fine Payments =====
+  async createFinePayment(data: InsertFinePayment): Promise<FinePayment> {
+    const [fp] = await db.insert(finePayments).values(data).returning();
+    return fp;
+  }
+  async getFinePaymentsByCirculation(circulationId: number): Promise<FinePayment[]> {
+    return await db.select().from(finePayments).where(eq(finePayments.circulationId, circulationId)).orderBy(desc(finePayments.paidAt));
+  }
+  async getFinePayments(filters: { fromDate?: Date; toDate?: Date; libraryId?: number; paymentMethodId?: number; paymentType?: 'FINE' | 'DAMAGE' }): Promise<FinePayment[]> {
+    const conditions: any[] = [];
+    if (filters.fromDate) conditions.push(sql`${finePayments.paidAt} >= ${filters.fromDate}`);
+    if (filters.toDate) conditions.push(sql`${finePayments.paidAt} <= ${filters.toDate}`);
+    if (filters.paymentMethodId) conditions.push(eq(finePayments.paymentMethodId, filters.paymentMethodId));
+    if (filters.paymentType) conditions.push(eq(finePayments.paymentType, filters.paymentType));
+    if (filters.libraryId) {
+      // Join via circulation
+      const circIds = await db.select({ id: circulation.id }).from(circulation).where(eq(circulation.libraryId, filters.libraryId));
+      const ids = circIds.map(c => c.id);
+      if (ids.length === 0) return [];
+      conditions.push(inArray(finePayments.circulationId, ids));
+    }
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+    return await db.select().from(finePayments).where(whereClause).orderBy(desc(finePayments.paidAt));
+  }
+
+  // ===== Fine Waiver Requests =====
+  async createFineWaiverRequest(data: InsertFineWaiverRequest): Promise<FineWaiverRequest> {
+    const [r] = await db.insert(fineWaiverRequests).values(data).returning();
+    return r;
+  }
+  async getFineWaiverRequest(id: number): Promise<FineWaiverRequest | undefined> {
+    const [r] = await db.select().from(fineWaiverRequests).where(eq(fineWaiverRequests.id, id));
+    return r;
+  }
+  async getFineWaiverRequests(status?: 'PENDING' | 'APPROVED' | 'REJECTED'): Promise<FineWaiverRequest[]> {
+    if (status) {
+      return await db.select().from(fineWaiverRequests).where(eq(fineWaiverRequests.status, status)).orderBy(desc(fineWaiverRequests.createdAt));
+    }
+    return await db.select().from(fineWaiverRequests).orderBy(desc(fineWaiverRequests.createdAt));
+  }
+  async updateFineWaiverRequest(id: number, data: Partial<{ status: 'PENDING' | 'APPROVED' | 'REJECTED'; reviewedBy: number; reviewedAt: Date; reviewNotes: string }>): Promise<FineWaiverRequest | undefined> {
+    const [r] = await db.update(fineWaiverRequests).set(data as any).where(eq(fineWaiverRequests.id, id)).returning();
+    return r;
   }
 }
 

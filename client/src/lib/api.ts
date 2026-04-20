@@ -272,9 +272,44 @@ export const z3950Api = {
 };
 
 // Circulation API
+export interface PaymentSplit {
+  paymentMethodId: number;
+  amount: number;
+  paymentType: 'FINE' | 'DAMAGE';
+  referenceNumber?: string;
+  notes?: string;
+}
+
+export interface ReturnPayload {
+  damageCost?: number;
+  damageNotes?: string;
+  payments?: PaymentSplit[];
+  waiveFineAmount?: number;
+  waiveDamageAmount?: number;
+  waiveReason?: string;
+}
+
+export interface FinePreview {
+  assessedFineCents: number;
+  finePaid: number;
+  fineWaived: number;
+  fineOutstanding: number;
+  damageCost: number;
+  damagePaid: number;
+  damageWaived: number;
+  damageOutstanding: number;
+  daysOverdue: number;
+  isOverdue: boolean;
+  totalOutstanding: number;
+  payments: any[];
+}
+
 export const circulationApi = {
-  getAll: async (userId?: number): Promise<Circulation[]> => {
-    const url = userId ? `${API_BASE}/circulation?userId=${userId}` : `${API_BASE}/circulation`;
+  getAll: async (userId?: number, enrich = false): Promise<any[]> => {
+    const params = new URLSearchParams();
+    if (userId) params.set("userId", String(userId));
+    if (enrich) params.set("enrich", "true");
+    const url = `${API_BASE}/circulation${params.toString() ? `?${params.toString()}` : ""}`;
     const res = await fetch(url);
     if (!res.ok) throw new Error("Failed to fetch circulation records");
     return res.json();
@@ -293,14 +328,100 @@ export const circulationApi = {
     return res.json();
   },
 
-  returnBook: async (id: number): Promise<Circulation> => {
+  returnBook: async (id: number, payload: ReturnPayload = {}): Promise<Circulation> => {
     const res = await fetch(`${API_BASE}/circulation/${id}/return`, {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
     });
     if (!res.ok) {
       const error = await res.json();
       throw new Error(error.error || "Failed to return book");
     }
+    return res.json();
+  },
+
+  finePreview: async (id: number): Promise<FinePreview> => {
+    const res = await fetch(`${API_BASE}/circulation/${id}/fine-preview`);
+    if (!res.ok) throw new Error("Failed to fetch fine preview");
+    return res.json();
+  },
+
+  collectFine: async (id: number, payload: ReturnPayload): Promise<Circulation> => {
+    const res = await fetch(`${API_BASE}/circulation/${id}/collect-fine`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to collect fine");
+    }
+    return res.json();
+  },
+};
+
+export interface PaymentMethodApi {
+  id: number;
+  name: string;
+  code: string;
+  description?: string | null;
+  isActive: boolean;
+  sortOrder?: number | null;
+}
+
+export const paymentMethodsApi = {
+  getAll: async (activeOnly = false): Promise<PaymentMethodApi[]> => {
+    const url = `${API_BASE}/payment-methods${activeOnly ? "?active=true" : ""}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("Failed to fetch payment methods");
+    return res.json();
+  },
+  create: async (data: { name: string; code: string; description?: string; isActive?: boolean; sortOrder?: number }): Promise<PaymentMethodApi> => {
+    const res = await fetch(`${API_BASE}/payment-methods`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error || "Failed to create payment method"); }
+    return res.json();
+  },
+  update: async (id: number, data: Partial<{ name: string; code: string; description: string; isActive: boolean; sortOrder: number }>): Promise<PaymentMethodApi> => {
+    const res = await fetch(`${API_BASE}/payment-methods/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error || "Failed to update payment method"); }
+    return res.json();
+  },
+  delete: async (id: number): Promise<void> => {
+    const res = await fetch(`${API_BASE}/payment-methods/${id}`, { method: "DELETE" });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error || "Failed to delete payment method"); }
+  },
+};
+
+export const fineWaiverRequestsApi = {
+  getAll: async (status?: 'PENDING' | 'APPROVED' | 'REJECTED'): Promise<any[]> => {
+    const url = `${API_BASE}/fine-waiver-requests${status ? `?status=${status}` : ""}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("Failed to fetch waiver requests");
+    return res.json();
+  },
+  approve: async (id: number, reviewNotes?: string): Promise<any> => {
+    const res = await fetch(`${API_BASE}/fine-waiver-requests/${id}/approve`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reviewNotes }) });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error || "Failed to approve"); }
+    return res.json();
+  },
+  reject: async (id: number, reviewNotes?: string): Promise<any> => {
+    const res = await fetch(`${API_BASE}/fine-waiver-requests/${id}/reject`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reviewNotes }) });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error || "Failed to reject"); }
+    return res.json();
+  },
+};
+
+export const finesReportApi = {
+  get: async (filters: { from?: string; to?: string; libraryId?: number; methodId?: number; type?: 'FINE' | 'DAMAGE' } = {}): Promise<any> => {
+    const params = new URLSearchParams();
+    if (filters.from) params.set("from", filters.from);
+    if (filters.to) params.set("to", filters.to);
+    if (filters.libraryId) params.set("libraryId", String(filters.libraryId));
+    if (filters.methodId) params.set("methodId", String(filters.methodId));
+    if (filters.type) params.set("type", filters.type);
+    const res = await fetch(`${API_BASE}/reports/fines-revenue?${params.toString()}`);
+    if (!res.ok) throw new Error("Failed to fetch fines report");
     return res.json();
   },
 };

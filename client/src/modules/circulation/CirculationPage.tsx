@@ -6,6 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { circulationApi, booksApi, bookCopiesApi, librariesApi, libraryMembershipsApi } from "@/lib/api";
+import { useCurrency } from "@/lib/useCurrency";
+import { ReturnBookDialog } from "./ReturnBookDialog";
 import { useAuth } from "@/lib/auth";
 import {
   Table,
@@ -296,7 +298,7 @@ export default function CirculationPage() {
 
   const { data: circulation = [], isLoading: isLoadingCirculation } = useQuery({
     queryKey: ["circulation"],
-    queryFn: () => circulationApi.getAll(),
+    queryFn: () => circulationApi.getAll(undefined, true),
   });
 
   const { data: books = [] } = useQuery({
@@ -395,6 +397,10 @@ export default function CirculationPage() {
       toast.error(err.message);
     },
   });
+
+  const [returnDialogId, setReturnDialogId] = useState<number | null>(null);
+  const [returnDialogMeta, setReturnDialogMeta] = useState<{ title?: string; borrower?: string }>({});
+  const { format: formatMoney } = useCurrency();
 
   const returnMutation = useMutation({
     mutationFn: (id: number) => circulationApi.returnBook(id),
@@ -849,6 +855,7 @@ export default function CirculationPage() {
                 <TableHead>Issue Date</TableHead>
                 <TableHead>Due Date</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead className="text-right">Accrued Fine</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -879,27 +886,41 @@ export default function CirculationPage() {
                     <TableCell className="text-sm">
                       {new Date(record.checkoutDate).toLocaleDateString()}
                     </TableCell>
-                    <TableCell className={`text-sm ${record.status === "OVERDUE" ? "text-red-600 font-medium" : ""}`}>
+                    <TableCell className={`text-sm ${(record as any).isOverdue || record.status === "OVERDUE" ? "text-red-600 font-medium" : ""}`}>
                       {new Date(record.dueDate).toLocaleDateString()}
+                      {(record as any).daysOverdue > 0 && (
+                        <span className="block text-xs text-red-600">{(record as any).daysOverdue}d overdue</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Badge
                         variant="outline"
                         className={`
-                          ${record.status === "OVERDUE" ? "bg-red-50 text-red-700 border-red-200 dark:bg-red-950 dark:text-red-400 dark:border-red-800" : ""}
-                          ${record.status === "ACTIVE" ? "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-400 dark:border-blue-800" : ""}
+                          ${(record as any).isOverdue || record.status === "OVERDUE" ? "bg-red-50 text-red-700 border-red-200 dark:bg-red-950 dark:text-red-400 dark:border-red-800" : ""}
+                          ${!(record as any).isOverdue && record.status === "ACTIVE" ? "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-400 dark:border-blue-800" : ""}
                         `}
                       >
-                        {record.status === "OVERDUE" && <AlertCircle className="mr-1 h-3 w-3" />}
-                        {record.status}
+                        {((record as any).isOverdue || record.status === "OVERDUE") && <AlertCircle className="mr-1 h-3 w-3" />}
+                        {(record as any).isOverdue ? "OVERDUE" : record.status}
                       </Badge>
+                    </TableCell>
+                    <TableCell className="text-right" data-testid={`text-accrued-fine-${record.id}`}>
+                      {(record as any).accruedFine > 0 ? (
+                        <span className={(record as any).fineOutstanding > 0 ? "text-red-600 font-semibold" : "text-muted-foreground"}>
+                          {formatMoney((record as any).accruedFine)}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
                     </TableCell>
                     <TableCell className="text-right">
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => returnMutation.mutate(record.id)}
-                        disabled={returnMutation.isPending}
+                        onClick={() => {
+                          setReturnDialogId(record.id);
+                          setReturnDialogMeta({ title: book?.title, borrower: user?.name });
+                        }}
                         data-testid={`button-return-${record.id}`}
                       >
                         Return
@@ -1035,6 +1056,12 @@ export default function CirculationPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <ReturnBookDialog
+        circulationId={returnDialogId}
+        bookTitle={returnDialogMeta.title}
+        borrowerName={returnDialogMeta.borrower}
+        onClose={() => setReturnDialogId(null)}
+      />
     </MainLayout>
   );
 }

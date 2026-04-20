@@ -1,4 +1,4 @@
-import { LucideIcon, LayoutDashboard, Book, Users, Repeat, AlertCircle, Settings, PieChart, Layers, Bell, Search, Menu, Building2, Package, ClipboardList, Tags } from "lucide-react";
+import { LucideIcon, LayoutDashboard, Book, Users, Repeat, AlertCircle, Settings, PieChart, Layers, Bell, Search, Menu, Building2, Package, ClipboardList, Tags, Coins } from "lucide-react";
 
 export type UserRole = 'ADMIN' | 'LIBRARIAN' | 'STUDENT';
 
@@ -78,6 +78,7 @@ export const navItems = [
   { label: 'Search Attributes', icon: Tags, href: '/catalog/search-attributes', localAdminOnly: false },
   { label: 'Allocations', icon: Package, href: '/allocations', localAdminOnly: false },
   { label: 'Circulation', icon: Repeat, href: '/circulation', localAdminOnly: false },
+  { label: 'Waiver Requests', icon: Coins, href: '/circulation/waiver-requests', localAdminOnly: true },
   { label: 'Patrons', icon: Users, href: '/users', localAdminOnly: false },
   { label: 'Inventory', icon: Layers, href: '/inventory', localAdminOnly: false },
   { label: 'Organizations', icon: Building2, href: '/organizations', localAdminOnly: false },

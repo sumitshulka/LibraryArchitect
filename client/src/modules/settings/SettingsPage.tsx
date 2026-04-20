@@ -50,7 +50,7 @@ import {
   Users, Repeat, Layers, PieChart, Loader2
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { resourceTypesApi, categoriesApi, erpIntegrationsApi, configApi, type ErpIntegrationPublic, type ErpCredentials, type ErpPullEndpoint } from "@/lib/api";
+import { resourceTypesApi, categoriesApi, erpIntegrationsApi, configApi, paymentMethodsApi, type ErpIntegrationPublic, type ErpCredentials, type ErpPullEndpoint, type PaymentMethodApi } from "@/lib/api";
 import { toast } from "sonner";
 import type { ResourceType, Category, ErpWhitelist } from "@shared/schema";
 import { useLocation } from "wouter";
@@ -2576,6 +2576,142 @@ function EmailProviderSettings() {
   );
 }
 
+function PaymentMethodsSettings() {
+  const queryClient = useQueryClient();
+  const { data: methods = [], isLoading } = useQuery({
+    queryKey: ["payment-methods"],
+    queryFn: () => paymentMethodsApi.getAll(false),
+  });
+  const [editing, setEditing] = useState<PaymentMethodApi | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm] = useState({ name: "", code: "", description: "", isActive: true });
+
+  const reset = () => setForm({ name: "", code: "", description: "", isActive: true });
+
+  const createMut = useMutation({
+    mutationFn: () => paymentMethodsApi.create(form),
+    onSuccess: () => {
+      toast.success("Payment method added");
+      queryClient.invalidateQueries({ queryKey: ["payment-methods"] });
+      setShowAdd(false); reset();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const updateMut = useMutation({
+    mutationFn: () => paymentMethodsApi.update(editing!.id, form),
+    onSuccess: () => {
+      toast.success("Payment method updated");
+      queryClient.invalidateQueries({ queryKey: ["payment-methods"] });
+      setEditing(null); reset();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => paymentMethodsApi.delete(id),
+    onSuccess: () => {
+      toast.success("Payment method removed");
+      queryClient.invalidateQueries({ queryKey: ["payment-methods"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const toggleMut = useMutation({
+    mutationFn: ({ id, isActive }: { id: number; isActive: boolean }) => paymentMethodsApi.update(id, { isActive }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["payment-methods"] }),
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const openEdit = (m: PaymentMethodApi) => {
+    setEditing(m);
+    setForm({ name: m.name, code: m.code, description: m.description ?? "", isActive: m.isActive });
+  };
+
+  const isOpen = showAdd || editing !== null;
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <div>
+          <CardTitle className="flex items-center gap-2"><Coins className="h-5 w-5" />Payment Methods</CardTitle>
+          <CardDescription>Configure how fines and damage charges can be collected.</CardDescription>
+        </div>
+        <Button size="sm" onClick={() => { reset(); setShowAdd(true); }} data-testid="button-add-payment-method">
+          Add method
+        </Button>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+        ) : (
+          <div className="rounded-md border divide-y">
+            {methods.length === 0 && <div className="p-6 text-center text-sm text-muted-foreground">No payment methods yet.</div>}
+            {methods.map((m) => (
+              <div key={m.id} className="flex items-center justify-between p-3" data-testid={`row-payment-method-${m.id}`}>
+                <div className="flex items-center gap-3">
+                  <Badge variant="outline" className="font-mono text-xs">{m.code}</Badge>
+                  <div>
+                    <div className="font-medium text-sm">{m.name}</div>
+                    {m.description && <div className="text-xs text-muted-foreground">{m.description}</div>}
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    <Switch checked={m.isActive} onCheckedChange={(v) => toggleMut.mutate({ id: m.id, isActive: v })} data-testid={`switch-active-${m.id}`} />
+                    <span className="text-xs text-muted-foreground w-14">{m.isActive ? "Active" : "Inactive"}</span>
+                  </div>
+                  <Button size="sm" variant="ghost" onClick={() => openEdit(m)} data-testid={`button-edit-method-${m.id}`}>Edit</Button>
+                  <Button size="sm" variant="ghost" className="text-red-600 hover:text-red-700"
+                    onClick={() => { if (confirm(`Remove ${m.name}?`)) deleteMut.mutate(m.id); }}
+                    data-testid={`button-delete-method-${m.id}`}>Delete</Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+
+      <Dialog open={isOpen} onOpenChange={(o) => { if (!o) { setShowAdd(false); setEditing(null); reset(); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editing ? "Edit payment method" : "New payment method"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Name</Label>
+              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. UPI" data-testid="input-method-name" />
+            </div>
+            <div>
+              <Label>Code</Label>
+              <Input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })} placeholder="e.g. UPI" data-testid="input-method-code" />
+            </div>
+            <div>
+              <Label>Description (optional)</Label>
+              <Input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} data-testid="input-method-description" />
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch checked={form.isActive} onCheckedChange={(v) => setForm({ ...form, isActive: v })} data-testid="switch-method-active" />
+              <Label className="text-sm">Active</Label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setShowAdd(false); setEditing(null); reset(); }}>Cancel</Button>
+            <Button
+              onClick={() => editing ? updateMut.mutate() : createMut.mutate()}
+              disabled={!form.name || !form.code || createMut.isPending || updateMut.isPending}
+              data-testid="button-save-method"
+            >
+              {(createMut.isPending || updateMut.isPending) && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              {editing ? "Save" : "Add"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
+
 export default function SettingsPage() {
   const queryClient = useQueryClient();
   
@@ -2781,6 +2917,14 @@ export default function SettingsPage() {
               >
                 <Lock className="mr-2 h-4 w-4" />
                 Security & Access
+              </TabsTrigger>
+              <TabsTrigger
+                value="payment-methods"
+                className="justify-start px-3 py-2 h-10 data-[state=active]:bg-muted data-[state=active]:text-foreground hover:bg-muted/50 transition-colors"
+                data-testid="tab-payment-methods"
+              >
+                <Coins className="h-4 w-4 mr-2" />
+                Payment Methods
               </TabsTrigger>
               <TabsTrigger 
                 value="audit" 
@@ -3175,6 +3319,10 @@ export default function SettingsPage() {
                   </div>
                 </CardContent>
               </Card>
+            </TabsContent>
+
+            <TabsContent value="payment-methods" className="mt-0 space-y-6">
+              <PaymentMethodsSettings />
             </TabsContent>
 
             <TabsContent value="audit" className="mt-0 space-y-6">

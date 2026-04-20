@@ -14,7 +14,11 @@ export const orgUnitTypeEnum = pgEnum('org_unit_type', ['UNIVERSITY', 'CAMPUS', 
 export const copyStatusEnum = pgEnum('copy_status', ['AVAILABLE', 'CHECKED_OUT', 'LOST', 'DAMAGED', 'IN_TRANSIT', 'RESERVED']);
 export const transferStatusEnum = pgEnum('transfer_status', ['PENDING', 'APPROVED', 'IN_TRANSIT', 'COMPLETED', 'CANCELLED']);
 export const bookFormatEnum = pgEnum('book_format', ['PHYSICAL', 'EBOOK', 'AUDIOBOOK']);
-export const fineStatusEnum = pgEnum('fine_status', ['OUTSTANDING', 'PAID', 'WAIVED']);
+export const fineStatusEnum = pgEnum('fine_status', ['OUTSTANDING', 'PAID', 'WAIVED', 'PARTIALLY_PAID']);
+export const damageStatusEnum = pgEnum('damage_status', ['NONE', 'OUTSTANDING', 'PAID', 'WAIVED', 'PARTIALLY_PAID']);
+export const paymentTypeEnum = pgEnum('payment_type', ['FINE', 'DAMAGE']);
+export const waiverRequestTypeEnum = pgEnum('waiver_request_type', ['FINE', 'DAMAGE']);
+export const waiverRequestStatusEnum = pgEnum('waiver_request_status', ['PENDING', 'APPROVED', 'REJECTED']);
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -82,7 +86,50 @@ export const circulation = pgTable("circulation", {
   status: circulationStatusEnum("status").notNull().default('ACTIVE'),
   fineAmount: integer("fine_amount").default(0),
   fineStatus: fineStatusEnum("fine_status").default('OUTSTANDING'),
+  finePaidAmount: integer("fine_paid_amount").default(0),
+  fineWaivedAmount: integer("fine_waived_amount").default(0),
+  damageCost: integer("damage_cost").default(0),
+  damageStatus: damageStatusEnum("damage_status").default('NONE'),
+  damagePaidAmount: integer("damage_paid_amount").default(0),
+  damageWaivedAmount: integer("damage_waived_amount").default(0),
+  damageNotes: text("damage_notes"),
   renewalCount: integer("renewal_count").default(0),
+});
+
+export const paymentMethods = pgTable("payment_methods", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  code: text("code").notNull().unique(),
+  description: text("description"),
+  isActive: boolean("is_active").notNull().default(true),
+  sortOrder: integer("sort_order").default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const finePayments = pgTable("fine_payments", {
+  id: serial("id").primaryKey(),
+  circulationId: integer("circulation_id").notNull().references(() => circulation.id),
+  paymentType: paymentTypeEnum("payment_type").notNull().default('FINE'),
+  amount: integer("amount").notNull(),
+  paymentMethodId: integer("payment_method_id").notNull().references(() => paymentMethods.id),
+  collectedBy: integer("collected_by").notNull().references(() => users.id),
+  paidAt: timestamp("paid_at").notNull().defaultNow(),
+  referenceNumber: text("reference_number"),
+  notes: text("notes"),
+});
+
+export const fineWaiverRequests = pgTable("fine_waiver_requests", {
+  id: serial("id").primaryKey(),
+  circulationId: integer("circulation_id").notNull().references(() => circulation.id),
+  requestType: waiverRequestTypeEnum("request_type").notNull().default('FINE'),
+  requestedAmount: integer("requested_amount").notNull(),
+  reason: text("reason").notNull(),
+  status: waiverRequestStatusEnum("status").notNull().default('PENDING'),
+  requestedBy: integer("requested_by").notNull().references(() => users.id),
+  reviewedBy: integer("reviewed_by").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewNotes: text("review_notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 export const auditSessionStatusEnum = pgEnum('audit_session_status', ['ACTIVE', 'COMPLETED', 'CANCELLED']);
@@ -290,6 +337,8 @@ export const libraries = pgTable("libraries", {
     maxBooksPerUser?: number;
     renewalLimit?: number;
     finePerDay?: number;
+    gracePeriodDays?: number;
+    maxFineCap?: number;
     reservationDays?: number;
     allowInterLibraryLoan?: boolean;
   }>(),
@@ -405,6 +454,25 @@ export const insertBookSchema = createInsertSchema(books).omit({
 export const insertCirculationSchema = createInsertSchema(circulation).omit({
   id: true,
   checkoutDate: true,
+});
+
+export const insertPaymentMethodSchema = createInsertSchema(paymentMethods).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertFinePaymentSchema = createInsertSchema(finePayments).omit({
+  id: true,
+  paidAt: true,
+});
+
+export const insertFineWaiverRequestSchema = createInsertSchema(fineWaiverRequests).omit({
+  id: true,
+  createdAt: true,
+  reviewedBy: true,
+  reviewedAt: true,
+  reviewNotes: true,
+  status: true,
 });
 
 export const insertInventorySchema = createInsertSchema(inventory).omit({
@@ -616,3 +684,12 @@ export type SearchAttributeValue = typeof searchAttributeValues.$inferSelect;
 
 export type InsertResourceSearchAttribute = z.infer<typeof insertResourceSearchAttributeSchema>;
 export type ResourceSearchAttribute = typeof resourceSearchAttributes.$inferSelect;
+
+export type InsertPaymentMethod = z.infer<typeof insertPaymentMethodSchema>;
+export type PaymentMethod = typeof paymentMethods.$inferSelect;
+
+export type InsertFinePayment = z.infer<typeof insertFinePaymentSchema>;
+export type FinePayment = typeof finePayments.$inferSelect;
+
+export type InsertFineWaiverRequest = z.infer<typeof insertFineWaiverRequestSchema>;
+export type FineWaiverRequest = typeof fineWaiverRequests.$inferSelect;

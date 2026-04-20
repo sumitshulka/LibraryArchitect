@@ -36,6 +36,15 @@ Preferred communication style: Simple, everyday language.
 - **Direct Checkout**: Frontend flow supports searching for members and books, selecting copies from the chosen library, and confirming issue.
 - **Quick Return**: Facilitates quick book returns, ensuring books go back to their issuing library.
 
+### Fine Collection Workflow
+- **Schema**: `payment_methods`, `fine_payments` (per-payment ledger), `fine_waiver_requests` (approval queue). Circulation rows track `fineAmount`, `finePaidAmount`, `fineWaivedAmount`, `damageCost`, `damagePaidAmount`, `damageWaivedAmount`, `damageStatus`.
+- **Accrued Fine**: Calculated live via `server/fines.ts#calculateAccruedFine` using each library's `policies.finePerDay`, `gracePeriodDays`, and `maxFineCap`. Active circulation rows expose `accruedFine`/`daysOverdue` when fetched with `?enrich=true`.
+- **Return Modal**: At return time the librarian/admin can record damage cost + notes, split payments across configured methods (Cash, UPI, Card, Bank, Cheque, …), and apply a waiver. Outstanding amounts persist on the borrower's record for later collection via `POST /api/circulation/:id/collect-fine`.
+- **Waiver Approval**: Admins (`role === 'ADMIN'`) waive directly. Librarians create a `fine_waiver_request` (PENDING) that admins review on the **Waiver Requests** page. Approval applies the waiver and updates the circulation.
+- **Configurable Payment Methods**: Managed in **Settings → Payment Methods** (CRUD with active toggle).
+- **Fines & Revenue Report**: `GET /api/reports/fines-revenue` aggregates payments by method, library, and day; powers the report page with filters (date range, library, method, type) plus CSV export.
+- **Audit**: Every fine/damage/waiver action is logged under category `FINES` (PAYMENT_COLLECTED, WAIVED_BY_ADMIN, WAIVER_REQUESTED, WAIVER_APPROVED, WAIVER_REJECTED).
+
 ## External Dependencies
 
 ### Database Service

@@ -15,6 +15,7 @@ import BulkUploadPage from "@/modules/catalog/BulkUploadPage";
 import AllocationsPage from "@/modules/allocations/AllocationsPage";
 import UsersPage from "@/modules/users/UsersPage";
 import CirculationPage from "@/modules/circulation/CirculationPage";
+import WaiverRequestsPage from "@/modules/circulation/WaiverRequestsPage";
 import InventoryPage from "@/modules/inventory/InventoryPage";
 import OrganizationsPage from "@/modules/organizations/OrganizationsPage";
 import { LibraryDashboardPage } from "@/modules/organizations/LibraryDashboardPage";
@@ -59,6 +60,7 @@ function AppRouter() {
       <Route path="/allocations">{() => <ProtectedRoute component={AllocationsPage} />}</Route>
       <Route path="/users">{() => <ProtectedRoute component={UsersPage} />}</Route>
       <Route path="/circulation">{() => <ProtectedRoute component={CirculationPage} />}</Route>
+      <Route path="/circulation/waiver-requests">{() => <ProtectedRoute component={WaiverRequestsPage} />}</Route>
       <Route path="/inventory">{() => <ProtectedRoute component={InventoryPage} />}</Route>
       <Route path="/organizations">{() => <ProtectedRoute component={OrganizationsPage} />}</Route>
       <Route path="/organizations/libraries/:libraryId">{() => <ProtectedRoute component={LibraryDashboardPage} />}</Route>

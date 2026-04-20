@@ -20,7 +20,9 @@ import {
   insertInventoryItemSchema,
   insertSearchAttributeTypeSchema,
   insertSearchAttributeValueSchema,
+  insertPaymentMethodSchema,
 } from "@shared/schema";
+import { calculateAccruedFine, getCirculationFineSummary } from "./fines";
 import { z } from "zod";
 import { fromZodError } from "zod-validation-error";
 import crypto from "crypto";
@@ -34,6 +36,20 @@ import { setupSwagger } from "./swagger";
 import { logAudit, invalidateAuditConfigCache } from "./audit";
 
 const MAX_WHITELIST_ENTRIES = 5;
+
+async function requireStaff(req: any, res: any): Promise<any | null> {
+  const sessionId = req.cookies?.session_id;
+  if (!sessionId) { res.status(401).json({ error: "Authentication required" }); return null; }
+  const session = await storage.getSession(sessionId);
+  if (!session) { res.status(401).json({ error: "Invalid session" }); return null; }
+  const user = await storage.getUser(session.userId);
+  if (!user) { res.status(401).json({ error: "User not found" }); return null; }
+  if (user.role !== 'ADMIN' && user.role !== 'LIBRARIAN') {
+    res.status(403).json({ error: "Staff access required" });
+    return null;
+  }
+  return user;
+}
 
 async function requireLocalAdmin(req: any, res: any): Promise<any | null> {
   const sessionId = req.cookies?.session_id;
@@ -657,15 +673,34 @@ export async function registerRoutes(
   // ===== Circulation API =====
   app.get("/api/circulation", async (req, res) => {
     try {
-      const { userId } = req.query;
-      
-      if (userId && typeof userId === 'string') {
-        const circulations = await storage.getCirculationByUser(parseInt(userId));
+      const { userId, enrich } = req.query;
+
+      const circulations = (userId && typeof userId === 'string')
+        ? await storage.getCirculationByUser(parseInt(userId))
+        : await storage.getAllCirculation();
+
+      if (enrich !== 'true') {
         return res.json(circulations);
       }
-      
-      const circulations = await storage.getAllCirculation();
-      res.json(circulations);
+
+      // Enrich active rows with accrued fine info
+      const libraries = await storage.getAllLibraries();
+      const libMap = new Map(libraries.map(l => [l.id, l]));
+
+      const enriched = await Promise.all(circulations.map(async (c) => {
+        const lib = c.libraryId ? libMap.get(c.libraryId) : null;
+        if (c.status === 'RETURNED') {
+          const finePaid = c.finePaidAmount ?? 0;
+          const fineWaived = c.fineWaivedAmount ?? 0;
+          const fineOutstanding = Math.max(0, (c.fineAmount ?? 0) - finePaid - fineWaived);
+          const damageOutstanding = Math.max(0, (c.damageCost ?? 0) - (c.damagePaidAmount ?? 0) - (c.damageWaivedAmount ?? 0));
+          return { ...c, accruedFine: c.fineAmount ?? 0, daysOverdue: 0, isOverdue: false, fineOutstanding, damageOutstanding };
+        }
+        const calc = calculateAccruedFine(c, lib || null);
+        const fineOutstanding = Math.max(0, calc.fineCents - (c.finePaidAmount ?? 0) - (c.fineWaivedAmount ?? 0));
+        return { ...c, accruedFine: calc.fineCents, daysOverdue: calc.daysOverdue, isOverdue: calc.isOverdue, fineOutstanding, damageOutstanding: 0 };
+      }));
+      res.json(enriched);
     } catch (error) {
       console.error("Error fetching circulation:", error);
       res.status(500).json({ error: "Failed to fetch circulation records" });
@@ -788,49 +823,537 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/circulation/:id/return", async (req, res) => {
+  // Fine preview for a circulation (used by return modal & circulation list)
+  app.get("/api/circulation/:id/fine-preview", async (req, res) => {
     try {
+      const staff = await requireStaff(req, res); if (!staff) return;
       const id = parseInt(req.params.id);
       const circ = await storage.getCirculation(id);
-      
-      if (!circ) {
-        return res.status(404).json({ error: "Circulation record not found" });
-      }
-      
-      if (circ.status !== 'ACTIVE') {
-        return res.status(400).json({ error: "This book has already been returned" });
-      }
-      
+      if (!circ) return res.status(404).json({ error: "Circulation record not found" });
+      const summary = await getCirculationFineSummary(circ);
+      const payments = await storage.getFinePaymentsByCirculation(id);
+      res.json({ ...summary, payments });
+    } catch (error) {
+      console.error("Error computing fine preview:", error);
+      res.status(500).json({ error: "Failed to compute fine preview" });
+    }
+  });
+
+  const returnBodySchema = z.object({
+    damageCost: z.number().int().nonnegative().optional().default(0),
+    damageNotes: z.string().optional(),
+    payments: z.array(z.object({
+      paymentMethodId: z.number().int().positive(),
+      amount: z.number().int().positive(),
+      paymentType: z.enum(['FINE', 'DAMAGE']).default('FINE'),
+      referenceNumber: z.string().optional(),
+      notes: z.string().optional(),
+    })).optional().default([]),
+    waiveFineAmount: z.number().int().nonnegative().optional().default(0),
+    waiveDamageAmount: z.number().int().nonnegative().optional().default(0),
+    waiveReason: z.string().optional(),
+  });
+
+  app.post("/api/circulation/:id/return", async (req, res) => {
+    try {
+      const currentUser = await requireStaff(req, res);
+      if (!currentUser) return;
+      const isAdmin = currentUser.role === 'ADMIN';
+
+      const id = parseInt(req.params.id);
+      const circ = await storage.getCirculation(id);
+      if (!circ) return res.status(404).json({ error: "Circulation record not found" });
+      if (circ.status === 'RETURNED') return res.status(400).json({ error: "This book has already been returned" });
+
+      const body = returnBodySchema.parse(req.body || {});
       const returnDate = new Date();
-      const isOverdue = returnDate > circ.dueDate;
-      
-      // Calculate fine if overdue (e.g., $1 per day)
-      let fineAmount = 0;
-      if (isOverdue) {
-        const daysOverdue = Math.ceil((returnDate.getTime() - circ.dueDate.getTime()) / (1000 * 60 * 60 * 24));
-        fineAmount = daysOverdue * 100; // $1.00 in cents
+
+      // Compute fine using policy
+      const library = circ.libraryId ? await storage.getLibrary(circ.libraryId) : null;
+      const calc = calculateAccruedFine({ ...circ, returnDate }, library);
+      const fineAmount = calc.fineCents;
+      const isOverdue = calc.isOverdue;
+      const daysOverdue = calc.daysOverdue;
+      const damageCost = body.damageCost || 0;
+
+      // Validate that payments don't exceed assessed amounts
+      const finePayTotal = body.payments.filter(p => p.paymentType === 'FINE').reduce((s, p) => s + p.amount, 0);
+      const damagePayTotal = body.payments.filter(p => p.paymentType === 'DAMAGE').reduce((s, p) => s + p.amount, 0);
+
+      const waiveFine = isAdmin ? (body.waiveFineAmount || 0) : 0;
+      const waiveDamage = isAdmin ? (body.waiveDamageAmount || 0) : 0;
+
+      if (finePayTotal + waiveFine > fineAmount) {
+        return res.status(400).json({ error: `Fine payment + waiver (${finePayTotal + waiveFine}) cannot exceed fine amount (${fineAmount})` });
       }
-      
-      // Update circulation record
+      if (damagePayTotal + waiveDamage > damageCost) {
+        return res.status(400).json({ error: `Damage payment + waiver (${damagePayTotal + waiveDamage}) cannot exceed damage cost (${damageCost})` });
+      }
+
+      // Validate payment methods exist
+      for (const p of body.payments) {
+        const pm = await storage.getPaymentMethod(p.paymentMethodId);
+        if (!pm || !pm.isActive) {
+          return res.status(400).json({ error: `Invalid or inactive payment method id ${p.paymentMethodId}` });
+        }
+      }
+
+      // Determine fine status
+      const fineRemaining = fineAmount - finePayTotal - waiveFine;
+      let fineStatus: 'OUTSTANDING' | 'PAID' | 'WAIVED' | 'PARTIALLY_PAID' = 'OUTSTANDING';
+      if (fineAmount === 0) {
+        fineStatus = 'PAID';
+      } else if (fineRemaining === 0) {
+        fineStatus = waiveFine > 0 && finePayTotal === 0 ? 'WAIVED' : 'PAID';
+      } else if (finePayTotal > 0 || waiveFine > 0) {
+        fineStatus = 'PARTIALLY_PAID';
+      }
+
+      const damageRemaining = damageCost - damagePayTotal - waiveDamage;
+      let damageStatus: 'NONE' | 'OUTSTANDING' | 'PAID' | 'WAIVED' | 'PARTIALLY_PAID' = 'NONE';
+      if (damageCost === 0) {
+        damageStatus = 'NONE';
+      } else if (damageRemaining === 0) {
+        damageStatus = waiveDamage > 0 && damagePayTotal === 0 ? 'WAIVED' : 'PAID';
+      } else if (damagePayTotal > 0 || waiveDamage > 0) {
+        damageStatus = 'PARTIALLY_PAID';
+      } else {
+        damageStatus = 'OUTSTANDING';
+      }
+
+      // Update circulation
       const updated = await storage.updateCirculation(id, {
         returnDate,
         status: 'RETURNED',
-        fineAmount
-      });
-      
-      // Update book status
-      await storage.updateBook(circ.bookId, { status: 'AVAILABLE' });
+        fineAmount,
+        fineStatus,
+        finePaidAmount: finePayTotal,
+        fineWaivedAmount: waiveFine,
+        damageCost,
+        damageStatus,
+        damagePaidAmount: damagePayTotal,
+        damageWaivedAmount: waiveDamage,
+        damageNotes: body.damageNotes || null,
+      } as any);
 
-      // Restore book copy status back to AVAILABLE (return to the same library it was issued from)
-      if (circ.bookCopyId) {
-        await storage.updateBookCopy(circ.bookCopyId, { status: 'AVAILABLE' });
+      // Persist fine payments
+      for (const p of body.payments) {
+        await storage.createFinePayment({
+          circulationId: id,
+          paymentType: p.paymentType,
+          amount: p.amount,
+          paymentMethodId: p.paymentMethodId,
+          collectedBy: currentUser.id,
+          referenceNumber: p.referenceNumber || null,
+          notes: p.notes || null,
+        } as any);
       }
-      
-      logAudit(req, { category: 'CIRCULATION', action: 'RETURN', targetType: 'circulation', targetId: String(id), details: { bookId: circ.bookId, userId: circ.userId, isOverdue, fineAmount, libraryId: circ.libraryId } });
+
+      // If non-admin and a waiver was requested but not applied, create waiver requests
+      const requestedFineWaive = !isAdmin ? (body.waiveFineAmount || 0) : 0;
+      const requestedDamageWaive = !isAdmin ? (body.waiveDamageAmount || 0) : 0;
+      if (requestedFineWaive > 0) {
+        const wr = await storage.createFineWaiverRequest({
+          circulationId: id,
+          requestType: 'FINE',
+          requestedAmount: requestedFineWaive,
+          reason: body.waiveReason || 'Waiver requested at return',
+          requestedBy: currentUser.id,
+        } as any);
+        logAudit(req, { category: 'FINES', action: 'WAIVER_REQUESTED', targetType: 'fine_waiver_request', targetId: String(wr.id), details: { circulationId: id, type: 'FINE', amount: requestedFineWaive } });
+      }
+      if (requestedDamageWaive > 0) {
+        const wr = await storage.createFineWaiverRequest({
+          circulationId: id,
+          requestType: 'DAMAGE',
+          requestedAmount: requestedDamageWaive,
+          reason: body.waiveReason || 'Damage waiver requested at return',
+          requestedBy: currentUser.id,
+        } as any);
+        logAudit(req, { category: 'FINES', action: 'WAIVER_REQUESTED', targetType: 'fine_waiver_request', targetId: String(wr.id), details: { circulationId: id, type: 'DAMAGE', amount: requestedDamageWaive } });
+      }
+
+      // Update book/copy status
+      await storage.updateBook(circ.bookId, { status: 'AVAILABLE' });
+      if (circ.bookCopyId) {
+        await storage.updateBookCopy(circ.bookCopyId, { status: damageCost > 0 ? 'DAMAGED' : 'AVAILABLE' });
+      }
+
+      logAudit(req, {
+        category: 'CIRCULATION',
+        action: 'RETURN',
+        targetType: 'circulation',
+        targetId: String(id),
+        details: { bookId: circ.bookId, userId: circ.userId, isOverdue, daysOverdue, fineAmount, finePayTotal, fineWaived: waiveFine, damageCost, damagePayTotal, damageWaived: waiveDamage, libraryId: circ.libraryId }
+      });
+      if (finePayTotal > 0 || damagePayTotal > 0) {
+        logAudit(req, { category: 'FINES', action: 'PAYMENT_COLLECTED', targetType: 'circulation', targetId: String(id), details: { finePayTotal, damagePayTotal, payments: body.payments } });
+      }
+      if (waiveFine > 0 || waiveDamage > 0) {
+        logAudit(req, { category: 'FINES', action: 'WAIVED_BY_ADMIN', targetType: 'circulation', targetId: String(id), details: { waiveFine, waiveDamage, reason: body.waiveReason } });
+      }
+
       res.json(updated);
     } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
       console.error("Error returning book:", error);
       res.status(500).json({ error: "Failed to return book" });
+    }
+  });
+
+  // Collect fine after the fact (for already returned circulations with outstanding fine/damage)
+  app.post("/api/circulation/:id/collect-fine", async (req, res) => {
+    try {
+      const currentUser = await requireStaff(req, res);
+      if (!currentUser) return;
+      const isAdmin = currentUser.role === 'ADMIN';
+
+      const id = parseInt(req.params.id);
+      const circ = await storage.getCirculation(id);
+      if (!circ) return res.status(404).json({ error: "Circulation not found" });
+
+      const body = z.object({
+        payments: z.array(z.object({
+          paymentMethodId: z.number().int().positive(),
+          amount: z.number().int().positive(),
+          paymentType: z.enum(['FINE', 'DAMAGE']).default('FINE'),
+          referenceNumber: z.string().optional(),
+          notes: z.string().optional(),
+        })).default([]),
+        waiveFineAmount: z.number().int().nonnegative().optional().default(0),
+        waiveDamageAmount: z.number().int().nonnegative().optional().default(0),
+        waiveReason: z.string().optional(),
+      }).parse(req.body || {});
+
+      const summary = await getCirculationFineSummary(circ);
+      const finePay = body.payments.filter(p => p.paymentType === 'FINE').reduce((s, p) => s + p.amount, 0);
+      const damagePay = body.payments.filter(p => p.paymentType === 'DAMAGE').reduce((s, p) => s + p.amount, 0);
+      const waiveFine = isAdmin ? body.waiveFineAmount : 0;
+      const waiveDamage = isAdmin ? body.waiveDamageAmount : 0;
+
+      if (finePay + waiveFine > summary.fineOutstanding) {
+        return res.status(400).json({ error: "Fine collection exceeds outstanding amount" });
+      }
+      if (damagePay + waiveDamage > summary.damageOutstanding) {
+        return res.status(400).json({ error: "Damage collection exceeds outstanding amount" });
+      }
+
+      for (const p of body.payments) {
+        const pm = await storage.getPaymentMethod(p.paymentMethodId);
+        if (!pm || !pm.isActive) return res.status(400).json({ error: `Invalid payment method ${p.paymentMethodId}` });
+        await storage.createFinePayment({
+          circulationId: id,
+          paymentType: p.paymentType,
+          amount: p.amount,
+          paymentMethodId: p.paymentMethodId,
+          collectedBy: currentUser.id,
+          referenceNumber: p.referenceNumber || null,
+          notes: p.notes || null,
+        } as any);
+      }
+
+      const newFinePaid = (circ.finePaidAmount ?? 0) + finePay;
+      const newFineWaived = (circ.fineWaivedAmount ?? 0) + waiveFine;
+      const newDamagePaid = (circ.damagePaidAmount ?? 0) + damagePay;
+      const newDamageWaived = (circ.damageWaivedAmount ?? 0) + waiveDamage;
+
+      const fineRemaining = (summary.assessedFineCents) - newFinePaid - newFineWaived;
+      let fineStatus: 'OUTSTANDING' | 'PAID' | 'WAIVED' | 'PARTIALLY_PAID' = 'OUTSTANDING';
+      if (summary.assessedFineCents === 0) fineStatus = 'PAID';
+      else if (fineRemaining === 0) fineStatus = newFinePaid === 0 ? 'WAIVED' : 'PAID';
+      else if (newFinePaid > 0 || newFineWaived > 0) fineStatus = 'PARTIALLY_PAID';
+
+      const damageRemaining = (circ.damageCost ?? 0) - newDamagePaid - newDamageWaived;
+      let damageStatus: 'NONE' | 'OUTSTANDING' | 'PAID' | 'WAIVED' | 'PARTIALLY_PAID' = circ.damageStatus ?? 'NONE';
+      if ((circ.damageCost ?? 0) > 0) {
+        if (damageRemaining === 0) damageStatus = newDamagePaid === 0 ? 'WAIVED' : 'PAID';
+        else if (newDamagePaid > 0 || newDamageWaived > 0) damageStatus = 'PARTIALLY_PAID';
+        else damageStatus = 'OUTSTANDING';
+      }
+
+      const updated = await storage.updateCirculation(id, {
+        finePaidAmount: newFinePaid,
+        fineWaivedAmount: newFineWaived,
+        fineStatus,
+        damagePaidAmount: newDamagePaid,
+        damageWaivedAmount: newDamageWaived,
+        damageStatus,
+      } as any);
+
+      logAudit(req, { category: 'FINES', action: 'PAYMENT_COLLECTED', targetType: 'circulation', targetId: String(id), details: { finePay, damagePay, waiveFine, waiveDamage, payments: body.payments } });
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: fromZodError(error).toString() });
+      console.error("Collect fine error:", error);
+      res.status(500).json({ error: "Failed to collect fine" });
+    }
+  });
+
+  // ===== Payment Methods API =====
+  app.get("/api/payment-methods", async (req, res) => {
+    try {
+      const onlyActive = req.query.active === 'true';
+      const list = onlyActive ? await storage.getActivePaymentMethods() : await storage.getAllPaymentMethods();
+      res.json(list);
+    } catch (error) {
+      console.error("Error fetching payment methods:", error);
+      res.status(500).json({ error: "Failed to fetch payment methods" });
+    }
+  });
+
+  app.post("/api/payment-methods", async (req, res) => {
+    try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+      const validated = insertPaymentMethodSchema.parse(req.body);
+      const pm = await storage.createPaymentMethod(validated);
+      logAudit(req, { category: 'SYSTEM_CONFIG', action: 'PAYMENT_METHOD_CREATED', userId: currentUser.id, userName: currentUser.name, targetType: 'payment_method', targetId: String(pm.id), details: { name: pm.name, code: pm.code } });
+      res.status(201).json(pm);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: fromZodError(error).toString() });
+      console.error("Error creating payment method:", error);
+      res.status(500).json({ error: "Failed to create payment method" });
+    }
+  });
+
+  app.patch("/api/payment-methods/:id", async (req, res) => {
+    try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+      const id = parseInt(req.params.id);
+      const validated = insertPaymentMethodSchema.partial().parse(req.body);
+      const pm = await storage.updatePaymentMethod(id, validated);
+      if (!pm) return res.status(404).json({ error: "Payment method not found" });
+      logAudit(req, { category: 'SYSTEM_CONFIG', action: 'PAYMENT_METHOD_UPDATED', userId: currentUser.id, userName: currentUser.name, targetType: 'payment_method', targetId: String(id), details: { changedFields: Object.keys(validated) } });
+      res.json(pm);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: fromZodError(error).toString() });
+      console.error("Error updating payment method:", error);
+      res.status(500).json({ error: "Failed to update payment method" });
+    }
+  });
+
+  app.delete("/api/payment-methods/:id", async (req, res) => {
+    try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+      const id = parseInt(req.params.id);
+      const ok = await storage.deletePaymentMethod(id);
+      if (!ok) return res.status(404).json({ error: "Payment method not found" });
+      logAudit(req, { category: 'SYSTEM_CONFIG', action: 'PAYMENT_METHOD_DELETED', userId: currentUser.id, userName: currentUser.name, targetType: 'payment_method', targetId: String(id) });
+      res.json({ success: true });
+    } catch (error: any) {
+      // Likely FK violation
+      console.error("Error deleting payment method:", error);
+      res.status(400).json({ error: "Cannot delete payment method (it may be referenced by existing payments). Deactivate it instead." });
+    }
+  });
+
+  // ===== Fine Waiver Requests API =====
+  app.get("/api/fine-waiver-requests", async (req, res) => {
+    try {
+      const currentUser = await requireStaff(req, res);
+      if (!currentUser) return;
+      const status = (req.query.status as 'PENDING' | 'APPROVED' | 'REJECTED' | undefined);
+      const list = await storage.getFineWaiverRequests(status);
+      // Enrich
+      const enriched = await Promise.all(list.map(async (r) => {
+        const circ = await storage.getCirculation(r.circulationId);
+        const book = circ ? await storage.getBook(circ.bookId) : null;
+        const borrower = circ ? await storage.getUser(circ.userId) : null;
+        const requester = await storage.getUser(r.requestedBy);
+        const reviewer = r.reviewedBy ? await storage.getUser(r.reviewedBy) : null;
+        return {
+          ...r,
+          bookTitle: book?.title || null,
+          borrowerName: borrower?.name || null,
+          requesterName: requester?.name || null,
+          reviewerName: reviewer?.name || null,
+        };
+      }));
+      res.json(enriched);
+    } catch (error) {
+      console.error("Error listing waiver requests:", error);
+      res.status(500).json({ error: "Failed to list waiver requests" });
+    }
+  });
+
+  app.post("/api/fine-waiver-requests/:id/approve", async (req, res) => {
+    try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+      const id = parseInt(req.params.id);
+      const wr = await storage.getFineWaiverRequest(id);
+      if (!wr) return res.status(404).json({ error: "Waiver request not found" });
+      if (wr.status !== 'PENDING') return res.status(400).json({ error: "Request already reviewed" });
+      const reviewNotes = (req.body?.reviewNotes as string) || '';
+
+      const circ = await storage.getCirculation(wr.circulationId);
+      if (!circ) return res.status(404).json({ error: "Circulation not found" });
+
+      // Re-validate against live outstanding amount; clip overage to prevent over-waiver
+      let appliedAmount = wr.requestedAmount;
+      if (wr.requestType === 'FINE') {
+        const outstanding = Math.max(0, (circ.fineAmount ?? 0) - (circ.finePaidAmount ?? 0) - (circ.fineWaivedAmount ?? 0));
+        appliedAmount = Math.min(appliedAmount, outstanding);
+        const newWaived = (circ.fineWaivedAmount ?? 0) + appliedAmount;
+        const remaining = (circ.fineAmount ?? 0) - (circ.finePaidAmount ?? 0) - newWaived;
+        const fineStatus = remaining <= 0 ? ((circ.finePaidAmount ?? 0) === 0 ? 'WAIVED' : 'PAID') : 'PARTIALLY_PAID';
+        await storage.updateCirculation(circ.id, { fineWaivedAmount: newWaived, fineStatus } as any);
+      } else {
+        const outstanding = Math.max(0, (circ.damageCost ?? 0) - (circ.damagePaidAmount ?? 0) - (circ.damageWaivedAmount ?? 0));
+        appliedAmount = Math.min(appliedAmount, outstanding);
+        const newWaived = (circ.damageWaivedAmount ?? 0) + appliedAmount;
+        const remaining = (circ.damageCost ?? 0) - (circ.damagePaidAmount ?? 0) - newWaived;
+        const damageStatus = remaining <= 0 ? ((circ.damagePaidAmount ?? 0) === 0 ? 'WAIVED' : 'PAID') : 'PARTIALLY_PAID';
+        await storage.updateCirculation(circ.id, { damageWaivedAmount: newWaived, damageStatus } as any);
+      }
+
+      const updated = await storage.updateFineWaiverRequest(id, { status: 'APPROVED', reviewedBy: currentUser.id, reviewedAt: new Date(), reviewNotes });
+      logAudit(req, { category: 'FINES', action: 'WAIVER_APPROVED', userId: currentUser.id, userName: currentUser.name, targetType: 'fine_waiver_request', targetId: String(id), details: { circulationId: wr.circulationId, requestedAmount: wr.requestedAmount, appliedAmount, type: wr.requestType, reviewNotes } });
+      res.json(updated);
+    } catch (error) {
+      console.error("Error approving waiver:", error);
+      res.status(500).json({ error: "Failed to approve waiver" });
+    }
+  });
+
+  app.post("/api/fine-waiver-requests/:id/reject", async (req, res) => {
+    try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+      const id = parseInt(req.params.id);
+      const wr = await storage.getFineWaiverRequest(id);
+      if (!wr) return res.status(404).json({ error: "Waiver request not found" });
+      if (wr.status !== 'PENDING') return res.status(400).json({ error: "Request already reviewed" });
+      const reviewNotes = (req.body?.reviewNotes as string) || '';
+
+      const updated = await storage.updateFineWaiverRequest(id, { status: 'REJECTED', reviewedBy: currentUser.id, reviewedAt: new Date(), reviewNotes });
+      logAudit(req, { category: 'FINES', action: 'WAIVER_REJECTED', userId: currentUser.id, userName: currentUser.name, targetType: 'fine_waiver_request', targetId: String(id), details: { circulationId: wr.circulationId, amount: wr.requestedAmount, type: wr.requestType, reviewNotes } });
+      res.json(updated);
+    } catch (error) {
+      console.error("Error rejecting waiver:", error);
+      res.status(500).json({ error: "Failed to reject waiver" });
+    }
+  });
+
+  // ===== Fines & Revenue Report =====
+  app.get("/api/reports/fines-revenue", async (req, res) => {
+    try {
+      const staff = await requireStaff(req, res); if (!staff) return;
+      const fromDate = req.query.from ? new Date(req.query.from as string) : undefined;
+      let toDate: Date | undefined;
+      if (req.query.to) {
+        const raw = String(req.query.to);
+        toDate = new Date(raw);
+        // If a bare YYYY-MM-DD was passed, extend to end-of-day so same-day payments are included
+        if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+          toDate.setHours(23, 59, 59, 999);
+        }
+      }
+      const libraryId = req.query.libraryId ? parseInt(req.query.libraryId as string) : undefined;
+      const paymentMethodId = req.query.methodId ? parseInt(req.query.methodId as string) : undefined;
+      const paymentType = (req.query.type as 'FINE' | 'DAMAGE' | undefined);
+
+      const payments = await storage.getFinePayments({ fromDate, toDate, libraryId, paymentMethodId, paymentType });
+      const methods = await storage.getAllPaymentMethods();
+      const libraries = await storage.getAllLibraries();
+      const methodMap = new Map(methods.map(m => [m.id, m]));
+      const libMap = new Map(libraries.map(l => [l.id, l]));
+
+      // Enrich payments with circulation/book/user/library info
+      const enriched = await Promise.all(payments.map(async (p) => {
+        const circ = await storage.getCirculation(p.circulationId);
+        const book = circ ? await storage.getBook(circ.bookId) : null;
+        const borrower = circ ? await storage.getUser(circ.userId) : null;
+        const collector = await storage.getUser(p.collectedBy);
+        const lib = circ?.libraryId ? libMap.get(circ.libraryId) : null;
+        return {
+          ...p,
+          methodName: methodMap.get(p.paymentMethodId)?.name || 'Unknown',
+          methodCode: methodMap.get(p.paymentMethodId)?.code || '',
+          bookTitle: book?.title || null,
+          bookIsbn: book?.isbn || null,
+          borrowerName: borrower?.name || null,
+          collectorName: collector?.name || null,
+          libraryName: lib?.name || null,
+          libraryId: circ?.libraryId || null,
+        };
+      }));
+
+      // Aggregations
+      const totalCollected = enriched.reduce((s, p) => s + p.amount, 0);
+      const totalFineCollected = enriched.filter(p => p.paymentType === 'FINE').reduce((s, p) => s + p.amount, 0);
+      const totalDamageCollected = enriched.filter(p => p.paymentType === 'DAMAGE').reduce((s, p) => s + p.amount, 0);
+
+      const byMethod: Record<string, { methodId: number; methodName: string; total: number; count: number }> = {};
+      enriched.forEach(p => {
+        const k = String(p.paymentMethodId);
+        if (!byMethod[k]) byMethod[k] = { methodId: p.paymentMethodId, methodName: p.methodName, total: 0, count: 0 };
+        byMethod[k].total += p.amount;
+        byMethod[k].count++;
+      });
+
+      const byLibrary: Record<string, { libraryId: number; libraryName: string; total: number; count: number }> = {};
+      enriched.forEach(p => {
+        const lid = p.libraryId || 0;
+        const k = String(lid);
+        if (!byLibrary[k]) byLibrary[k] = { libraryId: lid, libraryName: p.libraryName || 'Unallocated', total: 0, count: 0 };
+        byLibrary[k].total += p.amount;
+        byLibrary[k].count++;
+      });
+
+      // Outstanding totals from circulation table (across all returned items in scope)
+      const allCirc = await storage.getAllCirculation();
+      const filteredCirc = allCirc.filter(c => {
+        if (libraryId && c.libraryId !== libraryId) return false;
+        if (fromDate && c.checkoutDate < fromDate) return false;
+        if (toDate && c.checkoutDate > toDate) return false;
+        return true;
+      });
+
+      // For active circulations, compute live accrued fine
+      let totalOutstanding = 0;
+      let totalWaived = 0;
+      for (const c of filteredCirc) {
+        const lib = c.libraryId ? libMap.get(c.libraryId) : null;
+        if (c.status === 'RETURNED') {
+          totalOutstanding += Math.max(0, (c.fineAmount ?? 0) - (c.finePaidAmount ?? 0) - (c.fineWaivedAmount ?? 0));
+          totalOutstanding += Math.max(0, (c.damageCost ?? 0) - (c.damagePaidAmount ?? 0) - (c.damageWaivedAmount ?? 0));
+        } else {
+          const calc = calculateAccruedFine(c, lib || null);
+          totalOutstanding += Math.max(0, calc.fineCents - (c.finePaidAmount ?? 0) - (c.fineWaivedAmount ?? 0));
+        }
+        totalWaived += (c.fineWaivedAmount ?? 0) + (c.damageWaivedAmount ?? 0);
+      }
+
+      // Time series (daily totals)
+      const series: Record<string, number> = {};
+      enriched.forEach(p => {
+        const d = new Date(p.paidAt).toISOString().slice(0, 10);
+        series[d] = (series[d] || 0) + p.amount;
+      });
+      const timeSeries = Object.entries(series).sort(([a], [b]) => a.localeCompare(b)).map(([date, amount]) => ({ date, amount }));
+
+      res.json({
+        totals: {
+          collected: totalCollected,
+          fineCollected: totalFineCollected,
+          damageCollected: totalDamageCollected,
+          outstanding: totalOutstanding,
+          waived: totalWaived,
+          paymentCount: enriched.length,
+        },
+        byMethod: Object.values(byMethod),
+        byLibrary: Object.values(byLibrary),
+        timeSeries,
+        payments: enriched,
+      });
+    } catch (error) {
+      console.error("Error generating fines-revenue report:", error);
+      res.status(500).json({ error: "Failed to generate report" });
     }
   });
 
