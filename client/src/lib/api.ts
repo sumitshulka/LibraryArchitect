@@ -456,10 +456,18 @@ export const inventoryApi = {
 };
 
 // System Config API
+async function readError(res: Response, fallback: string): Promise<string> {
+  try {
+    const body = await res.json();
+    if (body && typeof body.error === 'string' && body.error.trim()) return body.error;
+  } catch {}
+  return fallback;
+}
+
 export const configApi = {
   getAll: async (): Promise<SystemConfig[]> => {
     const res = await fetch(`${API_BASE}/config`);
-    if (!res.ok) throw new Error("Failed to fetch configuration");
+    if (!res.ok) throw new Error(await readError(res, "Failed to fetch configuration"));
     return res.json();
   },
 
@@ -469,7 +477,7 @@ export const configApi = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
-    if (!res.ok) throw new Error("Failed to set configuration");
+    if (!res.ok) throw new Error(await readError(res, "Failed to set configuration"));
     return res.json();
   },
 };
