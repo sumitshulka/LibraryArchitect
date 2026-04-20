@@ -37,8 +37,20 @@ import { logAudit, invalidateAuditConfigCache } from "./audit";
 
 const MAX_WHITELIST_ENTRIES = 5;
 
+function getSessionId(req: any): string | undefined {
+  const cookieId = getSessionId(req);
+  if (cookieId) return cookieId;
+  const auth = req.headers?.authorization || req.headers?.Authorization;
+  if (typeof auth === 'string' && auth.toLowerCase().startsWith('bearer ')) {
+    return auth.slice(7).trim();
+  }
+  const x = req.headers?.['x-session-id'];
+  if (typeof x === 'string' && x.trim()) return x.trim();
+  return undefined;
+}
+
 async function requireStaff(req: any, res: any): Promise<any | null> {
-  const sessionId = req.cookies?.session_id;
+  const sessionId = getSessionId(req);
   if (!sessionId) { res.status(401).json({ error: "Authentication required" }); return null; }
   const session = await storage.getSession(sessionId);
   if (!session) { res.status(401).json({ error: "Invalid session" }); return null; }
@@ -52,7 +64,7 @@ async function requireStaff(req: any, res: any): Promise<any | null> {
 }
 
 async function requireLocalAdmin(req: any, res: any): Promise<any | null> {
-  const sessionId = req.cookies?.session_id;
+  const sessionId = getSessionId(req);
   if (!sessionId) {
     res.status(401).json({ error: "Authentication required" });
     return null;
@@ -709,7 +721,7 @@ export async function registerRoutes(
 
   app.post("/api/circulation/checkout", async (req, res) => {
     try {
-      const sessionId = req.cookies?.session_id;
+      const sessionId = getSessionId(req);
       if (!sessionId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -2608,7 +2620,6 @@ export async function registerRoutes(
 
       res.cookie('session_id', sessionId, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
         sameSite: 'none',
         secure: true,
         maxAge: 24 * 60 * 60 * 1000,
@@ -2626,7 +2637,7 @@ export async function registerRoutes(
 
   app.get("/api/sso/session", async (req, res) => {
     try {
-      const sessionId = req.cookies?.session_id;
+      const sessionId = getSessionId(req);
       
       if (!sessionId) {
         return res.json({ authenticated: false });
@@ -2658,7 +2669,7 @@ export async function registerRoutes(
 
   app.post("/api/sso/logout", async (req, res) => {
     try {
-      const sessionId = req.cookies?.session_id;
+      const sessionId = getSessionId(req);
       
       let logUserId: number | undefined;
       let logUserName: string | undefined;
@@ -2683,7 +2694,7 @@ export async function registerRoutes(
   // Get current authenticated user
   app.get("/api/auth/me", async (req, res) => {
     try {
-      const sessionId = req.cookies?.session_id;
+      const sessionId = getSessionId(req);
       
       if (!sessionId) {
         return res.status(401).json({ authenticated: false });
@@ -2717,7 +2728,7 @@ export async function registerRoutes(
   // Change password endpoint (only for local users)
   app.post("/api/auth/change-password", async (req, res) => {
     try {
-      const sessionId = req.cookies?.session_id;
+      const sessionId = getSessionId(req);
       
       if (!sessionId) {
         return res.status(401).json({ error: "Not authenticated" });
@@ -2972,7 +2983,7 @@ export async function registerRoutes(
   // Logout endpoint
   app.post("/api/auth/logout", async (req, res) => {
     try {
-      const sessionId = req.cookies?.session_id;
+      const sessionId = getSessionId(req);
       
       let logUserId: number | undefined;
       let logUserName: string | undefined;
@@ -3057,7 +3068,6 @@ export async function registerRoutes(
 
       res.cookie('session_id', sessionId, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
         sameSite: 'none',
         secure: true,
         maxAge: 24 * 60 * 60 * 1000, // 24 hours
@@ -3076,6 +3086,7 @@ export async function registerRoutes(
           category: user.category,
           isLocalUser: !user.erpIntegrationId && !!user.password,
         },
+        sessionId,
       });
     } catch (error) {
       console.error("Login error:", error);
@@ -3346,7 +3357,7 @@ export async function registerRoutes(
   // Configure ERP authentication settings (requires admin session)
   app.put("/api/erp-integrations/:id/auth-config", async (req, res) => {
     try {
-      const sessionId = req.cookies.session_id;
+      const sessionId = getSessionId(req);
       if (!sessionId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -3396,7 +3407,7 @@ export async function registerRoutes(
   // Test ERP connection and authentication (requires admin session)
   app.post("/api/erp-integrations/:id/test-connection", async (req, res) => {
     try {
-      const sessionId = req.cookies.session_id;
+      const sessionId = getSessionId(req);
       if (!sessionId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -3428,7 +3439,7 @@ export async function registerRoutes(
   // Fetch user details from ERP (requires admin session)
   app.get("/api/erp-integrations/:id/lookup/:userType/:identifier", async (req, res) => {
     try {
-      const sessionId = req.cookies.session_id;
+      const sessionId = getSessionId(req);
       if (!sessionId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -3926,7 +3937,6 @@ export async function registerRoutes(
 
       res.cookie('session_id', sessionId, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
         sameSite: 'none',
         secure: true,
         maxAge: 24 * 60 * 60 * 1000,
@@ -5404,7 +5414,7 @@ export async function registerRoutes(
   // ===== Staff Library Allocation API (Super Admin Only) =====
   app.get("/api/staff-allocations/:staffUserId", async (req, res) => {
     try {
-      const sessionId = req.cookies.session_id;
+      const sessionId = getSessionId(req);
       if (!sessionId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -5440,7 +5450,7 @@ export async function registerRoutes(
 
   app.post("/api/staff-allocations/:staffUserId/allocate", async (req, res) => {
     try {
-      const sessionId = req.cookies.session_id;
+      const sessionId = getSessionId(req);
       if (!sessionId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -5496,7 +5506,7 @@ export async function registerRoutes(
 
   app.post("/api/staff-allocations/:staffUserId/deallocate", async (req, res) => {
     try {
-      const sessionId = req.cookies.session_id;
+      const sessionId = getSessionId(req);
       if (!sessionId) {
         return res.status(401).json({ error: "Authentication required" });
       }
@@ -5543,7 +5553,7 @@ export async function registerRoutes(
 
   app.get("/api/staff-allocation-logs", async (req, res) => {
     try {
-      const sessionId = req.cookies.session_id;
+      const sessionId = getSessionId(req);
       if (!sessionId) {
         return res.status(401).json({ error: "Authentication required" });
       }

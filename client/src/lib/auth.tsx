@@ -29,8 +29,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const checkSession = async () => {
     try {
+      const sid = localStorage.getItem("session_id");
       const response = await fetch("/api/auth/me", {
         credentials: "include",
+        headers: sid ? { Authorization: `Bearer ${sid}` } : undefined,
       });
       
       if (response.ok) {
@@ -65,6 +67,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const data = await response.json();
 
       if (response.ok && data.success) {
+        if (data.sessionId) {
+          localStorage.setItem("session_id", data.sessionId);
+        }
         setUser(data.user);
         return { success: true };
       } else {
@@ -85,6 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error("Logout error:", error);
     } finally {
+      localStorage.removeItem("session_id");
       setUser(null);
       setLocation("/login");
     }
