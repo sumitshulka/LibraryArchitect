@@ -845,7 +845,8 @@ export async function registerRoutes(
       if (!circ) return res.status(404).json({ error: "Circulation record not found" });
       const summary = await getCirculationFineSummary(circ);
       const payments = await storage.getFinePaymentsByCirculation(id);
-      res.json({ ...summary, payments });
+      const book = await storage.getBook(circ.bookId);
+      res.json({ ...summary, payments, bookUnitPrice: book?.unitPrice ?? null });
     } catch (error) {
       console.error("Error computing fine preview:", error);
       res.status(500).json({ error: "Failed to compute fine preview" });

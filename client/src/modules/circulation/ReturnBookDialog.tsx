@@ -181,7 +181,12 @@ export function ReturnBookDialog({ circulationId, bookTitle, borrowerName, onClo
                   <Label className="text-sm font-medium">Book damage</Label>
                   <p className="text-xs text-muted-foreground">Toggle on if the returned book is damaged</p>
                 </div>
-                <Switch checked={hasDamage} onCheckedChange={setHasDamage} data-testid="switch-damage" />
+                <Switch checked={hasDamage} onCheckedChange={(c) => {
+                setHasDamage(c);
+                if (c && !damageMajor && preview?.bookUnitPrice) {
+                  setDamageMajor((preview.bookUnitPrice / 100).toFixed(2));
+                }
+              }} data-testid="switch-damage" />
               </div>
               {hasDamage && (
                 <div className="space-y-2">
@@ -189,7 +194,11 @@ export function ReturnBookDialog({ circulationId, bookTitle, borrowerName, onClo
                     <Label className="text-xs w-32">Damage cost ({currency.symbol})</Label>
                     <Input type="number" step="0.01" min="0" value={damageMajor}
                       onChange={(e) => setDamageMajor(e.target.value)}
-                      className="h-8" data-testid="input-damage-cost" />
+                      className="h-8" data-testid="input-damage-cost"
+                      placeholder={preview?.bookUnitPrice ? (preview.bookUnitPrice / 100).toFixed(2) : undefined} />
+                  {preview?.bookUnitPrice ? (
+                    <span className="text-xs text-muted-foreground">List price: {format(preview.bookUnitPrice)}</span>
+                  ) : null}
                   </div>
                   <Textarea placeholder="Damage description / notes" rows={2}
                     value={damageNotes} onChange={(e) => setDamageNotes(e.target.value)}

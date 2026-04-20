@@ -301,6 +301,7 @@ export interface FinePreview {
   daysOverdue: number;
   isOverdue: boolean;
   totalOutstanding: number;
+  bookUnitPrice: number | null;
   payments: any[];
 }
 
