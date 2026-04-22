@@ -6,7 +6,6 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { searchAttributesApi, type SearchAttributeType, type SearchAttributeValue } from "@/lib/api";
 
 type TypeWithValues = SearchAttributeType & { values: SearchAttributeValue[] };
@@ -73,7 +72,7 @@ export function SearchAttributesFilter({ selectedValueIds, onChange, align = "en
             )}
           </div>
           <Separator />
-          <ScrollArea className="max-h-80">
+          <div className="max-h-80 overflow-y-auto">
             <div className="p-3 space-y-4">
               {filterableTypes.map(type => (
                 <div key={type.id} className="space-y-2">
@@ -103,7 +102,7 @@ export function SearchAttributesFilter({ selectedValueIds, onChange, align = "en
                 </div>
               ))}
             </div>
-          </ScrollArea>
+          </div>
         </PopoverContent>
       </Popover>
 
