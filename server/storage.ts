@@ -342,6 +342,7 @@ export interface IStorage {
   // Search Attribute Types
   getAllSearchAttributeTypes(): Promise<SearchAttributeType[]>;
   getActiveSearchAttributeTypes(): Promise<SearchAttributeType[]>;
+  getBookIdsByAttributeValueIds(attributeValueIds: number[]): Promise<number[]>;
   getSearchAttributeType(id: number): Promise<SearchAttributeType | undefined>;
   createSearchAttributeType(data: InsertSearchAttributeType): Promise<SearchAttributeType>;
   updateSearchAttributeType(id: number, data: Partial<InsertSearchAttributeType>): Promise<SearchAttributeType | undefined>;
@@ -434,6 +435,7 @@ export interface LibraryResourcesSearchParams {
   format?: string;
   category?: string;
   status?: string;
+  attributeValueIds?: number[];
   limit?: number;
   offset?: number;
 }
@@ -1700,7 +1702,7 @@ export class DBStorage implements IStorage {
   }
 
   async getLibraryResources(params: LibraryResourcesSearchParams): Promise<{ resources: LibraryResourceStats[]; total: number; categories: string[] }> {
-    const { libraryId, query, format, category, status, limit = 50, offset = 0 } = params;
+    const { libraryId, query, format, category, status, attributeValueIds, limit = 50, offset = 0 } = params;
     
     const copies = await db.select().from(bookCopies)
       .where(eq(bookCopies.libraryId, libraryId));
@@ -1735,6 +1737,14 @@ export class DBStorage implements IStorage {
     const allCategories = [...new Set(booksList.map(b => b.category))].sort();
     
     let filteredBooks = booksList;
+
+    if (attributeValueIds && attributeValueIds.length > 0) {
+      const attrRows = await db.selectDistinct({ bookId: resourceSearchAttributes.bookId })
+        .from(resourceSearchAttributes)
+        .where(inArray(resourceSearchAttributes.attributeValueId, attributeValueIds));
+      const attrBookIds = new Set(attrRows.map(r => r.bookId));
+      filteredBooks = filteredBooks.filter(b => attrBookIds.has(b.id));
+    }
     
     if (query) {
       const lowerQuery = query.toLowerCase();
@@ -1858,6 +1868,14 @@ export class DBStorage implements IStorage {
   // Search Attribute Types
   async getAllSearchAttributeTypes(): Promise<SearchAttributeType[]> {
     return await db.select().from(searchAttributeTypes).orderBy(asc(searchAttributeTypes.sortOrder), asc(searchAttributeTypes.name));
+  }
+
+  async getBookIdsByAttributeValueIds(attributeValueIds: number[]): Promise<number[]> {
+    if (attributeValueIds.length === 0) return [];
+    const rows = await db.selectDistinct({ bookId: resourceSearchAttributes.bookId })
+      .from(resourceSearchAttributes)
+      .where(inArray(resourceSearchAttributes.attributeValueId, attributeValueIds));
+    return rows.map(r => r.bookId);
   }
 
   async getActiveSearchAttributeTypes(): Promise<SearchAttributeType[]> {

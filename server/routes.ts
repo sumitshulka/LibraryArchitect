@@ -120,14 +120,26 @@ export async function registerRoutes(
   // ===== Books API =====
   app.get("/api/books", async (req, res) => {
     try {
-      const { search } = req.query;
-      
+      const { search, attributeValueIds } = req.query;
+
+      const attrIds = attributeValueIds
+        ? String(attributeValueIds).split(',').map(Number).filter(n => !isNaN(n))
+        : [];
+
+      let books;
       if (search && typeof search === 'string') {
-        const books = await storage.searchBooks(search);
-        return res.json(books);
+        books = await storage.searchBooks(search);
+      } else {
+        books = await storage.getAllBooks();
       }
-      
-      const books = await storage.getAllBooks();
+
+      if (attrIds.length > 0) {
+        const allowedBookIds = new Set(
+          (await storage.getBookIdsByAttributeValueIds(attrIds))
+        );
+        books = books.filter(b => allowedBookIds.has(b.id));
+      }
+
       res.json(books);
     } catch (error) {
       console.error("Error fetching books:", error);
@@ -4947,14 +4959,19 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid library ID" });
       }
       
-      const { query, format, category, status, limit, offset } = req.query;
-      
+      const { query, format, category, status, limit, offset, attributeValueIds } = req.query;
+
+      const parsedAttrIds = attributeValueIds
+        ? String(attributeValueIds).split(',').map(Number).filter(n => !isNaN(n))
+        : undefined;
+
       const result = await storage.getLibraryResources({
         libraryId: id,
         query: query as string | undefined,
         format: format as string | undefined,
         category: category as string | undefined,
         status: status as string | undefined,
+        attributeValueIds: parsedAttrIds,
         limit: limit ? parseInt(limit as string) : undefined,
         offset: offset ? parseInt(offset as string) : undefined,
       });

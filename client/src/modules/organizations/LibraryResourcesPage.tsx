@@ -72,6 +72,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { librariesApi, bookCopiesApi, type LibraryResourceStats } from "@/lib/api";
+import { SearchAttributesFilter } from "@/components/SearchAttributesFilter";
 import type { BookCopy, Circulation } from "@shared/schema";
 import { formatIsbn } from "@/lib/isbn";
 import { useCurrency } from "@/lib/useCurrency";
@@ -1378,6 +1379,7 @@ export function LibraryResourcesPage() {
   const [format, setFormat] = useState("");
   const [category, setCategory] = useState("");
   const [status, setStatus] = useState("");
+  const [attributeValueIds, setAttributeValueIds] = useState<number[]>([]);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [debouncedQuery, setDebouncedQuery] = useState("");
   
@@ -1399,12 +1401,13 @@ export function LibraryResourcesPage() {
   });
 
   const { data: resourcesData, isLoading, error } = useQuery({
-    queryKey: ["library-resources", libraryId, debouncedQuery, format, category, status],
+    queryKey: ["library-resources", libraryId, debouncedQuery, format, category, status, attributeValueIds],
     queryFn: () => librariesApi.getResources(libraryId, {
       query: debouncedQuery || undefined,
       format: format || undefined,
       category: category || undefined,
       status: status || undefined,
+      attributeValueIds: attributeValueIds.length > 0 ? attributeValueIds : undefined,
     }),
     enabled: libraryId > 0,
   });
@@ -1422,6 +1425,7 @@ export function LibraryResourcesPage() {
     setFormat("");
     setCategory("");
     setStatus("");
+    setAttributeValueIds([]);
   };
 
   return (
@@ -1537,7 +1541,16 @@ export function LibraryResourcesPage() {
                   </div>
                 </div>
 
-                {hasActiveFilters && (
+                <div className="space-y-2 pt-4">
+                  <Label>Search Attributes</Label>
+                  <SearchAttributesFilter
+                    selectedValueIds={attributeValueIds}
+                    onChange={setAttributeValueIds}
+                    align="start"
+                  />
+                </div>
+
+                {(hasActiveFilters || attributeValueIds.length > 0) && (
                   <div className="flex items-center justify-end pt-4">
                     <Button
                       variant="ghost"

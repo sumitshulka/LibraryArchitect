@@ -58,6 +58,11 @@ Preferred communication style: Simple, everyday language.
   - Checkout (`CirculationPage.tsx`) shows a `BookReservationsHint` panel listing active holds for the selected book/library when no copies are available, deep-linking to the Reservations page.
 - **Audit**: Reservation create/cancel/fulfill, pickup initiate/confirm are logged under category `CIRCULATION` (action prefixes `RESERVATION_*`, `PICKUP_*`).
 
+### Dynamic Search Attribute Filters
+- Reusable component `client/src/components/SearchAttributesFilter.tsx` (popover with grouped checkboxes per type + selected chips). Only renders types that are active AND have ≥1 active value — blank/inactive types are hidden automatically.
+- Integrated in **Catalog** (browse collection toolbar) and **Library Resources** (collapsible filters panel).
+- Backend: `/api/books` and `/api/libraries/:id/resources` accept `attributeValueIds` (CSV). Filtering uses `storage.getBookIdsByAttributeValueIds(ids)` against the `resource_search_attributes` junction (OR/any-match across selected values).
+
 ### Fine Collection Workflow
 - **Schema**: `payment_methods`, `fine_payments` (per-payment ledger), `fine_waiver_requests` (approval queue). Circulation rows track `fineAmount`, `finePaidAmount`, `fineWaivedAmount`, `damageCost`, `damagePaidAmount`, `damageWaivedAmount`, `damageStatus`.
 - **Accrued Fine**: Calculated live via `server/fines.ts#calculateAccruedFine` using each library's `policies.finePerDay`, `gracePeriodDays`, and `maxFineCap`. Active circulation rows expose `accruedFine`/`daysOverdue` when fetched with `?enrich=true`.

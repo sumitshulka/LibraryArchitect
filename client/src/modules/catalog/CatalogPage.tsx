@@ -57,6 +57,7 @@ import {
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { booksApi, searchAttributesApi, resourceTypesApi, categoriesApi, reservationsApi, type BookDashboard, type BookLibraryAllocation, type ResourceSearchAttribute } from "@/lib/api";
+import { SearchAttributesFilter } from "@/components/SearchAttributesFilter";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
 import type { Book, Circulation } from "@shared/schema";
@@ -923,6 +924,7 @@ function EditBookDialog({ book, open, onOpenChange }: { book: Book | null; open:
 export default function CatalogPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  const [attributeValueIds, setAttributeValueIds] = useState<number[]>([]);
   const [activeTab, setActiveTab] = useState("browse");
   const [selectedBookId, setSelectedBookId] = useState<number | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -931,8 +933,8 @@ export default function CatalogPage() {
   const queryClient = useQueryClient();
 
   const { data: books = [], isLoading } = useQuery({
-    queryKey: ["books", searchQuery],
-    queryFn: () => searchQuery ? booksApi.getAll(searchQuery) : booksApi.getAll(),
+    queryKey: ["books", searchQuery, attributeValueIds],
+    queryFn: () => booksApi.getAll(searchQuery || undefined, attributeValueIds.length ? attributeValueIds : undefined),
   });
 
   const handleBookClick = (bookId: number) => {
@@ -1030,7 +1032,11 @@ export default function CatalogPage() {
                   data-testid="input-search"
                 />
               </div>
-              <div className="flex gap-2 w-full sm:w-auto">
+              <div className="flex flex-wrap gap-2 w-full sm:w-auto items-center">
+                <SearchAttributesFilter
+                  selectedValueIds={attributeValueIds}
+                  onChange={setAttributeValueIds}
+                />
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" size="sm" className="gap-2 w-full sm:w-auto" data-testid="button-filter">

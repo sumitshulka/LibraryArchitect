@@ -4,8 +4,14 @@ const API_BASE = "/api";
 
 // Books API
 export const booksApi = {
-  getAll: async (search?: string): Promise<Book[]> => {
-    const url = search ? `${API_BASE}/books?search=${encodeURIComponent(search)}` : `${API_BASE}/books`;
+  getAll: async (search?: string, attributeValueIds?: number[]): Promise<Book[]> => {
+    const params = new URLSearchParams();
+    if (search) params.set("search", search);
+    if (attributeValueIds && attributeValueIds.length > 0) {
+      params.set("attributeValueIds", attributeValueIds.join(","));
+    }
+    const qs = params.toString();
+    const url = qs ? `${API_BASE}/books?${qs}` : `${API_BASE}/books`;
     const res = await fetch(url);
     if (!res.ok) throw new Error("Failed to fetch books");
     return res.json();
@@ -1173,6 +1179,7 @@ export const librariesApi = {
     format?: string;
     category?: string;
     status?: string;
+    attributeValueIds?: number[];
     limit?: number;
     offset?: number;
   }): Promise<LibraryResourcesResponse> => {
@@ -1181,6 +1188,9 @@ export const librariesApi = {
     if (params?.format) searchParams.set('format', params.format);
     if (params?.category) searchParams.set('category', params.category);
     if (params?.status) searchParams.set('status', params.status);
+    if (params?.attributeValueIds && params.attributeValueIds.length > 0) {
+      searchParams.set('attributeValueIds', params.attributeValueIds.join(','));
+    }
     if (params?.limit) searchParams.set('limit', params.limit.toString());
     if (params?.offset) searchParams.set('offset', params.offset.toString());
     
