@@ -575,7 +575,7 @@ function BookDetailsSheet({
                               )}
                             </div>
                           )}
-                          <PatronReserveAction bookId={selectedBookId!} libraryId={alloc.libraryId} canReserve={alloc.available > 0} />
+                          <PatronReserveAction bookId={bookId!} libraryId={alloc.libraryId} canReserve={alloc.available > 0} />
                         </CardContent>
                       </Card>
                     ))}
