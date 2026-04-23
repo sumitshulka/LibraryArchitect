@@ -3639,7 +3639,7 @@ export async function registerRoutes(
       const types = await storage.getActiveSearchAttributeTypes();
       const typesWithValues = await Promise.all(
         types.map(async (type) => {
-          const values = await storage.getSearchAttributeValues(type.id);
+          const values = await storage.getSearchAttributeValuesByType(type.id);
           const activeValues = values.filter(v => v.isActive);
           return {
             id: type.id,
