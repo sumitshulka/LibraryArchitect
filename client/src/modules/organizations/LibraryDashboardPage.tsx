@@ -4,6 +4,7 @@ import { useParams, Link } from "wouter";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { librariesApi, circulationPolicyApi, type LibraryDashboardStats, type LibraryStaffMember, type CirculationPolicy } from "@/lib/api";
+import { PolicyChangeDialog, PolicyHistoryList } from "@/components/PolicyChangeDialog";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -114,12 +115,24 @@ function LibraryPoliciesCard({ libraryId }: { libraryId: number }) {
     }
   }, [library]);
 
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+
+  const { data: history, refetch: refetchHistory } = useQuery({
+    queryKey: ["circulation-policy-history", "LIBRARY", libraryId],
+    queryFn: () => circulationPolicyApi.history({ scope: "LIBRARY", libraryId, limit: 50 }),
+    enabled: libraryId > 0,
+  });
+
   const mutation = useMutation({
-    mutationFn: (payload: CirculationPolicy) =>
-      librariesApi.update(libraryId, { policies: payload as any }),
+    mutationFn: (args: { policy: CirculationPolicy; reason: string; effectiveFrom: string }) =>
+      librariesApi.update(libraryId, { policies: args.policy as any, policyReason: args.reason, policyEffectiveFrom: args.effectiveFrom } as any),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["library", libraryId] });
-      toast.success("Library policy overrides saved");
+      queryClient.invalidateQueries({ queryKey: ["circulation-policy-history", "LIBRARY", libraryId] });
+      refetchHistory();
+      toast.success("Library policy version saved");
+      setConfirmOpen(false);
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -229,21 +242,43 @@ function LibraryPoliciesCard({ libraryId }: { libraryId: number }) {
             </div>
           );
         })}
-        {canEdit && (
-          <div className="flex justify-end pt-2">
+        <div className="flex justify-between items-center pt-2 gap-2 flex-wrap">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowHistory((s) => !s)}
+            data-testid="button-toggle-library-policy-history"
+          >
+            {showHistory ? "Hide" : "View"} policy history ({history?.length ?? 0})
+          </Button>
+          {canEdit && (
             <Button
-              onClick={() => mutation.mutate(overrides)}
+              onClick={() => setConfirmOpen(true)}
               disabled={mutation.isPending}
               data-testid="button-save-library-policy"
             >
-              {mutation.isPending ? "Saving…" : "Save Overrides"}
+              Save Overrides…
             </Button>
+          )}
+        </div>
+        {showHistory && (
+          <div className="pt-2">
+            <PolicyHistoryList versions={(history || []) as any} currencySymbol={currency.symbol} />
           </div>
         )}
         {!canEdit && (
           <p className="text-xs text-muted-foreground">Only system admins can edit policy overrides.</p>
         )}
       </CardContent>
+      <PolicyChangeDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title="Save Library Policy Overrides"
+        description="Record a new version of this library's policy overrides. A reason is required and will be saved to the audit log."
+        isSubmitting={mutation.isPending}
+        onConfirm={({ reason, effectiveFrom }) => mutation.mutate({ policy: overrides, reason, effectiveFrom })}
+      />
     </Card>
   );
 }

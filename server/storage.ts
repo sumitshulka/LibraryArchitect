@@ -1874,7 +1874,7 @@ export class DBStorage implements IStorage {
 
   // Search Attribute Types
   async createCirculationPolicyVersion(data: InsertCirculationPolicyVersion): Promise<CirculationPolicyVersion> {
-    const [row] = await db.insert(circulationPolicyVersions).values(data).returning();
+    const [row] = await db.insert(circulationPolicyVersions).values(data as any).returning();
     return row;
   }
 

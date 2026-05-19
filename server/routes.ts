@@ -709,13 +709,8 @@ export async function registerRoutes(
         return res.json(circulations);
       }
 
-      // Enrich active rows with accrued fine info
-      const libraries = await storage.getAllLibraries();
-      const libMap = new Map(libraries.map(l => [l.id, l]));
-      const globalDefaults = await loadGlobalCirculationDefaults();
-
+      // Enrich active rows with accrued fine info using date-aware policy resolution
       const enriched = await Promise.all(circulations.map(async (c) => {
-        const lib = c.libraryId ? libMap.get(c.libraryId) : null;
         if (c.status === 'RETURNED') {
           const finePaid = c.finePaidAmount ?? 0;
           const fineWaived = c.fineWaivedAmount ?? 0;
@@ -723,7 +718,7 @@ export async function registerRoutes(
           const damageOutstanding = Math.max(0, (c.damageCost ?? 0) - (c.damagePaidAmount ?? 0) - (c.damageWaivedAmount ?? 0));
           return { ...c, accruedFine: c.fineAmount ?? 0, daysOverdue: 0, isOverdue: false, fineOutstanding, damageOutstanding };
         }
-        const calc = calculateAccruedFine(c, lib || null, new Date(), globalDefaults);
+        const calc = await computeAccruedFine(c);
         const fineOutstanding = Math.max(0, calc.fineCents - (c.finePaidAmount ?? 0) - (c.fineWaivedAmount ?? 0));
         return { ...c, accruedFine: calc.fineCents, daysOverdue: calc.daysOverdue, isOverdue: calc.isOverdue, fineOutstanding, damageOutstanding: 0 };
       }));
@@ -896,10 +891,9 @@ export async function registerRoutes(
       const body = returnBodySchema.parse(req.body || {});
       const returnDate = new Date();
 
-      // Compute fine using policy
+      // Compute fine using the date-aware (versioned) policy resolution
       const library = circ.libraryId ? await storage.getLibrary(circ.libraryId) : null;
-      const globalDefaults = await loadGlobalCirculationDefaults();
-      const calc = calculateAccruedFine({ ...circ, returnDate }, library, new Date(), globalDefaults);
+      const calc = await computeAccruedFine({ ...circ, returnDate });
       const fineAmount = calc.fineCents;
       const isOverdue = calc.isOverdue;
       const daysOverdue = calc.daysOverdue;
@@ -1347,12 +1341,11 @@ export async function registerRoutes(
       let totalOutstanding = 0;
       let totalWaived = 0;
       for (const c of filteredCirc) {
-        const lib = c.libraryId ? libMap.get(c.libraryId) : null;
         if (c.status === 'RETURNED') {
           totalOutstanding += Math.max(0, (c.fineAmount ?? 0) - (c.finePaidAmount ?? 0) - (c.fineWaivedAmount ?? 0));
           totalOutstanding += Math.max(0, (c.damageCost ?? 0) - (c.damagePaidAmount ?? 0) - (c.damageWaivedAmount ?? 0));
         } else {
-          const calc = calculateAccruedFine(c, lib || null, new Date(), await loadGlobalCirculationDefaults());
+          const calc = await computeAccruedFine(c);
           totalOutstanding += Math.max(0, calc.fineCents - (c.finePaidAmount ?? 0) - (c.fineWaivedAmount ?? 0));
         }
         totalWaived += (c.fineWaivedAmount ?? 0) + (c.damageWaivedAmount ?? 0);
@@ -1996,7 +1989,7 @@ export async function registerRoutes(
     try {
       const currentUser = await requireLocalAdmin(req, res);
       if (!currentUser) return;
-      const policySchema = z.object({
+      const policyShape = z.object({
         finePerDay: z.number().min(0).optional().nullable(),
         gracePeriodDays: z.number().int().min(0).optional().nullable(),
         maxFineCap: z.number().min(0).optional().nullable(),
@@ -2007,24 +2000,99 @@ export async function registerRoutes(
         allowRenewals: z.boolean().optional().nullable(),
         enableLateFines: z.boolean().optional().nullable(),
       });
-      const validated = policySchema.parse(req.body || {});
+      const bodySchema = z.object({
+        policy: policyShape,
+        reason: z.string().min(3, "A reason for the change is required (min 3 characters)").max(500),
+        effectiveFrom: z.string().datetime().optional(),
+      });
+      const { policy, reason, effectiveFrom } = bodySchema.parse(req.body || {});
       const cleaned: Record<string, any> = {};
-      Object.entries(validated).forEach(([k, v]) => { if (v !== null && v !== undefined) cleaned[k] = v; });
-      const saved = await storage.setSystemConfig({
+      Object.entries(policy).forEach(([k, v]) => { if (v !== null && v !== undefined) cleaned[k] = v; });
+      const effDate = effectiveFrom ? new Date(effectiveFrom) : new Date();
+      const isBackdated = effDate.getTime() < Date.now() - 60_000;
+
+      await storage.createCirculationPolicyVersion({
+        scope: 'GLOBAL',
+        libraryId: null,
+        policy: cleaned as any,
+        effectiveFrom: effDate,
+        reason,
+        createdBy: currentUser.id,
+        createdByName: currentUser.name,
+      });
+      await storage.setSystemConfig({
         key: CIRCULATION_POLICY_KEY,
         value: JSON.stringify(cleaned),
         category: "circulation",
         description: "Global default circulation policy (per-library overrides take precedence)",
       });
       invalidateCirculationPolicyCache();
-      logAudit(req, { category: 'SYSTEM_CONFIG', action: 'CIRCULATION_POLICY_UPDATED', userId: currentUser.id, userName: currentUser.name, targetType: 'config', targetId: CIRCULATION_POLICY_KEY, details: cleaned });
-      res.json(cleaned);
+      logAudit(req, { category: 'FINES', action: 'CIRCULATION_POLICY_VERSION_CREATED', userId: currentUser.id, userName: currentUser.name, targetType: 'policy_version', targetId: 'GLOBAL', details: { policy: cleaned, reason, effectiveFrom: effDate.toISOString(), backdated: isBackdated } });
+      res.json({ ...cleaned, _meta: { effectiveFrom: effDate.toISOString(), reason, backdated: isBackdated } });
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: fromZodError(error).toString() });
       }
       console.error("Error saving circulation policy:", error);
       res.status(500).json({ error: "Failed to save circulation policy" });
+    }
+  });
+
+  // List circulation policy version history (global or per-library)
+  app.get("/api/circulation-policy/history", async (req, res) => {
+    try {
+      const staff = await requireStaff(req, res); if (!staff) return;
+      const scopeParam = (req.query.scope as string | undefined)?.toUpperCase();
+      const scope = scopeParam === 'LIBRARY' ? 'LIBRARY' : 'GLOBAL';
+      const libraryIdRaw = req.query.libraryId as string | undefined;
+      let libraryId: number | null | undefined = undefined;
+      if (scope === 'LIBRARY') {
+        if (!libraryIdRaw) return res.status(400).json({ error: "libraryId is required when scope=LIBRARY" });
+        libraryId = parseInt(libraryIdRaw, 10);
+        if (isNaN(libraryId)) return res.status(400).json({ error: "libraryId must be a number" });
+      }
+      const limit = Math.min(parseInt((req.query.limit as string) || '100', 10), 500);
+      const rows = await storage.getCirculationPolicyVersions({ scope, libraryId, limit });
+      res.json(rows);
+    } catch (error) {
+      console.error("Error fetching policy history:", error);
+      res.status(500).json({ error: "Failed to fetch policy history" });
+    }
+  });
+
+  // Get / set the fine calculation mode (LOCK_TO_DUE_DATE | SEGMENT_PER_DAY)
+  app.get("/api/fine-calculation-mode", async (req, res) => {
+    try {
+      const staff = await requireStaff(req, res); if (!staff) return;
+      const mode = await loadFineCalculationMode();
+      res.json({ mode });
+    } catch (error) {
+      console.error("Error fetching fine calculation mode:", error);
+      res.status(500).json({ error: "Failed to fetch fine calculation mode" });
+    }
+  });
+
+  app.put("/api/fine-calculation-mode", async (req, res) => {
+    try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+      const schema = z.object({ mode: z.enum(['LOCK_TO_DUE_DATE', 'SEGMENT_PER_DAY']) });
+      const { mode } = schema.parse(req.body || {});
+      await storage.setSystemConfig({
+        key: FINE_CALCULATION_MODE_KEY,
+        value: mode,
+        category: "circulation",
+        description: "How accrued fines are calculated when policy changes mid-overdue (LOCK_TO_DUE_DATE | SEGMENT_PER_DAY)",
+      });
+      invalidateCirculationPolicyCache();
+      logAudit(req, { category: 'FINES', action: 'FINE_CALCULATION_MODE_CHANGED', userId: currentUser.id, userName: currentUser.name, targetType: 'config', targetId: FINE_CALCULATION_MODE_KEY, details: { mode } });
+      res.json({ mode });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error saving fine calculation mode:", error);
+      res.status(500).json({ error: "Failed to save fine calculation mode" });
     }
   });
 
@@ -5007,15 +5075,51 @@ export async function registerRoutes(
   app.patch("/api/libraries/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const validated = insertLibrarySchema.partial().parse(req.body);
-      
+      // When the request changes `policies`, require an audit reason + effectiveFrom and create a version.
+      const policiesIncluded = req.body && Object.prototype.hasOwnProperty.call(req.body, 'policies');
+      const { policyReason, policyEffectiveFrom, ...rest } = req.body || {};
+      const validated = insertLibrarySchema.partial().parse(rest);
+
+      let effDate: Date | null = null;
+      let reasonStr: string | null = null;
+      let actor: { id: number; name: string } | null = null;
+      if (policiesIncluded) {
+        const currentUser = await requireLocalAdmin(req, res);
+        if (!currentUser) return;
+        actor = { id: currentUser.id, name: currentUser.name };
+        const metaSchema = z.object({
+          policyReason: z.string().min(3, "A reason is required when changing library policies (min 3 chars)").max(500),
+          policyEffectiveFrom: z.string().datetime().optional(),
+        });
+        const meta = metaSchema.parse({ policyReason, policyEffectiveFrom });
+        reasonStr = meta.policyReason;
+        effDate = meta.policyEffectiveFrom ? new Date(meta.policyEffectiveFrom) : new Date();
+      }
+
+      // Write the version row FIRST so the audit/version log is the source of truth even if the mirror write fails.
+      if (policiesIncluded && effDate && reasonStr) {
+        await storage.createCirculationPolicyVersion({
+          scope: 'LIBRARY',
+          libraryId: id,
+          policy: (validated.policies || {}) as any,
+          effectiveFrom: effDate,
+          reason: reasonStr,
+          createdBy: actor?.id ?? null,
+          createdByName: actor?.name ?? null,
+        });
+      }
+
       const library = await storage.updateLibrary(id, validated);
-      
       if (!library) {
         return res.status(404).json({ error: "Library not found" });
       }
-      
-      logAudit(req, { category: 'SYSTEM_CONFIG', action: 'LIBRARY_UPDATED', targetType: 'library', targetId: String(id), details: { changedFields: Object.keys(validated) } });
+
+      if (policiesIncluded && effDate && reasonStr) {
+        const isBackdated = effDate.getTime() < Date.now() - 60_000;
+        logAudit(req, { category: 'FINES', action: 'LIBRARY_POLICY_VERSION_CREATED', userId: actor?.id, userName: actor?.name, targetType: 'policy_version', targetId: `LIBRARY:${id}`, details: { libraryId: id, policy: validated.policies, reason: reasonStr, effectiveFrom: effDate.toISOString(), backdated: isBackdated } });
+      } else {
+        logAudit(req, { category: 'SYSTEM_CONFIG', action: 'LIBRARY_UPDATED', targetType: 'library', targetId: String(id), details: { changedFields: Object.keys(validated) } });
+      }
       res.json(library);
     } catch (error) {
       if (error instanceof z.ZodError) {

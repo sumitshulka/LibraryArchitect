@@ -31,11 +31,18 @@ Preferred communication style: Simple, everyday language.
 - **User Provisioning**: Staff (ADMIN/LIBRARIAN) must be pre-provisioned via ERP API; Patrons (STUDENT/FACULTY) are auto-provisioned on first SSO login.
 - **Security Features**: Token signature verification, timestamp expiration, origin/referer whitelist, secret key hashing, HTTP-only secure session cookies.
 
-### Circulation Policies (Global + Per-Library Overrides)
-- **Global defaults** are stored in `system_config` under key `circulation_policy` (JSON). Managed by admins via **Settings → Circulation Rules** (`PUT /api/circulation-policy`).
-- **Per-library overrides** live in the `libraries.policies` JSONB column. Edited from each library's dashboard via the "Library Policy Overrides" card (admins only). Blank fields inherit the global default.
-- **Resolution**: `server/fines.ts#mergeCirculationPolicy(globalDefaults, library)` returns the effective policy for a library by merging library overrides over global defaults. `calculateAccruedFine` uses the merged policy for `finePerDay`, `gracePeriodDays`, `maxFineCap`, and short-circuits to zero when `enableLateFines === false`.
-- `loadGlobalCirculationDefaults()` is cached for 30s; `invalidateCirculationPolicyCache()` is called whenever the policy is saved.
+### Circulation Policies (Global + Per-Library Overrides, with Versioning)
+- **Global defaults** are stored in `system_config` under key `circulation_policy` (JSON) as a *mirror of the latest version*. Managed by admins via **Settings → Circulation Rules** (`PUT /api/circulation-policy`).
+- **Per-library overrides** live in the `libraries.policies` JSONB column (also a mirror of the latest LIBRARY-scoped version). Edited from each library's dashboard via the "Library Policy Overrides" card (admins only). Blank fields inherit the global default.
+- **Versioning (`circulation_policy_versions` table)**: every policy save (global or per-library) inserts an immutable row with the full policy snapshot, `scope` (GLOBAL|LIBRARY), `libraryId`, `effectiveFrom` (back-dating allowed for admins), mandatory `reason`, and `createdBy`/`createdByName`. UI forces a reason + effective-from datetime via `client/src/components/PolicyChangeDialog.tsx`; back-dated changes get an amber audit-log flag.
+- **Date-aware resolution**: `server/fines.ts#getEffectivePolicyForDate(libraryId, atDate)` picks the latest GLOBAL and LIBRARY versions with `effectiveFrom ≤ atDate` and merges them (library over global). Falls back to the legacy `system_config` / `libraries.policies` mirrors when no version row exists.
+- **Fine calculation mode** (`system_config.fine_calculation_mode`, default `LOCK_TO_DUE_DATE`): admins toggle via Settings → Circulation Rules.
+  - `LOCK_TO_DUE_DATE` (default, recommended): the policy effective on the book's due date is used for the entire overdue window — predictable, non-retroactive.
+  - `SEGMENT_PER_DAY`: each overdue day is charged at the rate effective on that day. The cap from the due-date-effective policy still applies.
+- **Compute**: `computeAccruedFine(circ, asOfDate?)` is the async entry point used by all routes. The legacy synchronous `calculateAccruedFine(circ, library, asOf, globalDefaults)` is kept only for backward compatibility and does **not** use versions.
+- **API**: `GET /api/circulation-policy/history?scope=GLOBAL|LIBRARY&libraryId=` returns version rows; `GET/PUT /api/fine-calculation-mode` reads/writes the mode (admin only).
+- **Bootstrap**: `ensureInitialCirculationPolicyVersion()` (called from `server/bootstrap.ts`) seeds an initial GLOBAL version from the current `system_config` snapshot with `effectiveFrom = epoch` so legacy data resolves correctly.
+- `loadGlobalCirculationDefaults()` and `loadFineCalculationMode()` are cached for 30s; `invalidateCirculationPolicyCache()` is called whenever the policy or mode is saved.
 
 ### Circulation & Library Rules
 - **Library-Based Checkout**: All checkouts are tied to a specific library. System Admins select the library; Librarians are restricted to their assigned library. `libraryId` is stored in circulation records.

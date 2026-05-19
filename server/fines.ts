@@ -103,6 +103,8 @@ export async function getEffectivePolicyForDate(
 ): Promise<CirculationPolicy> {
   let globalSnap: CirculationPolicy | null = null;
   let librarySnap: CirculationPolicy | null = null;
+  let globalScopeHasAnyVersion = false;
+  let libraryScopeHasAnyVersion = false;
 
   try {
     const [g] = await db
@@ -114,7 +116,18 @@ export async function getEffectivePolicyForDate(
       ))
       .orderBy(desc(circulationPolicyVersions.effectiveFrom), desc(circulationPolicyVersions.id))
       .limit(1);
-    if (g) globalSnap = g.policy as CirculationPolicy;
+    if (g) {
+      globalSnap = g.policy as CirculationPolicy;
+      globalScopeHasAnyVersion = true;
+    } else {
+      // No qualifying row at `atDate`. Check whether any GLOBAL version exists at all (e.g. only future-dated).
+      const [anyG] = await db
+        .select({ id: circulationPolicyVersions.id })
+        .from(circulationPolicyVersions)
+        .where(eq(circulationPolicyVersions.scope, "GLOBAL"))
+        .limit(1);
+      globalScopeHasAnyVersion = !!anyG;
+    }
   } catch { /* ignore */ }
 
   if (libraryId) {
@@ -129,13 +142,30 @@ export async function getEffectivePolicyForDate(
         ))
         .orderBy(desc(circulationPolicyVersions.effectiveFrom), desc(circulationPolicyVersions.id))
         .limit(1);
-      if (l) librarySnap = l.policy as CirculationPolicy;
+      if (l) {
+        librarySnap = l.policy as CirculationPolicy;
+        libraryScopeHasAnyVersion = true;
+      } else {
+        const [anyL] = await db
+          .select({ id: circulationPolicyVersions.id })
+          .from(circulationPolicyVersions)
+          .where(and(
+            eq(circulationPolicyVersions.scope, "LIBRARY"),
+            eq(circulationPolicyVersions.libraryId, libraryId),
+          ))
+          .limit(1);
+        libraryScopeHasAnyVersion = !!anyL;
+      }
     } catch { /* ignore */ }
   }
 
-  // Legacy fallback when no version exists yet for this scope
-  if (!globalSnap) globalSnap = await loadGlobalCirculationDefaults();
-  if (libraryId && !librarySnap) {
+  // Legacy fallback: only fall back to the mirror columns when NO versions exist at all for this scope.
+  // If versions exist but none yet qualify for atDate (e.g. only future-dated ones), treat the snapshot
+  // as empty so policy fields fall through to global defaults / built-in defaults — never to a future policy.
+  if (!globalSnap && !globalScopeHasAnyVersion) {
+    globalSnap = await loadGlobalCirculationDefaults();
+  }
+  if (libraryId && !librarySnap && !libraryScopeHasAnyVersion) {
     try {
       const lib = await storage.getLibrary(libraryId);
       librarySnap = (lib?.policies || null) as CirculationPolicy | null;

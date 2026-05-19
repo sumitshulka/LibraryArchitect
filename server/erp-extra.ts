@@ -7,7 +7,7 @@ import {
   resolveLibraryReservationDays,
   expireStaleReservationsInternal,
 } from "./reservations";
-import { calculateAccruedFine, loadGlobalCirculationDefaults } from "./fines";
+import { calculateAccruedFine, computeAccruedFine, loadGlobalCirculationDefaults } from "./fines";
 
 // Shared ERP auth: appId (query) + X-Secret-Key header.
 async function authenticateErp(req: any, res: any) {
@@ -369,7 +369,7 @@ export function registerErpExtraRoutes(app: Express) {
           lib = await storage.getLibrary(c.libraryId);
           libCache.set(c.libraryId, lib);
         }
-        const accrued = calculateAccruedFine(c, lib, new Date(), globals);
+        const accrued = await computeAccruedFine(c);
         const fineCents = Math.round(Number(c.fineAmount || 0) * 100);
         const paidCents = Math.round(Number(c.finePaidAmount || 0) * 100);
         const waivedCents = Math.round(Number(c.fineWaivedAmount || 0) * 100);
@@ -460,7 +460,7 @@ export function registerErpExtraRoutes(app: Express) {
           lib = await storage.getLibrary(c.libraryId);
           libCache.set(c.libraryId, lib);
         }
-        const calc = calculateAccruedFine(c, lib, new Date(), globals);
+        const calc = await computeAccruedFine(c);
         const fineCents = Math.round(Number(c.fineAmount || 0) * 100);
         const paidCents = Math.round(Number(c.finePaidAmount || 0) * 100);
         const waivedCents = Math.round(Number(c.fineWaivedAmount || 0) * 100);

@@ -57,7 +57,8 @@ import { useLocation } from "wouter";
 import { CURRENCIES, getCurrencyByCode } from "@/lib/currency";
 import { useCurrency } from "@/lib/useCurrency";
 
-import { circulationPolicyApi, type CirculationPolicy } from "@/lib/api";
+import { circulationPolicyApi, fineCalculationModeApi, type CirculationPolicy, type FineCalculationMode } from "@/lib/api";
+import { PolicyChangeDialog, PolicyHistoryList } from "@/components/PolicyChangeDialog";
 
 function CirculationRulesForm() {
   const { currency } = useCurrency();
@@ -67,17 +68,41 @@ function CirculationRulesForm() {
     queryFn: () => circulationPolicyApi.get(),
   });
 
+  const { data: modeData } = useQuery({
+    queryKey: ["fine-calculation-mode"],
+    queryFn: () => fineCalculationModeApi.get(),
+  });
+
+  const { data: history, refetch: refetchHistory } = useQuery({
+    queryKey: ["circulation-policy-history", "GLOBAL"],
+    queryFn: () => circulationPolicyApi.history({ scope: "GLOBAL", limit: 50 }),
+  });
+
   const [form, setForm] = useState<CirculationPolicy>({});
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
 
   useEffect(() => {
     if (data) setForm(data);
   }, [data]);
 
   const mutation = useMutation({
-    mutationFn: (payload: CirculationPolicy) => circulationPolicyApi.update(payload),
+    mutationFn: (payload: { policy: CirculationPolicy; reason: string; effectiveFrom: string }) => circulationPolicyApi.update(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["circulation-policy"] });
-      toast.success("Global circulation policy saved");
+      queryClient.invalidateQueries({ queryKey: ["circulation-policy-history", "GLOBAL"] });
+      refetchHistory();
+      toast.success("Policy version saved");
+      setConfirmOpen(false);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const modeMutation = useMutation({
+    mutationFn: (mode: FineCalculationMode) => fineCalculationModeApi.update(mode),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["fine-calculation-mode"] });
+      toast.success("Fine calculation mode updated");
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -211,16 +236,68 @@ function CirculationRulesForm() {
             <p className="text-xs text-muted-foreground">Leave empty for no cap</p>
           </div>
         </div>
-        <div className="flex justify-end pt-2">
+        <Separator />
+        <div className="space-y-2">
+          <Label>Fine Calculation Mode</Label>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Button
+              type="button"
+              variant={modeData?.mode === "LOCK_TO_DUE_DATE" ? "default" : "outline"}
+              size="sm"
+              onClick={() => modeMutation.mutate("LOCK_TO_DUE_DATE")}
+              disabled={modeMutation.isPending}
+              data-testid="button-mode-lock-due-date"
+            >
+              Lock to Due Date (default)
+            </Button>
+            <Button
+              type="button"
+              variant={modeData?.mode === "SEGMENT_PER_DAY" ? "default" : "outline"}
+              size="sm"
+              onClick={() => modeMutation.mutate("SEGMENT_PER_DAY")}
+              disabled={modeMutation.isPending}
+              data-testid="button-mode-segment-per-day"
+            >
+              Segment Per Day
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            <strong>Lock to Due Date</strong>: the policy effective on a book's due date is used for the entire overdue window (predictable, recommended).{" "}
+            <strong>Segment Per Day</strong>: each overdue day is charged at that day's rate, so policy changes apply going forward without retroactively re-pricing past days.
+          </p>
+        </div>
+        <div className="flex justify-between items-center pt-2 gap-2 flex-wrap">
           <Button
-            onClick={() => mutation.mutate(form)}
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowHistory((s) => !s)}
+            data-testid="button-toggle-policy-history"
+          >
+            {showHistory ? "Hide" : "View"} policy history ({history?.length ?? 0})
+          </Button>
+          <Button
+            onClick={() => setConfirmOpen(true)}
             disabled={mutation.isPending || isLoading}
             data-testid="button-save-circulation-policy"
           >
-            {mutation.isPending ? "Saving…" : "Save Policy"}
+            Save Policy…
           </Button>
         </div>
+        {showHistory && (
+          <div className="pt-2">
+            <PolicyHistoryList versions={(history || []) as any} currencySymbol={currency.symbol} />
+          </div>
+        )}
       </CardContent>
+      <PolicyChangeDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title="Save Global Circulation Policy"
+        description="Record a new version of the global circulation policy. A reason is required and will be saved to the audit log."
+        isSubmitting={mutation.isPending}
+        onConfirm={({ reason, effectiveFrom }) => mutation.mutate({ policy: form, reason, effectiveFrom })}
+      />
     </Card>
   );
 }

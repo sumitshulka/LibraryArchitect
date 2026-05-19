@@ -562,19 +562,59 @@ export interface CirculationPolicy {
   enableLateFines?: boolean;
 }
 
+export type FineCalculationMode = "LOCK_TO_DUE_DATE" | "SEGMENT_PER_DAY";
+
+export interface CirculationPolicyVersion {
+  id: number;
+  scope: "GLOBAL" | "LIBRARY";
+  libraryId: number | null;
+  policy: CirculationPolicy;
+  effectiveFrom: string;
+  reason: string;
+  createdBy: number | null;
+  createdByName: string | null;
+  createdAt: string;
+}
+
 export const circulationPolicyApi = {
   get: async (): Promise<CirculationPolicy> => {
     const res = await fetch(`${API_BASE}/circulation-policy`);
     if (!res.ok) throw new Error(await readError(res, "Failed to fetch circulation policy"));
     return res.json();
   },
-  update: async (data: CirculationPolicy): Promise<CirculationPolicy> => {
+  update: async (payload: { policy: CirculationPolicy; reason: string; effectiveFrom?: string }): Promise<CirculationPolicy> => {
     const res = await fetch(`${API_BASE}/circulation-policy`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) throw new Error(await readError(res, "Failed to save circulation policy"));
+    return res.json();
+  },
+  history: async (params: { scope: "GLOBAL" | "LIBRARY"; libraryId?: number; limit?: number }): Promise<CirculationPolicyVersion[]> => {
+    const q = new URLSearchParams();
+    q.set("scope", params.scope);
+    if (params.libraryId !== undefined) q.set("libraryId", String(params.libraryId));
+    if (params.limit !== undefined) q.set("limit", String(params.limit));
+    const res = await fetch(`${API_BASE}/circulation-policy/history?${q.toString()}`);
+    if (!res.ok) throw new Error(await readError(res, "Failed to fetch policy history"));
+    return res.json();
+  },
+};
+
+export const fineCalculationModeApi = {
+  get: async (): Promise<{ mode: FineCalculationMode }> => {
+    const res = await fetch(`${API_BASE}/fine-calculation-mode`);
+    if (!res.ok) throw new Error(await readError(res, "Failed to fetch fine calculation mode"));
+    return res.json();
+  },
+  update: async (mode: FineCalculationMode): Promise<{ mode: FineCalculationMode }> => {
+    const res = await fetch(`${API_BASE}/fine-calculation-mode`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode }),
+    });
+    if (!res.ok) throw new Error(await readError(res, "Failed to save fine calculation mode"));
     return res.json();
   },
 };
