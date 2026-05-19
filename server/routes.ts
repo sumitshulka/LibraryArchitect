@@ -1379,6 +1379,137 @@ export async function registerRoutes(
     }
   });
 
+  // ===== Acquisitions Report =====
+  app.get("/api/reports/acquisitions", async (req, res) => {
+    try {
+      const staff = await requireStaff(req, res); if (!staff) return;
+
+      let fromDate: Date | undefined;
+      if (req.query.from) {
+        fromDate = new Date(String(req.query.from));
+        if (isNaN(fromDate.getTime())) return res.status(400).json({ error: "Invalid 'from' date" });
+      }
+      let toDate: Date | undefined;
+      if (req.query.to) {
+        const raw = String(req.query.to);
+        toDate = new Date(raw);
+        if (isNaN(toDate.getTime())) return res.status(400).json({ error: "Invalid 'to' date" });
+        if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) toDate.setHours(23, 59, 59, 999);
+      }
+      let libraryIdFilter: number | undefined;
+      if (req.query.libraryId) {
+        libraryIdFilter = parseInt(String(req.query.libraryId));
+        if (isNaN(libraryIdFilter)) return res.status(400).json({ error: "Invalid libraryId" });
+      }
+      const sourceFilter = req.query.source ? String(req.query.source).toLowerCase() : undefined;
+      const categoryFilter = req.query.category ? String(req.query.category).toLowerCase() : undefined;
+
+      const [allCopies, allBooks, allLibraries] = await Promise.all([
+        storage.getAllBookCopies(),
+        storage.getAllBooks(),
+        storage.getAllLibraries(),
+      ]);
+      const bookMap = new Map(allBooks.map(b => [b.id, b]));
+      const libMap = new Map(allLibraries.map(l => [l.id, l]));
+
+      const filtered = allCopies.filter(c => {
+        const d = c.acquisitionDate ? new Date(c.acquisitionDate) : null;
+        if (fromDate) { if (!d || d < fromDate) return false; }
+        if (toDate) { if (!d || d > toDate) return false; }
+        if (libraryIdFilter !== undefined && c.libraryId !== libraryIdFilter) return false;
+        if (sourceFilter && (c.acquisitionSource || '').toLowerCase() !== sourceFilter) return false;
+        if (categoryFilter) {
+          const book = bookMap.get(c.bookId);
+          if ((book?.category || '').toLowerCase() !== categoryFilter) return false;
+        }
+        return true;
+      });
+
+      const enriched = filtered.map(c => {
+        const book = bookMap.get(c.bookId);
+        const lib = c.libraryId ? libMap.get(c.libraryId) : null;
+        return {
+          id: c.id,
+          barcode: c.barcode,
+          bookId: c.bookId,
+          bookTitle: book?.title || '—',
+          bookIsbn: book?.isbn || '',
+          author: book?.author || '',
+          category: book?.category || '',
+          libraryId: c.libraryId,
+          libraryName: lib?.name || 'Unallocated',
+          acquisitionDate: c.acquisitionDate,
+          acquisitionSource: c.acquisitionSource || '',
+          price: c.price ?? 0,
+          status: c.status,
+          condition: c.condition,
+        };
+      });
+
+      const totalCopies = enriched.length;
+      const totalSpend = enriched.reduce((s, e) => s + (e.price || 0), 0);
+      const pricedCount = enriched.filter(e => (e.price || 0) > 0).length;
+      const avgUnitPrice = pricedCount > 0 ? Math.round(totalSpend / pricedCount) : 0;
+      const uniqueTitles = new Set(enriched.map(e => e.bookId)).size;
+
+      const groupSum = <K extends string | number>(keyFn: (e: typeof enriched[number]) => K, labelFn: (e: typeof enriched[number]) => string) => {
+        const m = new Map<K, { key: K; label: string; copies: number; spend: number; titles: Set<number> }>();
+        for (const e of enriched) {
+          const k = keyFn(e);
+          if (!m.has(k)) m.set(k, { key: k, label: labelFn(e), copies: 0, spend: 0, titles: new Set() });
+          const row = m.get(k)!;
+          row.copies += 1;
+          row.spend += (e.price || 0);
+          row.titles.add(e.bookId);
+        }
+        return Array.from(m.values()).map(r => ({ key: r.key, label: r.label, copies: r.copies, spend: r.spend, titles: r.titles.size }));
+      };
+
+      const bySource = groupSum(e => (e.acquisitionSource || 'Unknown'), e => (e.acquisitionSource || 'Unknown'))
+        .sort((a, b) => b.spend - a.spend);
+      const byLibrary = groupSum(e => (e.libraryId ?? 0), e => e.libraryName)
+        .sort((a, b) => b.spend - a.spend);
+      const byCategory = groupSum(e => (e.category || 'Uncategorized'), e => (e.category || 'Uncategorized'))
+        .sort((a, b) => b.spend - a.spend);
+
+      // Monthly time series
+      const seriesMap = new Map<string, { month: string; copies: number; spend: number }>();
+      for (const e of enriched) {
+        if (!e.acquisitionDate) continue;
+        const d = new Date(e.acquisitionDate);
+        const month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        if (!seriesMap.has(month)) seriesMap.set(month, { month, copies: 0, spend: 0 });
+        const row = seriesMap.get(month)!;
+        row.copies += 1;
+        row.spend += (e.price || 0);
+      }
+      const timeSeries = Array.from(seriesMap.values()).sort((a, b) => a.month.localeCompare(b.month));
+
+      // Distinct sources (for filter dropdown)
+      const allSources = Array.from(new Set(allCopies.map(c => c.acquisitionSource).filter(Boolean) as string[])).sort();
+      const allCategories = Array.from(new Set(allBooks.map(b => b.category).filter(Boolean) as string[])).sort();
+
+      res.json({
+        totals: {
+          totalCopies,
+          totalSpend,
+          avgUnitPrice,
+          uniqueTitles,
+          datedCopies: enriched.filter(e => !!e.acquisitionDate).length,
+        },
+        bySource,
+        byLibrary,
+        byCategory,
+        timeSeries,
+        copies: enriched,
+        filters: { sources: allSources, categories: allCategories },
+      });
+    } catch (error) {
+      console.error("Error generating acquisitions report:", error);
+      res.status(500).json({ error: "Failed to generate report" });
+    }
+  });
+
   // ===== Inventory API =====
   app.get("/api/inventory", async (req, res) => {
     try {
