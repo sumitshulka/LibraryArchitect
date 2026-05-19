@@ -1,5 +1,6 @@
 import { storage } from "./storage";
 import { hashPassword } from "./sso";
+import { ensureInitialCirculationPolicyVersion } from "./fines";
 
 const DEFAULT_ADMIN_USERNAME = "admin";
 const DEFAULT_ADMIN_EMAIL = "admin@library.local";
@@ -94,6 +95,7 @@ export async function bootstrapSystem(): Promise<void> {
       log("ERP catalog limit set to default (50).");
     }
 
+    await ensureInitialCirculationPolicyVersion();
     log("Bootstrap check completed.");
   } catch (error) {
     console.error(`Bootstrap error: ${error}`);

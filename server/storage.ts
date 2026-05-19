@@ -58,6 +58,9 @@ import {
   type InsertReservation,
   type ReservationPickup,
   type InsertReservationPickup,
+  circulationPolicyVersions,
+  type CirculationPolicyVersion,
+  type InsertCirculationPolicyVersion,
   paymentMethods,
   finePayments,
   fineWaiverRequests,
@@ -338,6 +341,10 @@ export interface IStorage {
   
   // Library Resources
   getLibraryResources(params: LibraryResourcesSearchParams): Promise<{ resources: LibraryResourceStats[]; total: number; categories: string[] }>;
+
+  // Circulation Policy Versions
+  createCirculationPolicyVersion(data: InsertCirculationPolicyVersion): Promise<CirculationPolicyVersion>;
+  getCirculationPolicyVersions(params: { scope?: 'GLOBAL' | 'LIBRARY'; libraryId?: number | null; limit?: number }): Promise<CirculationPolicyVersion[]>;
 
   // Search Attribute Types
   getAllSearchAttributeTypes(): Promise<SearchAttributeType[]>;
@@ -1866,6 +1873,25 @@ export class DBStorage implements IStorage {
   }
 
   // Search Attribute Types
+  async createCirculationPolicyVersion(data: InsertCirculationPolicyVersion): Promise<CirculationPolicyVersion> {
+    const [row] = await db.insert(circulationPolicyVersions).values(data).returning();
+    return row;
+  }
+
+  async getCirculationPolicyVersions(params: { scope?: 'GLOBAL' | 'LIBRARY'; libraryId?: number | null; limit?: number }): Promise<CirculationPolicyVersion[]> {
+    const conds: any[] = [];
+    if (params.scope) conds.push(eq(circulationPolicyVersions.scope, params.scope));
+    if (params.libraryId !== undefined) {
+      if (params.libraryId === null) conds.push(isNull(circulationPolicyVersions.libraryId));
+      else conds.push(eq(circulationPolicyVersions.libraryId, params.libraryId));
+    }
+    let q = db.select().from(circulationPolicyVersions).$dynamic();
+    if (conds.length > 0) q = q.where(and(...conds));
+    q = q.orderBy(desc(circulationPolicyVersions.effectiveFrom), desc(circulationPolicyVersions.id));
+    if (params.limit) q = q.limit(params.limit);
+    return await q;
+  }
+
   async getAllSearchAttributeTypes(): Promise<SearchAttributeType[]> {
     return await db.select().from(searchAttributeTypes).orderBy(asc(searchAttributeTypes.sortOrder), asc(searchAttributeTypes.name));
   }

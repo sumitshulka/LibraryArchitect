@@ -405,6 +405,31 @@ export const auditLogCategoryEnum = pgEnum('audit_log_category', [
 
 export const auditLogStatusEnum = pgEnum('audit_log_status', ['SUCCESS', 'FAILURE']);
 
+export const policyScopeEnum = pgEnum('policy_scope', ['GLOBAL', 'LIBRARY']);
+
+export const circulationPolicyVersions = pgTable("circulation_policy_versions", {
+  id: serial("id").primaryKey(),
+  scope: policyScopeEnum("scope").notNull(),
+  libraryId: integer("library_id").references(() => libraries.id),
+  policy: jsonb("policy").$type<{
+    finePerDay?: number;
+    gracePeriodDays?: number;
+    maxFineCap?: number;
+    loanPeriodDays?: number;
+    maxBooksPerUser?: number;
+    renewalLimit?: number;
+    reservationDays?: number;
+    allowRenewals?: boolean;
+    enableLateFines?: boolean;
+    allowInterLibraryLoan?: boolean;
+  }>().notNull(),
+  effectiveFrom: timestamp("effective_from").notNull(),
+  reason: text("reason").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdBy: integer("created_by"),
+  createdByName: text("created_by_name"),
+});
+
 export const auditLogs = pgTable("audit_logs", {
   id: serial("id").primaryKey(),
   timestamp: timestamp("timestamp").notNull().defaultNow(),
@@ -518,6 +543,13 @@ export const insertSystemConfigSchema = createInsertSchema(systemConfig).omit({
   id: true,
   updatedAt: true,
 });
+
+export const insertCirculationPolicyVersionSchema = createInsertSchema(circulationPolicyVersions).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertCirculationPolicyVersion = z.infer<typeof insertCirculationPolicyVersionSchema>;
+export type CirculationPolicyVersion = typeof circulationPolicyVersions.$inferSelect;
 
 export const insertErpIntegrationSchema = createInsertSchema(erpIntegrations).omit({
   id: true,
