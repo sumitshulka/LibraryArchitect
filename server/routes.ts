@@ -1403,6 +1403,10 @@ export async function registerRoutes(
       }
       const sourceFilter = req.query.source ? String(req.query.source).toLowerCase() : undefined;
       const categoryFilter = req.query.category ? String(req.query.category).toLowerCase() : undefined;
+      const statusFilter = req.query.status ? String(req.query.status).toUpperCase() : undefined;
+      const conditionFilter = req.query.condition ? String(req.query.condition).toUpperCase() : undefined;
+      const formatFilter = req.query.format ? String(req.query.format).toUpperCase() : undefined;
+      const qFilter = req.query.q ? String(req.query.q).toLowerCase() : undefined;
 
       const [allCopies, allBooks, allLibraries] = await Promise.all([
         storage.getAllBookCopies(),
@@ -1418,9 +1422,14 @@ export async function registerRoutes(
         if (toDate) { if (!d || d > toDate) return false; }
         if (libraryIdFilter !== undefined && c.libraryId !== libraryIdFilter) return false;
         if (sourceFilter && (c.acquisitionSource || '').toLowerCase() !== sourceFilter) return false;
-        if (categoryFilter) {
-          const book = bookMap.get(c.bookId);
-          if ((book?.category || '').toLowerCase() !== categoryFilter) return false;
+        if (statusFilter && c.status !== statusFilter) return false;
+        if (conditionFilter && (c.condition || '').toUpperCase() !== conditionFilter) return false;
+        const book = bookMap.get(c.bookId);
+        if (categoryFilter && (book?.category || '').toLowerCase() !== categoryFilter) return false;
+        if (formatFilter && (book?.format || '').toUpperCase() !== formatFilter) return false;
+        if (qFilter) {
+          const haystack = `${book?.title || ''} ${book?.author || ''} ${book?.isbn || ''} ${c.barcode}`.toLowerCase();
+          if (!haystack.includes(qFilter)) return false;
         }
         return true;
       });
@@ -1428,6 +1437,8 @@ export async function registerRoutes(
       const enriched = filtered.map(c => {
         const book = bookMap.get(c.bookId);
         const lib = c.libraryId ? libMap.get(c.libraryId) : null;
+        // Price: prefer copy-level price, fall back to book unit price
+        const price = (c.price != null && c.price > 0) ? c.price : (book?.unitPrice ?? 0);
         return {
           id: c.id,
           barcode: c.barcode,
@@ -1436,13 +1447,15 @@ export async function registerRoutes(
           bookIsbn: book?.isbn || '',
           author: book?.author || '',
           category: book?.category || '',
+          format: book?.format || '',
           libraryId: c.libraryId,
           libraryName: lib?.name || 'Unallocated',
           acquisitionDate: c.acquisitionDate,
           acquisitionSource: c.acquisitionSource || '',
-          price: c.price ?? 0,
+          price,
+          priceSource: (c.price != null && c.price > 0) ? 'copy' : 'book',
           status: c.status,
-          condition: c.condition,
+          condition: c.condition || '',
         };
       });
 
@@ -1471,6 +1484,12 @@ export async function registerRoutes(
         .sort((a, b) => b.spend - a.spend);
       const byCategory = groupSum(e => (e.category || 'Uncategorized'), e => (e.category || 'Uncategorized'))
         .sort((a, b) => b.spend - a.spend);
+      const byFormat = groupSum(e => (e.format || 'Unknown'), e => (e.format || 'Unknown'))
+        .sort((a, b) => b.copies - a.copies);
+      const byStatus = groupSum(e => e.status, e => e.status)
+        .sort((a, b) => b.copies - a.copies);
+      const byCondition = groupSum(e => (e.condition || 'Unknown'), e => (e.condition || 'Unknown'))
+        .sort((a, b) => b.copies - a.copies);
 
       // Monthly time series
       const seriesMap = new Map<string, { month: string; copies: number; spend: number }>();
@@ -1485,9 +1504,12 @@ export async function registerRoutes(
       }
       const timeSeries = Array.from(seriesMap.values()).sort((a, b) => a.month.localeCompare(b.month));
 
-      // Distinct sources (for filter dropdown)
+      // Distinct filter option values (from unfiltered set for full dropdown population)
       const allSources = Array.from(new Set(allCopies.map(c => c.acquisitionSource).filter(Boolean) as string[])).sort();
       const allCategories = Array.from(new Set(allBooks.map(b => b.category).filter(Boolean) as string[])).sort();
+      const allStatuses = Array.from(new Set(allCopies.map(c => c.status).filter(Boolean) as string[])).sort();
+      const allConditions = Array.from(new Set(allCopies.map(c => c.condition).filter(Boolean) as string[])).sort();
+      const allFormats = Array.from(new Set(allBooks.map(b => b.format).filter(Boolean) as string[])).sort();
 
       res.json({
         totals: {
@@ -1495,14 +1517,18 @@ export async function registerRoutes(
           totalSpend,
           avgUnitPrice,
           uniqueTitles,
+          pricedCopies: pricedCount,
           datedCopies: enriched.filter(e => !!e.acquisitionDate).length,
         },
         bySource,
         byLibrary,
         byCategory,
+        byFormat,
+        byStatus,
+        byCondition,
         timeSeries,
         copies: enriched,
-        filters: { sources: allSources, categories: allCategories },
+        filters: { sources: allSources, categories: allCategories, statuses: allStatuses, conditions: allConditions, formats: allFormats },
       });
     } catch (error) {
       console.error("Error generating acquisitions report:", error);

@@ -495,13 +495,17 @@ export const finesReportApi = {
 };
 
 export const acquisitionsReportApi = {
-  get: async (filters: { from?: string; to?: string; libraryId?: number; source?: string; category?: string } = {}): Promise<any> => {
+  get: async (filters: { from?: string; to?: string; libraryId?: number; source?: string; category?: string; status?: string; condition?: string; format?: string; q?: string } = {}): Promise<any> => {
     const params = new URLSearchParams();
     if (filters.from) params.set("from", filters.from);
     if (filters.to) params.set("to", filters.to);
     if (filters.libraryId) params.set("libraryId", String(filters.libraryId));
     if (filters.source) params.set("source", filters.source);
     if (filters.category) params.set("category", filters.category);
+    if (filters.status) params.set("status", filters.status);
+    if (filters.condition) params.set("condition", filters.condition);
+    if (filters.format) params.set("format", filters.format);
+    if (filters.q) params.set("q", filters.q);
     const res = await fetch(`${API_BASE}/reports/acquisitions?${params.toString()}`);
     if (!res.ok) throw new Error("Failed to fetch acquisitions report");
     return res.json();

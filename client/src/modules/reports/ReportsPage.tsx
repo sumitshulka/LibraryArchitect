@@ -14,7 +14,9 @@ import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
-import { Download, AlertCircle, Coins, TrendingUp, FileX, Loader2 } from "lucide-react";
+import { Download, AlertCircle, Coins, TrendingUp, FileX, Loader2, BarChart2, X, Search } from "lucide-react";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { useCurrency } from "@/lib/useCurrency";
 import { useQuery } from "@tanstack/react-query";
 import { finesReportApi, librariesApi, paymentMethodsApi, acquisitionsReportApi } from "@/lib/api";
@@ -302,6 +304,32 @@ function FinesAndRevenue() {
   );
 }
 
+function AcqBreakdownTable({ rows, format }: { rows: any[]; format: (v: number) => string }) {
+  if (!rows.length) return <p className="text-sm text-muted-foreground text-center py-4">No data.</p>;
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Name</TableHead>
+          <TableHead className="text-right">Copies</TableHead>
+          <TableHead className="text-right">Titles</TableHead>
+          <TableHead className="text-right">Spend</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.map((r: any) => (
+          <TableRow key={String(r.key)}>
+            <TableCell className="text-sm">{r.label || "—"}</TableCell>
+            <TableCell className="text-right">{r.copies}</TableCell>
+            <TableCell className="text-right">{r.titles}</TableCell>
+            <TableCell className="text-right font-semibold">{format(r.spend)}</TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
 function AcquisitionsReport() {
   const { format } = useCurrency();
   const today = new Date();
@@ -311,6 +339,11 @@ function AcquisitionsReport() {
   const [libraryId, setLibraryId] = useState<string>("ALL");
   const [source, setSource] = useState<string>("ALL");
   const [category, setCategory] = useState<string>("ALL");
+  const [status, setStatus] = useState<string>("ALL");
+  const [condition, setCondition] = useState<string>("ALL");
+  const [fmt, setFmt] = useState<string>("ALL");
+  const [q, setQ] = useState<string>("");
+  const [chartsOpen, setChartsOpen] = useState(false);
 
   const { data: libraries = [] } = useQuery({ queryKey: ["libraries"], queryFn: () => librariesApi.getAll() });
 
@@ -319,6 +352,10 @@ function AcquisitionsReport() {
     libraryId: libraryId !== "ALL" ? parseInt(libraryId) : undefined,
     source: source !== "ALL" ? source : undefined,
     category: category !== "ALL" ? category : undefined,
+    status: status !== "ALL" ? status : undefined,
+    condition: condition !== "ALL" ? condition : undefined,
+    format: fmt !== "ALL" ? fmt : undefined,
+    q: q.trim() || undefined,
   };
 
   const { data, isLoading } = useQuery({
@@ -326,14 +363,16 @@ function AcquisitionsReport() {
     queryFn: () => acquisitionsReportApi.get(filters),
   });
 
+  const activeFilterCount = [source, category, status, condition, fmt].filter(v => v !== "ALL").length + (q.trim() ? 1 : 0);
+
   const exportCsv = () => {
     if (!data?.copies?.length) return;
     const rows = [
-      ["Acquisition Date", "Barcode", "Title", "ISBN", "Author", "Category", "Library", "Source", "Price", "Status", "Condition"],
+      ["Acquisition Date", "Barcode", "Title", "ISBN", "Author", "Category", "Format", "Library", "Source", "Price", "Price Source", "Status", "Condition"],
       ...data.copies.map((c: any) => [
         c.acquisitionDate ? new Date(c.acquisitionDate).toISOString().slice(0, 10) : "",
-        c.barcode, c.bookTitle, c.bookIsbn, c.author, c.category,
-        c.libraryName, c.acquisitionSource, (c.price / 100).toFixed(2),
+        c.barcode, c.bookTitle, c.bookIsbn, c.author, c.category, c.format,
+        c.libraryName, c.acquisitionSource, (c.price / 100).toFixed(2), c.priceSource,
         c.status, c.condition ?? "",
       ]),
     ];
@@ -344,15 +383,31 @@ function AcquisitionsReport() {
     URL.revokeObjectURL(url);
   };
 
+  const resetFilters = () => {
+    setSource("ALL"); setCategory("ALL"); setStatus("ALL");
+    setCondition("ALL"); setFmt("ALL"); setQ("");
+  };
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
+      {/* Filters card */}
       <Card>
-        <CardHeader>
-          <CardTitle>Filters</CardTitle>
-          <CardDescription>Filter acquired copies by date, library, source and category.</CardDescription>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Filters</CardTitle>
+              <CardDescription>Narrow down acquired copies by any combination of fields.</CardDescription>
+            </div>
+            {activeFilterCount > 0 && (
+              <Button variant="ghost" size="sm" onClick={resetFilters} data-testid="button-acq-reset">
+                <X className="w-3 h-3 mr-1" /> Clear {activeFilterCount} filter{activeFilterCount > 1 ? "s" : ""}
+              </Button>
+            )}
+          </div>
         </CardHeader>
-        <CardContent>
-          <div className="grid gap-3 md:grid-cols-6">
+        <CardContent className="space-y-3">
+          {/* Row 1: date range + search */}
+          <div className="grid gap-3 md:grid-cols-4">
             <div>
               <Label className="text-xs">From</Label>
               <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} data-testid="input-acq-from" />
@@ -361,6 +416,22 @@ function AcquisitionsReport() {
               <Label className="text-xs">To</Label>
               <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} data-testid="input-acq-to" />
             </div>
+            <div className="md:col-span-2">
+              <Label className="text-xs">Search title / author / ISBN / barcode</Label>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-muted-foreground" />
+                <Input
+                  className="pl-8"
+                  placeholder="e.g. Carnegie, 978-…"
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  data-testid="input-acq-search"
+                />
+              </div>
+            </div>
+          </div>
+          {/* Row 2: dropdowns */}
+          <div className="grid gap-3 md:grid-cols-5">
             <div>
               <Label className="text-xs">Library</Label>
               <Select value={libraryId} onValueChange={setLibraryId}>
@@ -391,10 +462,37 @@ function AcquisitionsReport() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex items-end">
-              <Button variant="outline" onClick={exportCsv} disabled={!data?.copies?.length} data-testid="button-acq-export" className="w-full">
-                <Download className="w-4 h-4 mr-2" /> Export CSV
-              </Button>
+            <div>
+              <Label className="text-xs">Status</Label>
+              <Select value={status} onValueChange={setStatus}>
+                <SelectTrigger data-testid="select-acq-status"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All statuses</SelectItem>
+                  {(data?.filters?.statuses ?? []).map((s: string) => (<SelectItem key={s} value={s}>{s}</SelectItem>))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Condition</Label>
+              <Select value={condition} onValueChange={setCondition}>
+                <SelectTrigger data-testid="select-acq-condition"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All conditions</SelectItem>
+                  {(data?.filters?.conditions ?? []).map((c: string) => (<SelectItem key={c} value={c}>{c}</SelectItem>))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="grid gap-3 md:grid-cols-5">
+            <div>
+              <Label className="text-xs">Format</Label>
+              <Select value={fmt} onValueChange={setFmt}>
+                <SelectTrigger data-testid="select-acq-format"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All formats</SelectItem>
+                  {(data?.filters?.formats ?? []).map((f: string) => (<SelectItem key={f} value={f}>{f}</SelectItem>))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </CardContent>
@@ -404,199 +502,205 @@ function AcquisitionsReport() {
         <Card><CardContent className="py-12 flex justify-center"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></CardContent></Card>
       ) : !data ? null : (
         <>
-          <div className="grid gap-4 md:grid-cols-4">
-            <Card>
-              <CardHeader className="pb-2"><CardDescription>Total Spend</CardDescription></CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold" data-testid="text-acq-total-spend">{format(data.totals.totalSpend)}</div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2"><CardDescription>Copies Acquired</CardDescription></CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold" data-testid="text-acq-total-copies">{data.totals.totalCopies}</div>
-                <p className="text-xs text-muted-foreground mt-1">{data.totals.datedCopies} with dates</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2"><CardDescription>Unique Titles</CardDescription></CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold" data-testid="text-acq-unique-titles">{data.totals.uniqueTitles}</div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2"><CardDescription>Avg Unit Price</CardDescription></CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold" data-testid="text-acq-avg-price">{format(data.totals.avgUnitPrice)}</div>
-              </CardContent>
-            </Card>
+          {/* KPI cards + analytics button */}
+          <div className="flex flex-wrap gap-4 items-stretch">
+            <div className="grid gap-4 grid-cols-2 md:grid-cols-4 flex-1">
+              <Card>
+                <CardHeader className="pb-2"><CardDescription>Total Spend</CardDescription></CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold" data-testid="text-acq-total-spend">{format(data.totals.totalSpend)}</div>
+                  <p className="text-xs text-muted-foreground mt-1">{data.totals.pricedCopies} priced copies</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2"><CardDescription>Avg Unit Price</CardDescription></CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold" data-testid="text-acq-avg-price">{format(data.totals.avgUnitPrice)}</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2"><CardDescription>Copies Acquired</CardDescription></CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold" data-testid="text-acq-total-copies">{data.totals.totalCopies}</div>
+                  <p className="text-xs text-muted-foreground mt-1">{data.totals.datedCopies} with acq. dates</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2"><CardDescription>Unique Titles</CardDescription></CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold" data-testid="text-acq-unique-titles">{data.totals.uniqueTitles}</div>
+                </CardContent>
+              </Card>
+            </div>
+            <div className="flex items-stretch gap-2">
+              <Button
+                variant="outline"
+                className="h-full flex flex-col gap-1 px-5"
+                onClick={() => setChartsOpen(true)}
+                data-testid="button-acq-charts"
+              >
+                <BarChart2 className="w-5 h-5" />
+                <span className="text-xs">Analytics</span>
+              </Button>
+              <Button variant="outline" onClick={exportCsv} disabled={!data.copies.length} className="h-full flex flex-col gap-1 px-5" data-testid="button-acq-export">
+                <Download className="w-5 h-5" />
+                <span className="text-xs">Export CSV</span>
+              </Button>
+            </div>
           </div>
 
-          <div className="grid gap-6 md:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>Monthly Acquisition Spend</CardTitle>
-                <CardDescription>Spend and copies acquired per month</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="h-[300px]">
-                  {data.timeSeries.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-12">No dated acquisitions in this range.</p>
-                  ) : (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={data.timeSeries.map((s: any) => ({ ...s, spend: s.spend / 100 }))}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                        <XAxis dataKey="month" axisLine={false} tickLine={false} />
-                        <YAxis axisLine={false} tickLine={false} />
-                        <Tooltip />
-                        <Legend />
-                        <Bar dataKey="spend" name="Spend" fill="hsl(var(--chart-1))" radius={[4, 4, 0, 0]} />
-                        <Bar dataKey="copies" name="Copies" fill="hsl(var(--chart-2))" radius={[4, 4, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle>Spend by Source</CardTitle>
-                <CardDescription>Top vendors/suppliers by spend</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="h-[300px]">
-                  {data.bySource.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-12">No data.</p>
-                  ) : (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie data={data.bySource.slice(0, 6).map((s: any) => ({ name: s.label, value: s.spend / 100 }))}
-                             cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={2} dataKey="value">
-                          {data.bySource.slice(0, 6).map((_: any, i: number) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
-                        </Pie>
-                        <Tooltip />
-                        <Legend verticalAlign="bottom" height={36} />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          <div className="grid gap-6 md:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>By Library</CardTitle>
-                <CardDescription>Acquisition footprint per library</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Library</TableHead>
-                      <TableHead className="text-right">Copies</TableHead>
-                      <TableHead className="text-right">Titles</TableHead>
-                      <TableHead className="text-right">Spend</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {data.byLibrary.length === 0 ? (
-                      <TableRow><TableCell colSpan={4} className="text-center text-sm text-muted-foreground py-6">No data.</TableCell></TableRow>
-                    ) : data.byLibrary.map((r: any) => (
-                      <TableRow key={`lib-${r.key}`} data-testid={`row-acq-library-${r.key}`}>
-                        <TableCell>{r.label}</TableCell>
-                        <TableCell className="text-right">{r.copies}</TableCell>
-                        <TableCell className="text-right">{r.titles}</TableCell>
-                        <TableCell className="text-right font-semibold">{format(r.spend)}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle>By Category</CardTitle>
-                <CardDescription>Collection growth per category</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Category</TableHead>
-                      <TableHead className="text-right">Copies</TableHead>
-                      <TableHead className="text-right">Titles</TableHead>
-                      <TableHead className="text-right">Spend</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {data.byCategory.length === 0 ? (
-                      <TableRow><TableCell colSpan={4} className="text-center text-sm text-muted-foreground py-6">No data.</TableCell></TableRow>
-                    ) : data.byCategory.map((r: any) => (
-                      <TableRow key={`cat-${r.key}`} data-testid={`row-acq-category-${r.key}`}>
-                        <TableCell>{r.label}</TableCell>
-                        <TableCell className="text-right">{r.copies}</TableCell>
-                        <TableCell className="text-right">{r.titles}</TableCell>
-                        <TableCell className="text-right font-semibold">{format(r.spend)}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          </div>
-
+          {/* Copies detail table */}
           <Card>
             <CardHeader>
-              <CardTitle>Acquired Copies</CardTitle>
-              <CardDescription>{data.copies.length} matching copies</CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Acquired Copies</CardTitle>
+                  <CardDescription>
+                    {data.copies.length} {data.copies.length === 1 ? "copy" : "copies"} match the current filters
+                    {data.copies.length > 500 ? " — showing first 500, export CSV for full data" : ""}
+                  </CardDescription>
+                </div>
+              </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-0">
               {data.copies.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-6">No copies match the selected filters.</p>
+                <p className="text-sm text-muted-foreground text-center py-10">No copies match the selected filters.</p>
               ) : (
-                <div className="max-h-[500px] overflow-auto">
+                <div className="overflow-auto max-h-[560px]">
                   <Table>
-                    <TableHeader>
+                    <TableHeader className="sticky top-0 bg-card z-10">
                       <TableRow>
-                        <TableHead>Date</TableHead>
-                        <TableHead>Title</TableHead>
+                        <TableHead>Acq. Date</TableHead>
+                        <TableHead>Title / Author</TableHead>
                         <TableHead>Barcode</TableHead>
                         <TableHead>Library</TableHead>
                         <TableHead>Source</TableHead>
                         <TableHead>Category</TableHead>
+                        <TableHead>Format</TableHead>
                         <TableHead className="text-right">Price</TableHead>
                         <TableHead>Status</TableHead>
+                        <TableHead>Condition</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {data.copies.slice(0, 500).map((c: any) => (
                         <TableRow key={c.id} data-testid={`row-acq-copy-${c.id}`}>
-                          <TableCell className="text-xs text-muted-foreground">
+                          <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                             {c.acquisitionDate ? new Date(c.acquisitionDate).toLocaleDateString() : "—"}
                           </TableCell>
-                          <TableCell className="text-sm">
+                          <TableCell className="text-sm min-w-[180px]">
                             <div className="font-medium">{c.bookTitle}</div>
                             <div className="text-xs text-muted-foreground">{c.author}</div>
                           </TableCell>
                           <TableCell className="text-xs font-mono">{c.barcode}</TableCell>
-                          <TableCell className="text-sm">{c.libraryName}</TableCell>
+                          <TableCell className="text-sm whitespace-nowrap">{c.libraryName}</TableCell>
                           <TableCell className="text-sm">{c.acquisitionSource || "—"}</TableCell>
                           <TableCell className="text-sm">{c.category || "—"}</TableCell>
-                          <TableCell className="text-right font-semibold">{format(c.price)}</TableCell>
+                          <TableCell className="text-sm">{c.format || "—"}</TableCell>
+                          <TableCell className="text-right font-semibold whitespace-nowrap">
+                            {format(c.price)}
+                            {c.priceSource === "book" && (
+                              <span className="text-xs text-muted-foreground ml-1" title="Price from book record">*</span>
+                            )}
+                          </TableCell>
                           <TableCell><Badge variant="outline" className="text-xs">{c.status}</Badge></TableCell>
+                          <TableCell className="text-sm">{c.condition || "—"}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
                   </Table>
-                  {data.copies.length > 500 && (
-                    <p className="text-xs text-muted-foreground text-center mt-3">Showing first 500 of {data.copies.length} rows. Export CSV for full data.</p>
-                  )}
                 </div>
               )}
             </CardContent>
           </Card>
+
+          {/* Analytics right-side sheet */}
+          <Sheet open={chartsOpen} onOpenChange={setChartsOpen}>
+            <SheetContent side="right" className="w-full sm:max-w-2xl p-0">
+              <SheetHeader className="px-6 pt-6 pb-4 border-b">
+                <SheetTitle>Analytics</SheetTitle>
+                <SheetDescription>Visual breakdowns for the current filter selection ({data.totals.totalCopies} copies).</SheetDescription>
+              </SheetHeader>
+              <ScrollArea className="h-[calc(100vh-100px)]">
+                <div className="px-6 py-4 space-y-8">
+
+                  {/* Monthly trend */}
+                  <div>
+                    <h3 className="text-sm font-semibold mb-3">Monthly Acquisition Trend</h3>
+                    <div className="h-[240px]">
+                      {data.timeSeries.length === 0 ? (
+                        <p className="text-sm text-muted-foreground text-center py-10">No dated acquisitions in this range.</p>
+                      ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={data.timeSeries.map((s: any) => ({ ...s, spend: +(s.spend / 100).toFixed(2) }))}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                            <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 11 }} />
+                            <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11 }} />
+                            <Tooltip />
+                            <Legend />
+                            <Bar dataKey="spend" name="Spend" fill="hsl(var(--chart-1))" radius={[4, 4, 0, 0]} />
+                            <Bar dataKey="copies" name="Copies" fill="hsl(var(--chart-2))" radius={[4, 4, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Spend by source pie */}
+                  <div>
+                    <h3 className="text-sm font-semibold mb-3">Spend by Source</h3>
+                    <div className="h-[220px]">
+                      {data.bySource.length === 0 ? (
+                        <p className="text-sm text-muted-foreground text-center py-8">No data.</p>
+                      ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie data={data.bySource.slice(0, 7).map((s: any) => ({ name: s.label, value: +(s.spend / 100).toFixed(2) }))}
+                                 cx="50%" cy="50%" innerRadius={55} outerRadius={90} paddingAngle={2} dataKey="value">
+                              {data.bySource.slice(0, 7).map((_: any, i: number) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                            </Pie>
+                            <Tooltip />
+                            <Legend verticalAlign="bottom" height={32} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* By Library */}
+                  <div>
+                    <h3 className="text-sm font-semibold mb-2">By Library</h3>
+                    <AcqBreakdownTable rows={data.byLibrary} format={format} />
+                  </div>
+
+                  {/* By Category */}
+                  <div>
+                    <h3 className="text-sm font-semibold mb-2">By Category</h3>
+                    <AcqBreakdownTable rows={data.byCategory} format={format} />
+                  </div>
+
+                  {/* By Format */}
+                  <div>
+                    <h3 className="text-sm font-semibold mb-2">By Format</h3>
+                    <AcqBreakdownTable rows={data.byFormat} format={format} />
+                  </div>
+
+                  {/* By Status */}
+                  <div>
+                    <h3 className="text-sm font-semibold mb-2">By Copy Status</h3>
+                    <AcqBreakdownTable rows={data.byStatus} format={format} />
+                  </div>
+
+                  {/* By Condition */}
+                  <div>
+                    <h3 className="text-sm font-semibold mb-2">By Condition</h3>
+                    <AcqBreakdownTable rows={data.byCondition} format={format} />
+                  </div>
+
+                </div>
+              </ScrollArea>
+            </SheetContent>
+          </Sheet>
         </>
       )}
     </div>
