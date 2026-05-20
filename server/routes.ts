@@ -1114,6 +1114,99 @@ export async function registerRoutes(
     }
   });
 
+  // Pending fine cases – all returned circulations with outstanding fine or damage balances
+  app.get("/api/circulation/pending-fines", async (req, res) => {
+    try {
+      const currentUser = await requireStaff(req, res);
+      if (!currentUser) return;
+
+      const libraryId = req.query.libraryId ? parseInt(req.query.libraryId as string) : undefined;
+      const search = (req.query.search as string | undefined)?.toLowerCase().trim();
+
+      const allCirc = await storage.getAllCirculation();
+
+      const pending = allCirc.filter(c => {
+        if (c.status !== 'RETURNED') return false;
+        const fineOut = Math.max(0, (c.fineAmount ?? 0) - (c.finePaidAmount ?? 0) - (c.fineWaivedAmount ?? 0));
+        const dmgOut = Math.max(0, (c.damageCost ?? 0) - (c.damagePaidAmount ?? 0) - (c.damageWaivedAmount ?? 0));
+        if (fineOut + dmgOut === 0) return false;
+        if (libraryId && c.libraryId !== libraryId) return false;
+        return true;
+      });
+
+      const byUser: Record<number, any> = {};
+      const libCache = new Map<number, any>();
+      const bookCache = new Map<number, any>();
+      const userCache = new Map<number, any>();
+
+      for (const c of pending) {
+        const fineOut = Math.max(0, (c.fineAmount ?? 0) - (c.finePaidAmount ?? 0) - (c.fineWaivedAmount ?? 0));
+        const dmgOut = Math.max(0, (c.damageCost ?? 0) - (c.damagePaidAmount ?? 0) - (c.damageWaivedAmount ?? 0));
+
+        if (!byUser[c.userId]) {
+          let user = userCache.get(c.userId);
+          if (!user) { user = await storage.getUser(c.userId); userCache.set(c.userId, user); }
+          byUser[c.userId] = {
+            userId: c.userId,
+            userName: user?.name || 'Unknown',
+            userEmail: user?.email || '',
+            userRole: user?.role || '',
+            membershipId: (user as any)?.studentId || (user as any)?.employeeId || null,
+            totalOutstandingCents: 0,
+            circulations: [],
+          };
+        }
+
+        let book = bookCache.get(c.bookId);
+        if (!book) { book = await storage.getBook(c.bookId); bookCache.set(c.bookId, book); }
+        let lib = c.libraryId ? libCache.get(c.libraryId) : null;
+        if (!lib && c.libraryId) { lib = await storage.getLibrary(c.libraryId); libCache.set(c.libraryId, lib); }
+
+        byUser[c.userId].totalOutstandingCents += fineOut + dmgOut;
+        byUser[c.userId].circulations.push({
+          circulationId: c.id,
+          bookId: c.bookId,
+          bookTitle: book?.title || 'Unknown Book',
+          bookIsbn: book?.isbn || null,
+          libraryId: c.libraryId,
+          libraryName: lib?.name || null,
+          checkoutDate: c.checkoutDate,
+          dueDate: c.dueDate,
+          returnDate: c.returnDate,
+          fineAmount: c.fineAmount ?? 0,
+          finePaidAmount: c.finePaidAmount ?? 0,
+          fineWaivedAmount: c.fineWaivedAmount ?? 0,
+          fineOutstandingCents: fineOut,
+          damageCost: c.damageCost ?? 0,
+          damagePaidAmount: c.damagePaidAmount ?? 0,
+          damageWaivedAmount: c.damageWaivedAmount ?? 0,
+          damageOutstandingCents: dmgOut,
+          fineStatus: c.fineStatus,
+          damageStatus: c.damageStatus,
+          totalOutstandingCents: fineOut + dmgOut,
+        });
+      }
+
+      let users = Object.values(byUser)
+        .filter(u => u.totalOutstandingCents > 0)
+        .sort((a: any, b: any) => b.totalOutstandingCents - a.totalOutstandingCents);
+
+      if (search) {
+        users = users.filter((u: any) =>
+          u.userName.toLowerCase().includes(search) ||
+          u.userEmail.toLowerCase().includes(search) ||
+          (u.membershipId && String(u.membershipId).toLowerCase().includes(search))
+        );
+      }
+
+      const grandTotalCents = users.reduce((s: number, u: any) => s + u.totalOutstandingCents, 0);
+      res.json({ users, total: users.length, grandTotalCents });
+    } catch (error) {
+      console.error("Error fetching pending fines:", error);
+      res.status(500).json({ error: "Failed to fetch pending fines" });
+    }
+  });
+
   // ===== Payment Methods API =====
   app.get("/api/payment-methods", async (req, res) => {
     try {

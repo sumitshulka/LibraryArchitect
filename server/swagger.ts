@@ -2019,7 +2019,7 @@ Each attribute type (e.g., "Program", "Semester", "Subject Type") contains its a
         get: {
           tags: ['ERP Fines'],
           summary: 'ERP-wide fine aggregates',
-          description: 'Returns ERP-wide fine totals, open/overdue loan counts, and per-library breakdown.',
+          description: 'Returns ERP-wide fine totals, open/overdue loan counts, and per-library breakdown. Scoped to patrons provisioned via the authenticating ERP integration.',
           parameters: [
             { name: 'X-Secret-Key', in: 'header', required: true, schema: { type: 'string' } },
             { name: 'appId', in: 'query', required: true, schema: { type: 'string' } },
@@ -2037,6 +2037,122 @@ Each attribute type (e.g., "Program", "Semester", "Subject Type") contains its a
                 },
               } } },
             },
+            '401': { description: 'Missing or invalid secret key', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+            '403': { description: 'ERP integration disabled', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          },
+        },
+      },
+      '/api/erp/fine-payments': {
+        post: {
+          tags: ['ERP Fines'],
+          summary: 'Push fine payment data from ERP',
+          description: `Record one or more fine/damage payments for a patron via the ERP integration.
+
+**Use case**: When a patron settles outstanding library fines through the ERP portal or any integrated payment gateway, the ERP calls this endpoint to reconcile the payment in LibraTech.
+
+**Amount format**: All monetary amounts are in major currency units (e.g. \`25.50\` for ₹25.50 or $25.50). Do **not** send amounts in paise/cents.
+
+**Payment method**: Use the \`code\` field of a configured LibraTech payment method (e.g. \`CASH\`, \`UPI\`, \`CARD\`). Inactive methods are rejected.
+
+**Validation**: Each payment item is validated — amounts cannot exceed the outstanding balance for that circulation.`,
+          parameters: [
+            { name: 'X-Secret-Key', in: 'header', required: true, schema: { type: 'string' }, description: 'ERP secret key' },
+          ],
+          requestBody: {
+            required: true,
+            content: { 'application/json': { schema: {
+              type: 'object',
+              required: ['appId', 'externalId', 'paymentMethodCode', 'payments'],
+              properties: {
+                appId: { type: 'string', description: 'ERP application ID' },
+                externalId: { type: 'string', description: 'Patron external ID as provisioned in the ERP' },
+                paymentMethodCode: { type: 'string', description: 'Payment method code configured in LibraTech (e.g. CASH, UPI, CARD, BANK)', example: 'UPI' },
+                referenceNumber: { type: 'string', description: 'Transaction / reference number from the payment gateway', example: 'TXN20260520001' },
+                notes: { type: 'string', description: 'Optional notes about the payment batch' },
+                payments: {
+                  type: 'array',
+                  minItems: 1,
+                  description: 'List of per-circulation payment amounts. At least one of fineAmount or damageAmount must be provided per item.',
+                  items: {
+                    type: 'object',
+                    required: ['circulationId'],
+                    properties: {
+                      circulationId: { type: 'integer', description: 'Circulation record ID (from GET /api/erp/users/:externalId/fines)' },
+                      fineAmount: { type: 'number', format: 'float', description: 'Amount to apply towards the overdue fine (major currency units). Cannot exceed outstanding fine balance.', example: 15.00 },
+                      damageAmount: { type: 'number', format: 'float', description: 'Amount to apply towards the damage cost (major currency units). Cannot exceed outstanding damage balance.', example: 0 },
+                    },
+                  },
+                },
+              },
+              example: {
+                appId: 'erp-main',
+                externalId: 'STU2026001',
+                paymentMethodCode: 'UPI',
+                referenceNumber: 'TXN20260520001',
+                payments: [
+                  { circulationId: 42, fineAmount: 15.00, damageAmount: 0 },
+                  { circulationId: 57, fineAmount: 8.50, damageAmount: 200.00 },
+                ],
+              },
+            } } },
+          },
+          responses: {
+            '200': {
+              description: 'Payments applied successfully',
+              content: { 'application/json': { schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean', example: true },
+                  patron: { type: 'object', properties: { externalId: { type: 'string' }, name: { type: 'string' }, email: { type: 'string' } } },
+                  paymentMethod: { type: 'object', properties: { code: { type: 'string' }, name: { type: 'string' } } },
+                  totalApplied: { type: 'number', description: 'Total amount applied across all items (major currency units)', example: 223.50 },
+                  items: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      properties: {
+                        circulationId: { type: 'integer' },
+                        fineApplied: { type: 'number', description: 'Fine amount applied' },
+                        damageApplied: { type: 'number', description: 'Damage amount applied' },
+                        newFineOutstanding: { type: 'number', description: 'Remaining fine balance after this payment' },
+                        newDamageOutstanding: { type: 'number', description: 'Remaining damage balance after this payment' },
+                        newFineStatus: { type: 'string', enum: ['OUTSTANDING', 'PAID', 'PARTIALLY_PAID', 'WAIVED'] },
+                        newDamageStatus: { type: 'string', enum: ['NONE', 'OUTSTANDING', 'PAID', 'PARTIALLY_PAID', 'WAIVED'] },
+                      },
+                    },
+                  },
+                },
+              },
+              examples: {
+                success: {
+                  summary: 'Two circulations settled',
+                  value: {
+                    success: true,
+                    patron: { externalId: 'STU2026001', name: 'Arijit Singh', email: 'arijit@university.edu' },
+                    paymentMethod: { code: 'UPI', name: 'UPI' },
+                    totalApplied: 223.50,
+                    items: [
+                      { circulationId: 42, fineApplied: 15.00, damageApplied: 0, newFineOutstanding: 0, newDamageOutstanding: 0, newFineStatus: 'PAID', newDamageStatus: 'NONE' },
+                      { circulationId: 57, fineApplied: 8.50, damageApplied: 200.00, newFineOutstanding: 0, newDamageOutstanding: 0, newFineStatus: 'PAID', newDamageStatus: 'PAID' },
+                    ],
+                  },
+                },
+              },
+              } },
+            },
+            '400': {
+              description: 'Validation error — missing fields, unknown payment method, or payment exceeds outstanding balance',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' },
+                examples: {
+                  missingField: { summary: 'Missing externalId', value: { error: 'externalId is required' } },
+                  unknownMethod: { summary: 'Unknown payment method', value: { error: "Payment method 'CHEQUE' not found or inactive" } },
+                  overflow: { summary: 'Payment exceeds balance', value: { error: 'Fine payment (2000) exceeds outstanding (1500) for circulation 42' } },
+                },
+              } },
+            },
+            '401': { description: 'Missing or invalid secret key', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+            '403': { description: 'ERP integration disabled or circulation belongs to a different patron', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+            '404': { description: 'Patron or circulation not found', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
           },
         },
       },

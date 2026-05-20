@@ -17,6 +17,7 @@ import UsersPage from "@/modules/users/UsersPage";
 import CirculationPage from "@/modules/circulation/CirculationPage";
 import WaiverRequestsPage from "@/modules/circulation/WaiverRequestsPage";
 import ReservationsPage from "@/modules/circulation/ReservationsPage";
+import PendingFinesPage from "@/modules/circulation/PendingFinesPage";
 import InventoryPage from "@/modules/inventory/InventoryPage";
 import OrganizationsPage from "@/modules/organizations/OrganizationsPage";
 import { LibraryDashboardPage } from "@/modules/organizations/LibraryDashboardPage";
@@ -62,6 +63,7 @@ function AppRouter() {
       <Route path="/users">{() => <ProtectedRoute component={UsersPage} />}</Route>
       <Route path="/circulation">{() => <ProtectedRoute component={CirculationPage} />}</Route>
       <Route path="/circulation/waiver-requests">{() => <ProtectedRoute component={WaiverRequestsPage} />}</Route>
+      <Route path="/circulation/pending-fines">{() => <ProtectedRoute component={PendingFinesPage} />}</Route>
       <Route path="/reservations">{() => <ProtectedRoute component={ReservationsPage} />}</Route>
       <Route path="/inventory">{() => <ProtectedRoute component={InventoryPage} />}</Route>
       <Route path="/organizations">{() => <ProtectedRoute component={OrganizationsPage} />}</Route>

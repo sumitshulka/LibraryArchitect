@@ -514,4 +514,148 @@ export function registerErpExtraRoutes(app: Express) {
       res.status(500).json({ error: err.message || "Failed to fetch fines summary" });
     }
   });
+
+  // -----------------------------------------------------------------
+  // 5) Fine Payment Push
+  //    POST /api/erp/fine-payments
+  //    Body: { appId, externalId, paymentMethodCode, referenceNumber?,
+  //            notes?, payments: [{ circulationId, fineAmount?, damageAmount? }] }
+  //    Amounts in major currency units (e.g. 25.50 for ₹25.50).
+  // -----------------------------------------------------------------
+  app.post("/api/erp/fine-payments", async (req, res) => {
+    try {
+      const integration = await authenticateErp(req, res);
+      if (!integration) return;
+
+      const { externalId, paymentMethodCode, referenceNumber, notes, payments } = req.body || {};
+      if (!externalId) return res.status(400).json({ error: "externalId is required" });
+      if (!paymentMethodCode) return res.status(400).json({ error: "paymentMethodCode is required" });
+      if (!Array.isArray(payments) || payments.length === 0) {
+        return res.status(400).json({ error: "payments array is required and must not be empty" });
+      }
+
+      const user = await storage.getUserByExternalId(String(externalId), integration.id);
+      if (!user) return res.status(404).json({ error: "Patron not found for this ERP" });
+
+      const allPaymentMethods = await storage.getAllPaymentMethods();
+      const pm = allPaymentMethods.find(
+        (m: any) => m.code?.toLowerCase() === String(paymentMethodCode).toLowerCase() && m.isActive
+      );
+      if (!pm) return res.status(400).json({ error: `Payment method '${paymentMethodCode}' not found or inactive` });
+
+      const results: any[] = [];
+      let totalAppliedCents = 0;
+
+      for (const item of payments) {
+        const { circulationId, fineAmount, damageAmount } = item;
+        if (!circulationId) return res.status(400).json({ error: "Each payment item must include circulationId" });
+
+        const circ = await storage.getCirculation(Number(circulationId));
+        if (!circ) return res.status(404).json({ error: `Circulation ${circulationId} not found` });
+        if (circ.userId !== user.id) {
+          return res.status(403).json({ error: `Circulation ${circulationId} does not belong to this patron` });
+        }
+
+        const fineOutstanding = Math.max(0, (circ.fineAmount ?? 0) - (circ.finePaidAmount ?? 0) - (circ.fineWaivedAmount ?? 0));
+        const dmgOutstanding = Math.max(0, (circ.damageCost ?? 0) - (circ.damagePaidAmount ?? 0) - (circ.damageWaivedAmount ?? 0));
+
+        const finePayCents = fineAmount != null ? Math.round(Number(fineAmount) * 100) : 0;
+        const dmgPayCents = damageAmount != null ? Math.round(Number(damageAmount) * 100) : 0;
+
+        if (finePayCents < 0 || dmgPayCents < 0) {
+          return res.status(400).json({ error: `Payment amounts must be non-negative (circulation ${circulationId})` });
+        }
+        if (finePayCents > fineOutstanding) {
+          return res.status(400).json({ error: `Fine payment (${finePayCents}) exceeds outstanding (${fineOutstanding}) for circulation ${circulationId}` });
+        }
+        if (dmgPayCents > dmgOutstanding) {
+          return res.status(400).json({ error: `Damage payment (${dmgPayCents}) exceeds outstanding (${dmgOutstanding}) for circulation ${circulationId}` });
+        }
+        if (finePayCents === 0 && dmgPayCents === 0) {
+          return res.status(400).json({ error: `No payment amount specified for circulation ${circulationId}` });
+        }
+
+        if (finePayCents > 0) {
+          await storage.createFinePayment({
+            circulationId: circ.id,
+            paymentType: 'FINE',
+            amount: finePayCents,
+            paymentMethodId: pm.id,
+            collectedBy: user.id,
+            referenceNumber: referenceNumber || null,
+            notes: notes || null,
+          } as any);
+        }
+        if (dmgPayCents > 0) {
+          await storage.createFinePayment({
+            circulationId: circ.id,
+            paymentType: 'DAMAGE',
+            amount: dmgPayCents,
+            paymentMethodId: pm.id,
+            collectedBy: user.id,
+            referenceNumber: referenceNumber || null,
+            notes: notes || null,
+          } as any);
+        }
+
+        const newFinePaid = (circ.finePaidAmount ?? 0) + finePayCents;
+        const newFineWaived = circ.fineWaivedAmount ?? 0;
+        const newDmgPaid = (circ.damagePaidAmount ?? 0) + dmgPayCents;
+        const newDmgWaived = circ.damageWaivedAmount ?? 0;
+        const totalFine = circ.fineAmount ?? 0;
+        const totalDmg = circ.damageCost ?? 0;
+
+        const newFineRemaining = totalFine - newFinePaid - newFineWaived;
+        let fineStatus: string = circ.fineStatus ?? 'OUTSTANDING';
+        if (totalFine === 0) fineStatus = 'PAID';
+        else if (newFineRemaining <= 0) fineStatus = newFinePaid === 0 ? 'WAIVED' : 'PAID';
+        else if (newFinePaid > 0 || newFineWaived > 0) fineStatus = 'PARTIALLY_PAID';
+
+        const newDmgRemaining = totalDmg - newDmgPaid - newDmgWaived;
+        let damageStatus: string = circ.damageStatus ?? 'NONE';
+        if (totalDmg > 0) {
+          if (newDmgRemaining <= 0) damageStatus = newDmgPaid === 0 ? 'WAIVED' : 'PAID';
+          else if (newDmgPaid > 0 || newDmgWaived > 0) damageStatus = 'PARTIALLY_PAID';
+          else damageStatus = 'OUTSTANDING';
+        }
+
+        await storage.updateCirculation(circ.id, {
+          finePaidAmount: newFinePaid,
+          fineStatus: fineStatus as any,
+          damagePaidAmount: newDmgPaid,
+          damageStatus: damageStatus as any,
+        } as any);
+
+        totalAppliedCents += finePayCents + dmgPayCents;
+        results.push({
+          circulationId: circ.id,
+          fineApplied: finePayCents / 100,
+          damageApplied: dmgPayCents / 100,
+          newFineOutstanding: Math.max(0, newFineRemaining) / 100,
+          newDamageOutstanding: Math.max(0, newDmgRemaining) / 100,
+          newFineStatus: fineStatus,
+          newDamageStatus: damageStatus,
+        });
+      }
+
+      logAudit(req, {
+        category: 'FINES',
+        action: 'PAYMENT_COLLECTED',
+        userId: user.id, userName: user.name,
+        targetType: 'user', targetId: String(user.id),
+        details: { source: 'ERP', appId: integration.appId, externalId, paymentMethodCode, referenceNumber, totalAppliedCents, items: results.length },
+      });
+
+      res.status(200).json({
+        success: true,
+        patron: { externalId: user.externalId, name: user.name, email: user.email },
+        paymentMethod: { code: pm.code, name: pm.name },
+        totalApplied: totalAppliedCents / 100,
+        items: results,
+      });
+    } catch (err: any) {
+      console.error("ERP /fine-payments error", err);
+      res.status(500).json({ error: err.message || "Failed to process fine payments" });
+    }
+  });
 }

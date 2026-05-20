@@ -311,6 +311,51 @@ export interface FinePreview {
   payments: any[];
 }
 
+export interface PendingFineCirculation {
+  circulationId: number;
+  bookId: number;
+  bookTitle: string;
+  bookIsbn: string | null;
+  libraryId: number | null;
+  libraryName: string | null;
+  checkoutDate: string;
+  dueDate: string;
+  returnDate: string | null;
+  fineAmount: number;
+  finePaidAmount: number;
+  fineWaivedAmount: number;
+  fineOutstandingCents: number;
+  damageCost: number;
+  damagePaidAmount: number;
+  damageWaivedAmount: number;
+  damageOutstandingCents: number;
+  fineStatus: string | null;
+  damageStatus: string | null;
+  totalOutstandingCents: number;
+}
+
+export interface PendingFineUser {
+  userId: number;
+  userName: string;
+  userEmail: string;
+  userRole: string;
+  membershipId: string | null;
+  totalOutstandingCents: number;
+  circulations: PendingFineCirculation[];
+}
+
+export const pendingFinesApi = {
+  getAll: async (filters?: { libraryId?: number; search?: string }): Promise<{ users: PendingFineUser[]; total: number; grandTotalCents: number }> => {
+    const params = new URLSearchParams();
+    if (filters?.libraryId) params.set("libraryId", String(filters.libraryId));
+    if (filters?.search) params.set("search", filters.search);
+    const qs = params.toString();
+    const res = await fetch(`/api/circulation/pending-fines${qs ? `?${qs}` : ""}`);
+    if (!res.ok) throw new Error("Failed to fetch pending fines");
+    return res.json();
+  },
+};
+
 export const circulationApi = {
   getAll: async (userId?: number, enrich = false): Promise<any[]> => {
     const params = new URLSearchParams();
