@@ -13,7 +13,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import {
@@ -283,70 +282,68 @@ function UserRow({ userEntry, onCollect }: UserRowProps) {
   const { format } = useCurrency();
 
   return (
-    <Collapsible open={open} onOpenChange={setOpen}>
-      <CollapsibleTrigger asChild>
-        <TableRow className="cursor-pointer hover:bg-muted/50 select-none" data-testid={`row-user-${userEntry.userId}`}>
-          <TableCell className="w-8">
-            {open ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+    <>
+      <TableRow
+        className="cursor-pointer hover:bg-muted/50 select-none"
+        onClick={() => setOpen(o => !o)}
+        data-testid={`row-user-${userEntry.userId}`}
+      >
+        <TableCell className="w-8">
+          {open ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+        </TableCell>
+        <TableCell>
+          <div className="font-medium">{userEntry.userName}</div>
+          <div className="text-xs text-muted-foreground">{userEntry.userEmail}</div>
+        </TableCell>
+        <TableCell>
+          <Badge variant={roleBadgeVariant(userEntry.userRole)} className="text-xs">{userEntry.userRole}</Badge>
+        </TableCell>
+        <TableCell className="text-muted-foreground text-sm">{userEntry.membershipId || "–"}</TableCell>
+        <TableCell className="text-right">
+          <span className="font-bold text-red-600" data-testid={`text-total-due-${userEntry.userId}`}>{format(userEntry.totalOutstandingCents)}</span>
+        </TableCell>
+        <TableCell className="text-center text-xs text-muted-foreground">{userEntry.circulations.length} record{userEntry.circulations.length !== 1 ? "s" : ""}</TableCell>
+      </TableRow>
+      {open && userEntry.circulations.map(circ => (
+        <TableRow key={circ.circulationId} className="bg-muted/20 border-l-4 border-l-amber-400" data-testid={`row-circ-${circ.circulationId}`}>
+          <TableCell />
+          <TableCell>
+            <div className="flex items-center gap-2">
+              <BookOpen className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+              <div>
+                <div className="text-sm font-medium">{circ.bookTitle}</div>
+                {circ.bookIsbn && <div className="text-xs text-muted-foreground">ISBN {circ.bookIsbn}</div>}
+              </div>
+            </div>
           </TableCell>
           <TableCell>
-            <div className="font-medium">{userEntry.userName}</div>
-            <div className="text-xs text-muted-foreground">{userEntry.userEmail}</div>
+            {circ.libraryName && <span className="text-xs text-muted-foreground">{circ.libraryName}</span>}
           </TableCell>
           <TableCell>
-            <Badge variant={roleBadgeVariant(userEntry.userRole)} className="text-xs">{userEntry.userRole}</Badge>
+            <div className="text-xs space-y-0.5">
+              <div className="text-muted-foreground">Due: {fmtDate(new Date(circ.dueDate), "dd MMM yy")}</div>
+              {circ.returnDate && <div className="text-muted-foreground">Returned: {fmtDate(new Date(circ.returnDate), "dd MMM yy")}</div>}
+            </div>
           </TableCell>
-          <TableCell className="text-muted-foreground text-sm">{userEntry.membershipId || "–"}</TableCell>
           <TableCell className="text-right">
-            <span className="font-bold text-red-600" data-testid={`text-total-due-${userEntry.userId}`}>{format(userEntry.totalOutstandingCents)}</span>
+            <div className="text-sm space-y-0.5">
+              {circ.fineOutstandingCents > 0 && (
+                <div className="text-red-600 font-medium">{format(circ.fineOutstandingCents)} <span className="text-xs font-normal text-muted-foreground">fine</span></div>
+              )}
+              {circ.damageOutstandingCents > 0 && (
+                <div className="text-orange-600 font-medium">{format(circ.damageOutstandingCents)} <span className="text-xs font-normal text-muted-foreground">damage</span></div>
+              )}
+            </div>
           </TableCell>
-          <TableCell className="text-center text-xs text-muted-foreground">{userEntry.circulations.length} record{userEntry.circulations.length !== 1 ? "s" : ""}</TableCell>
+          <TableCell className="text-center">
+            <Button size="sm" variant="outline" onClick={e => { e.stopPropagation(); onCollect(circ, userEntry.userName); }}
+              data-testid={`button-collect-${circ.circulationId}`}>
+              <Banknote className="h-3.5 w-3.5 mr-1" /> Collect
+            </Button>
+          </TableCell>
         </TableRow>
-      </CollapsibleTrigger>
-      <CollapsibleContent asChild>
-        <>
-          {userEntry.circulations.map(circ => (
-            <TableRow key={circ.circulationId} className="bg-muted/20 border-l-4 border-l-amber-400" data-testid={`row-circ-${circ.circulationId}`}>
-              <TableCell />
-              <TableCell>
-                <div className="flex items-center gap-2">
-                  <BookOpen className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-                  <div>
-                    <div className="text-sm font-medium">{circ.bookTitle}</div>
-                    {circ.bookIsbn && <div className="text-xs text-muted-foreground">ISBN {circ.bookIsbn}</div>}
-                  </div>
-                </div>
-              </TableCell>
-              <TableCell>
-                {circ.libraryName && <span className="text-xs text-muted-foreground">{circ.libraryName}</span>}
-              </TableCell>
-              <TableCell>
-                <div className="text-xs space-y-0.5">
-                  <div className="text-muted-foreground">Due: {fmtDate(new Date(circ.dueDate), "dd MMM yy")}</div>
-                  {circ.returnDate && <div className="text-muted-foreground">Returned: {fmtDate(new Date(circ.returnDate), "dd MMM yy")}</div>}
-                </div>
-              </TableCell>
-              <TableCell className="text-right">
-                <div className="text-sm space-y-0.5">
-                  {circ.fineOutstandingCents > 0 && (
-                    <div className="text-red-600 font-medium">{format(circ.fineOutstandingCents)} <span className="text-xs font-normal text-muted-foreground">fine</span></div>
-                  )}
-                  {circ.damageOutstandingCents > 0 && (
-                    <div className="text-orange-600 font-medium">{format(circ.damageOutstandingCents)} <span className="text-xs font-normal text-muted-foreground">damage</span></div>
-                  )}
-                </div>
-              </TableCell>
-              <TableCell className="text-center">
-                <Button size="sm" variant="outline" onClick={() => onCollect(circ, userEntry.userName)}
-                  data-testid={`button-collect-${circ.circulationId}`}>
-                  <Banknote className="h-3.5 w-3.5 mr-1" /> Collect
-                </Button>
-              </TableCell>
-            </TableRow>
-          ))}
-        </>
-      </CollapsibleContent>
-    </Collapsible>
+      ))}
+    </>
   );
 }
 
