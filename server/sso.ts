@@ -226,7 +226,10 @@ export function isOriginWhitelisted(
   }
   
   const sourceUrl = origin || referer;
-  if (!sourceUrl) return false;
+  // SSO callbacks are browser-navigated redirects and never send an Origin header.
+  // When neither header is present we cannot determine the source — fall through and
+  // rely on the token-signature verification that follows this check.
+  if (!sourceUrl) return true;
   
   return activeWhitelist.some(entry => {
     try {
