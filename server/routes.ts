@@ -3057,6 +3057,7 @@ export async function registerRoutes(
       const { 
         decodeToken, 
         verifyTokenSignature, 
+        signatureDiagnostics,
         isTokenExpired, 
         mapERPUserToLibraryUser,
         generateSessionId,
@@ -3096,6 +3097,18 @@ export async function registerRoutes(
       }
 
       if (!verifyTokenSignature(payload, integration.secretKey)) {
+        // Emit diagnostic info so the ERP developer can see exactly what
+        // string the server tried to sign and compare with their own output.
+        const diag = signatureDiagnostics(payload, integration.secretKey);
+        console.warn('[SSO] Signature mismatch for appId=%s userId=%s', payload.appId, payload.userId);
+        console.warn('[SSO] Received payload fields (no sig):', JSON.stringify(
+          Object.fromEntries(Object.entries(payload).filter(([k]) => k !== 'signature'))
+        ));
+        diag.candidates.forEach(c => {
+          console.warn(`[SSO]   Strategy ${c.strategy} dataToSign: ${c.dataToSign}`);
+          console.warn(`[SSO]   Strategy ${c.strategy} expected sig: ${c.expected}`);
+        });
+        console.warn('[SSO]   Received sig:', payload.signature);
         logAudit(req, { category: 'AUTHENTICATION', action: 'SSO_LOGIN_FAILED', status: 'FAILURE', details: { reason: 'Invalid token signature', appId: payload.appId } });
         return res.redirect('/login?error=auth_failed');
       }

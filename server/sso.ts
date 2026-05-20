@@ -66,38 +66,77 @@ export function decodeToken(token: string): SSOTokenPayload | null {
   }
 }
 
+/**
+ * Compute all candidate "data-to-sign" strings for a given payload.
+ *
+ * Strategy A (legacy): fixed 8-field object in insertion order.
+ * Strategy B (full-payload): every field the ERP put in the token except
+ *   `signature` itself, in token-decoded order. Handles ERPs that include
+ *   extra fields (studentId, rollNumber, …) or omit optional ones.
+ */
+function candidateDataStrings(payload: SSOTokenPayload): string[] {
+  // Strategy A – original fixed-field canonical form
+  const stratA = JSON.stringify({
+    appId: payload.appId,
+    userId: payload.userId,
+    userType: payload.userType,
+    role: payload.role,
+    name: payload.name,
+    email: payload.email,
+    department: payload.department,
+    timestamp: payload.timestamp,
+  });
+
+  // Strategy B – full payload minus the signature field, preserving key order
+  const { signature: _sig, ...rest } = payload as Record<string, unknown> & SSOTokenPayload;
+  const stratB = JSON.stringify(rest);
+
+  // Deduplicate in case they are the same
+  const candidates: string[] = [stratA];
+  if (stratB !== stratA) candidates.push(stratB);
+  return candidates;
+}
+
 export function verifyTokenSignature(
   payload: SSOTokenPayload,
   secretKey: string
 ): boolean {
   try {
-    const dataToSign = JSON.stringify({
-      appId: payload.appId,
-      userId: payload.userId,
-      userType: payload.userType,
-      role: payload.role,
-      name: payload.name,
-      email: payload.email,
-      department: payload.department,
-      timestamp: payload.timestamp
-    });
-    
-    const expectedSignature = crypto
-      .createHmac('sha256', secretKey)
-      .update(dataToSign)
-      .digest('hex');
-    
     const providedBuffer = Buffer.from(payload.signature || '', 'hex');
-    const expectedBuffer = Buffer.from(expectedSignature, 'hex');
-    
-    if (providedBuffer.length !== expectedBuffer.length) {
-      return false;
+    if (providedBuffer.length === 0) return false;
+
+    for (const dataToSign of candidateDataStrings(payload)) {
+      const expectedSignature = crypto
+        .createHmac('sha256', secretKey)
+        .update(dataToSign)
+        .digest('hex');
+
+      const expectedBuffer = Buffer.from(expectedSignature, 'hex');
+      if (
+        providedBuffer.length === expectedBuffer.length &&
+        crypto.timingSafeEqual(providedBuffer, expectedBuffer)
+      ) {
+        return true;
+      }
     }
-    
-    return crypto.timingSafeEqual(providedBuffer, expectedBuffer);
+    return false;
   } catch {
     return false;
   }
+}
+
+/** Returns diagnostic info for logging when signature verification fails. */
+export function signatureDiagnostics(
+  payload: SSOTokenPayload,
+  secretKey: string
+): { candidates: { strategy: string; dataToSign: string; expected: string }[] } {
+  const labels = ['A (fixed-fields)', 'B (full-payload)'];
+  const candidates = candidateDataStrings(payload).map((dataToSign, i) => ({
+    strategy: labels[i] ?? `C${i}`,
+    dataToSign,
+    expected: crypto.createHmac('sha256', secretKey).update(dataToSign).digest('hex'),
+  }));
+  return { candidates };
 }
 
 export function isTokenExpired(timestamp: number): boolean {
