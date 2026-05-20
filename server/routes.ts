@@ -1379,6 +1379,164 @@ export async function registerRoutes(
     }
   });
 
+  // ===== Circulation Report =====
+  app.get("/api/reports/circulation", async (req, res) => {
+    try {
+      const staff = await requireStaff(req, res); if (!staff) return;
+
+      let fromDate: Date | undefined;
+      if (req.query.from) {
+        fromDate = new Date(String(req.query.from));
+        if (isNaN(fromDate.getTime())) return res.status(400).json({ error: "Invalid 'from' date" });
+      }
+      let toDate: Date | undefined;
+      if (req.query.to) {
+        const raw = String(req.query.to);
+        toDate = new Date(raw);
+        if (isNaN(toDate.getTime())) return res.status(400).json({ error: "Invalid 'to' date" });
+        if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) toDate.setHours(23, 59, 59, 999);
+      }
+      let libraryIdFilter: number | undefined;
+      if (req.query.libraryId) {
+        libraryIdFilter = parseInt(String(req.query.libraryId));
+        if (isNaN(libraryIdFilter)) return res.status(400).json({ error: "Invalid libraryId" });
+      }
+      const statusFilter = req.query.status ? String(req.query.status).toUpperCase() : undefined;
+
+      const [allCirc, allBooks, allUsers, allLibraries] = await Promise.all([
+        storage.getAllCirculation(),
+        storage.getAllBooks(),
+        storage.getAllUsers(),
+        storage.getAllLibraries(),
+      ]);
+      const bookMap = new Map(allBooks.map(b => [b.id, b]));
+      const userMap = new Map(allUsers.map(u => [u.id, u]));
+      const libMap = new Map(allLibraries.map(l => [l.id, l]));
+      const now = new Date();
+
+      const filtered = allCirc.filter(c => {
+        const d = new Date(c.checkoutDate);
+        if (fromDate && d < fromDate) return false;
+        if (toDate && d > toDate) return false;
+        if (libraryIdFilter !== undefined && c.libraryId !== libraryIdFilter) return false;
+        if (statusFilter && c.status !== statusFilter) return false;
+        return true;
+      });
+
+      const enriched = filtered.map(c => {
+        const book = bookMap.get(c.bookId);
+        const user = userMap.get(c.userId);
+        const lib = c.libraryId ? libMap.get(c.libraryId) : null;
+        const isOverdue = c.status === 'ACTIVE' && new Date(c.dueDate) < now;
+        const loanDays = c.returnDate
+          ? Math.round((new Date(c.returnDate).getTime() - new Date(c.checkoutDate).getTime()) / 86400000)
+          : null;
+        return {
+          id: c.id,
+          bookId: c.bookId,
+          bookTitle: book?.title || '—',
+          bookIsbn: book?.isbn || '',
+          author: book?.author || '',
+          category: book?.category || '',
+          userId: c.userId,
+          borrowerName: user?.name || '—',
+          borrowerRole: user?.role || '',
+          libraryId: c.libraryId,
+          libraryName: lib?.name || 'Unallocated',
+          checkoutDate: c.checkoutDate,
+          dueDate: c.dueDate,
+          returnDate: c.returnDate,
+          status: c.status,
+          renewalCount: c.renewalCount,
+          isOverdue,
+          loanDays,
+          fineAmount: c.fineAmount ?? 0,
+          finePaidAmount: c.finePaidAmount ?? 0,
+        };
+      });
+
+      const totalCheckouts = enriched.length;
+      const activeCount = enriched.filter(e => e.status === 'ACTIVE').length;
+      const returnedCount = enriched.filter(e => e.status === 'RETURNED').length;
+      const overdueCount = enriched.filter(e => e.isOverdue).length;
+      const returnedWithDays = enriched.filter(e => e.loanDays !== null);
+      const avgLoanDays = returnedWithDays.length
+        ? Math.round(returnedWithDays.reduce((s, e) => s + (e.loanDays ?? 0), 0) / returnedWithDays.length)
+        : 0;
+
+      // Monthly trend: checkouts by checkout month, returns by return month
+      const checkoutsByMonth = new Map<string, number>();
+      const returnsByMonth = new Map<string, number>();
+      for (const e of enriched) {
+        const cm = new Date(e.checkoutDate).toISOString().slice(0, 7);
+        checkoutsByMonth.set(cm, (checkoutsByMonth.get(cm) || 0) + 1);
+        if (e.returnDate) {
+          const rm = new Date(e.returnDate).toISOString().slice(0, 7);
+          returnsByMonth.set(rm, (returnsByMonth.get(rm) || 0) + 1);
+        }
+      }
+      const allMonths = Array.from(new Set([...checkoutsByMonth.keys(), ...returnsByMonth.keys()])).sort();
+      const monthlyTrends = allMonths.map(m => ({
+        month: m,
+        checkouts: checkoutsByMonth.get(m) || 0,
+        returns: returnsByMonth.get(m) || 0,
+      }));
+
+      // By category
+      const catMap = new Map<string, number>();
+      for (const e of enriched) {
+        const k = e.category || 'Uncategorized';
+        catMap.set(k, (catMap.get(k) || 0) + 1);
+      }
+      const byCategory = Array.from(catMap.entries())
+        .map(([category, count]) => ({ category, count }))
+        .sort((a, b) => b.count - a.count);
+
+      // By library
+      const libStatMap = new Map<number, { libraryId: number; libraryName: string; checkouts: number; returns: number; overdue: number }>();
+      for (const e of enriched) {
+        const k = e.libraryId ?? 0;
+        if (!libStatMap.has(k)) libStatMap.set(k, { libraryId: k, libraryName: e.libraryName, checkouts: 0, returns: 0, overdue: 0 });
+        const row = libStatMap.get(k)!;
+        row.checkouts++;
+        if (e.status === 'RETURNED') row.returns++;
+        if (e.isOverdue) row.overdue++;
+      }
+      const byLibrary = Array.from(libStatMap.values()).sort((a, b) => b.checkouts - a.checkouts);
+
+      // Top books
+      const bookStatMap = new Map<number, { bookId: number; title: string; author: string; category: string; checkouts: number }>();
+      for (const e of enriched) {
+        if (!bookStatMap.has(e.bookId)) bookStatMap.set(e.bookId, { bookId: e.bookId, title: e.bookTitle, author: e.author, category: e.category, checkouts: 0 });
+        bookStatMap.get(e.bookId)!.checkouts++;
+      }
+      const topBooks = Array.from(bookStatMap.values()).sort((a, b) => b.checkouts - a.checkouts).slice(0, 10);
+
+      // Top borrowers
+      const borrowerMap = new Map<number, { userId: number; name: string; role: string; checkouts: number; overdue: number }>();
+      for (const e of enriched) {
+        if (!borrowerMap.has(e.userId)) borrowerMap.set(e.userId, { userId: e.userId, name: e.borrowerName, role: e.borrowerRole, checkouts: 0, overdue: 0 });
+        const row = borrowerMap.get(e.userId)!;
+        row.checkouts++;
+        if (e.isOverdue) row.overdue++;
+      }
+      const topBorrowers = Array.from(borrowerMap.values()).sort((a, b) => b.checkouts - a.checkouts).slice(0, 10);
+
+      res.json({
+        totals: { totalCheckouts, activeCount, returnedCount, overdueCount, avgLoanDays },
+        monthlyTrends,
+        byCategory,
+        byLibrary,
+        topBooks,
+        topBorrowers,
+        records: enriched,
+      });
+    } catch (error) {
+      console.error("Error generating circulation report:", error);
+      res.status(500).json({ error: "Failed to generate report" });
+    }
+  });
+
   // ===== Acquisitions Report =====
   app.get("/api/reports/acquisitions", async (req, res) => {
     try {

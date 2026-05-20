@@ -494,6 +494,19 @@ export const finesReportApi = {
   },
 };
 
+export const circulationReportApi = {
+  get: async (filters: { from?: string; to?: string; libraryId?: number; status?: string } = {}): Promise<any> => {
+    const params = new URLSearchParams();
+    if (filters.from) params.set("from", filters.from);
+    if (filters.to) params.set("to", filters.to);
+    if (filters.libraryId) params.set("libraryId", String(filters.libraryId));
+    if (filters.status) params.set("status", filters.status);
+    const res = await fetch(`${API_BASE}/reports/circulation?${params.toString()}`);
+    if (!res.ok) throw new Error("Failed to fetch circulation report");
+    return res.json();
+  },
+};
+
 export const acquisitionsReportApi = {
   get: async (filters: { from?: string; to?: string; libraryId?: number; source?: string; category?: string; status?: string; condition?: string; format?: string; q?: string } = {}): Promise<any> => {
     const params = new URLSearchParams();

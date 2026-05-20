@@ -19,24 +19,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useCurrency } from "@/lib/useCurrency";
 import { useQuery } from "@tanstack/react-query";
-import { finesReportApi, librariesApi, paymentMethodsApi, acquisitionsReportApi } from "@/lib/api";
-
-const monthlyData = [
-  { name: 'Jan', issues: 400, returns: 350 },
-  { name: 'Feb', issues: 300, returns: 280 },
-  { name: 'Mar', issues: 550, returns: 500 },
-  { name: 'Apr', issues: 450, returns: 420 },
-  { name: 'May', issues: 600, returns: 580 },
-  { name: 'Jun', issues: 350, returns: 340 },
-];
-
-const categoryData = [
-  { name: 'Computer Science', value: 450, color: 'hsl(var(--chart-1))' },
-  { name: 'Fiction', value: 320, color: 'hsl(var(--chart-2))' },
-  { name: 'History', value: 210, color: 'hsl(var(--chart-3))' },
-  { name: 'Science', value: 180, color: 'hsl(var(--chart-4))' },
-  { name: 'Biography', value: 150, color: 'hsl(var(--chart-5))' },
-];
+import { finesReportApi, librariesApi, paymentMethodsApi, acquisitionsReportApi, circulationReportApi } from "@/lib/api";
 
 const PIE_COLORS = ['hsl(var(--chart-1))','hsl(var(--chart-2))','hsl(var(--chart-3))','hsl(var(--chart-4))','hsl(var(--chart-5))'];
 
@@ -300,6 +283,359 @@ function FinesAndRevenue() {
           </Card>
         </>
       ) : null}
+    </div>
+  );
+}
+
+function CirculationReport() {
+  const { format } = useCurrency();
+  const today = new Date();
+  const yearAgo = new Date(today); yearAgo.setFullYear(today.getFullYear() - 1);
+  const [from, setFrom] = useState(yearAgo.toISOString().slice(0, 10));
+  const [to, setTo] = useState(today.toISOString().slice(0, 10));
+  const [libraryId, setLibraryId] = useState<string>("ALL");
+  const [status, setStatus] = useState<string>("ALL");
+  const [chartsOpen, setChartsOpen] = useState(false);
+
+  const { data: libraries = [] } = useQuery({ queryKey: ["libraries"], queryFn: () => librariesApi.getAll() });
+
+  const filters = {
+    from, to,
+    libraryId: libraryId !== "ALL" ? parseInt(libraryId) : undefined,
+    status: status !== "ALL" ? status : undefined,
+  };
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["circulation-report", filters],
+    queryFn: () => circulationReportApi.get(filters),
+  });
+
+  const exportCsv = () => {
+    if (!data?.records?.length) return;
+    const rows = [
+      ["Checkout Date", "Due Date", "Return Date", "Status", "Overdue", "Loan Days", "Title", "ISBN", "Author", "Category", "Borrower", "Role", "Library", "Renewals", "Fine Amount"],
+      ...data.records.map((r: any) => [
+        new Date(r.checkoutDate).toISOString().slice(0, 10),
+        new Date(r.dueDate).toISOString().slice(0, 10),
+        r.returnDate ? new Date(r.returnDate).toISOString().slice(0, 10) : "",
+        r.status, r.isOverdue ? "Yes" : "No", r.loanDays ?? "",
+        r.bookTitle, r.bookIsbn, r.author, r.category,
+        r.borrowerName, r.borrowerRole, r.libraryName,
+        r.renewalCount, (r.fineAmount / 100).toFixed(2),
+      ]),
+    ];
+    const csv = rows.map((r: any[]) => r.map((x: any) => `"${String(x).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `circulation-${from}-to-${to}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Filters */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle>Filters</CardTitle>
+          <CardDescription>Narrow by date range, library, or status.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 md:grid-cols-5">
+            <div>
+              <Label className="text-xs">From</Label>
+              <Input type="date" value={from} onChange={e => setFrom(e.target.value)} data-testid="input-circ-from" />
+            </div>
+            <div>
+              <Label className="text-xs">To</Label>
+              <Input type="date" value={to} onChange={e => setTo(e.target.value)} data-testid="input-circ-to" />
+            </div>
+            <div>
+              <Label className="text-xs">Library</Label>
+              <Select value={libraryId} onValueChange={setLibraryId}>
+                <SelectTrigger data-testid="select-circ-library"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All libraries</SelectItem>
+                  {libraries.map((l: any) => <SelectItem key={l.id} value={String(l.id)}>{l.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Status</Label>
+              <Select value={status} onValueChange={setStatus}>
+                <SelectTrigger data-testid="select-circ-status"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All statuses</SelectItem>
+                  <SelectItem value="ACTIVE">Active</SelectItem>
+                  <SelectItem value="RETURNED">Returned</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {isLoading ? (
+        <Card><CardContent className="py-12 flex justify-center"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></CardContent></Card>
+      ) : !data ? null : (
+        <>
+          {/* KPI cards + action buttons */}
+          <div className="flex flex-wrap gap-4 items-stretch">
+            <div className="grid gap-4 grid-cols-2 md:grid-cols-5 flex-1">
+              <Card>
+                <CardHeader className="pb-2"><CardDescription>Total Checkouts</CardDescription></CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold" data-testid="text-circ-total">{data.totals.totalCheckouts}</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2"><CardDescription>Currently Active</CardDescription></CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold" data-testid="text-circ-active">{data.totals.activeCount}</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2"><CardDescription>Returned</CardDescription></CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold" data-testid="text-circ-returned">{data.totals.returnedCount}</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2"><CardDescription>Overdue</CardDescription></CardHeader>
+                <CardContent>
+                  <div className={`text-2xl font-bold ${data.totals.overdueCount > 0 ? "text-destructive" : ""}`} data-testid="text-circ-overdue">{data.totals.overdueCount}</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2"><CardDescription>Avg Loan Days</CardDescription></CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold" data-testid="text-circ-avg-days">{data.totals.avgLoanDays > 0 ? data.totals.avgLoanDays : "—"}</div>
+                </CardContent>
+              </Card>
+            </div>
+            <div className="flex items-stretch gap-2">
+              <Button className="h-full flex flex-col gap-1 px-5 bg-violet-600 hover:bg-violet-700 text-white" onClick={() => setChartsOpen(true)} data-testid="button-circ-charts">
+                <BarChart2 className="w-5 h-5" />
+                <span className="text-xs">Analytics</span>
+              </Button>
+              <Button onClick={exportCsv} disabled={!data.records.length} className="h-full flex flex-col gap-1 px-5 bg-emerald-600 hover:bg-emerald-700 text-white" data-testid="button-circ-export">
+                <Download className="w-5 h-5" />
+                <span className="text-xs">Export CSV</span>
+              </Button>
+            </div>
+          </div>
+
+          {/* Transaction detail table */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Transactions</CardTitle>
+              <CardDescription>
+                {data.records.length} {data.records.length === 1 ? "record" : "records"} match the current filters
+                {data.records.length > 500 ? " — showing first 500, export CSV for all" : ""}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              {data.records.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-10">No transactions match the selected filters.</p>
+              ) : (
+                <div className="overflow-auto max-h-[560px]">
+                  <Table>
+                    <TableHeader className="sticky top-0 bg-card z-10">
+                      <TableRow>
+                        <TableHead>Checkout Date</TableHead>
+                        <TableHead>Title / Author</TableHead>
+                        <TableHead>Borrower</TableHead>
+                        <TableHead>Library</TableHead>
+                        <TableHead>Due Date</TableHead>
+                        <TableHead>Return Date</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Loan Days</TableHead>
+                        <TableHead className="text-right">Renewals</TableHead>
+                        <TableHead className="text-right">Fine</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {data.records.slice(0, 500).map((r: any) => (
+                        <TableRow key={r.id} data-testid={`row-circ-${r.id}`} className={r.isOverdue ? "bg-destructive/5" : ""}>
+                          <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                            {new Date(r.checkoutDate).toLocaleDateString()}
+                          </TableCell>
+                          <TableCell className="text-sm min-w-[180px]">
+                            <div className="font-medium">{r.bookTitle}</div>
+                            <div className="text-xs text-muted-foreground">{r.author}</div>
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            <div>{r.borrowerName}</div>
+                            <div className="text-xs text-muted-foreground">{r.borrowerRole}</div>
+                          </TableCell>
+                          <TableCell className="text-sm whitespace-nowrap">{r.libraryName}</TableCell>
+                          <TableCell className="text-xs whitespace-nowrap">{new Date(r.dueDate).toLocaleDateString()}</TableCell>
+                          <TableCell className="text-xs whitespace-nowrap text-muted-foreground">
+                            {r.returnDate ? new Date(r.returnDate).toLocaleDateString() : "—"}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={r.isOverdue ? "destructive" : r.status === "ACTIVE" ? "default" : "secondary"} className="text-xs">
+                              {r.isOverdue ? "OVERDUE" : r.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right">{r.loanDays ?? "—"}</TableCell>
+                          <TableCell className="text-right">{r.renewalCount}</TableCell>
+                          <TableCell className="text-right font-semibold">{r.fineAmount > 0 ? format(r.fineAmount) : "—"}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Analytics sheet */}
+          <Sheet open={chartsOpen} onOpenChange={setChartsOpen}>
+            <SheetContent side="right" className="w-full sm:max-w-2xl p-0">
+              <SheetHeader className="px-6 pt-6 pb-4 border-b">
+                <SheetTitle>Circulation Analytics</SheetTitle>
+                <SheetDescription>Visual breakdowns for the current filter selection ({data.totals.totalCheckouts} transactions).</SheetDescription>
+              </SheetHeader>
+              <ScrollArea className="h-[calc(100vh-100px)]">
+                <div className="px-6 py-4 space-y-8">
+
+                  {/* Monthly trend */}
+                  <div>
+                    <h3 className="text-sm font-semibold mb-3">Monthly Checkouts vs Returns</h3>
+                    <div className="h-[260px]">
+                      {data.monthlyTrends.length === 0 ? (
+                        <p className="text-sm text-muted-foreground text-center py-10">No data in this range.</p>
+                      ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={data.monthlyTrends}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                            <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 11 }} />
+                            <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11 }} />
+                            <Tooltip />
+                            <Legend />
+                            <Bar dataKey="checkouts" name="Checkouts" fill="hsl(var(--chart-1))" radius={[4, 4, 0, 0]} />
+                            <Bar dataKey="returns" name="Returns" fill="hsl(var(--chart-2))" radius={[4, 4, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* By category pie */}
+                  <div>
+                    <h3 className="text-sm font-semibold mb-3">Checkouts by Category</h3>
+                    <div className="h-[230px]">
+                      {data.byCategory.length === 0 ? (
+                        <p className="text-sm text-muted-foreground text-center py-8">No data.</p>
+                      ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie data={data.byCategory.slice(0, 7).map((c: any) => ({ name: c.category, value: c.count }))}
+                                 cx="50%" cy="50%" innerRadius={55} outerRadius={90} paddingAngle={2} dataKey="value">
+                              {data.byCategory.slice(0, 7).map((_: any, i: number) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                            </Pie>
+                            <Tooltip />
+                            <Legend verticalAlign="bottom" height={32} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* By library */}
+                  <div>
+                    <h3 className="text-sm font-semibold mb-2">By Library</h3>
+                    {data.byLibrary.length === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-4">No data.</p>
+                    ) : (
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Library</TableHead>
+                            <TableHead className="text-right">Checkouts</TableHead>
+                            <TableHead className="text-right">Returned</TableHead>
+                            <TableHead className="text-right">Overdue</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {data.byLibrary.map((r: any) => (
+                            <TableRow key={r.libraryId} data-testid={`row-circ-lib-${r.libraryId}`}>
+                              <TableCell className="text-sm">{r.libraryName}</TableCell>
+                              <TableCell className="text-right">{r.checkouts}</TableCell>
+                              <TableCell className="text-right">{r.returns}</TableCell>
+                              <TableCell className={`text-right font-semibold ${r.overdue > 0 ? "text-destructive" : ""}`}>{r.overdue}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    )}
+                  </div>
+
+                  {/* Top books */}
+                  <div>
+                    <h3 className="text-sm font-semibold mb-2">Most Borrowed Books</h3>
+                    {data.topBooks.length === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-4">No data.</p>
+                    ) : (
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Title</TableHead>
+                            <TableHead>Category</TableHead>
+                            <TableHead className="text-right">Checkouts</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {data.topBooks.map((b: any) => (
+                            <TableRow key={b.bookId} data-testid={`row-circ-book-${b.bookId}`}>
+                              <TableCell className="text-sm">
+                                <div className="font-medium">{b.title}</div>
+                                <div className="text-xs text-muted-foreground">{b.author}</div>
+                              </TableCell>
+                              <TableCell className="text-sm">{b.category || "—"}</TableCell>
+                              <TableCell className="text-right font-semibold">{b.checkouts}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    )}
+                  </div>
+
+                  {/* Top borrowers */}
+                  <div>
+                    <h3 className="text-sm font-semibold mb-2">Most Active Borrowers</h3>
+                    {data.topBorrowers.length === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-4">No data.</p>
+                    ) : (
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Borrower</TableHead>
+                            <TableHead>Role</TableHead>
+                            <TableHead className="text-right">Checkouts</TableHead>
+                            <TableHead className="text-right">Overdue</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {data.topBorrowers.map((u: any) => (
+                            <TableRow key={u.userId} data-testid={`row-circ-borrower-${u.userId}`}>
+                              <TableCell className="text-sm font-medium">{u.name}</TableCell>
+                              <TableCell className="text-sm">{u.role}</TableCell>
+                              <TableCell className="text-right">{u.checkouts}</TableCell>
+                              <TableCell className={`text-right font-semibold ${u.overdue > 0 ? "text-destructive" : ""}`}>{u.overdue}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    )}
+                  </div>
+
+                </div>
+              </ScrollArea>
+            </SheetContent>
+          </Sheet>
+        </>
+      )}
     </div>
   );
 }
@@ -725,50 +1061,8 @@ export default function ReportsPage() {
           <TabsTrigger value="fines" data-testid="tab-fines">Fines & Revenue</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="circulation" className="space-y-6 mt-6">
-          <div className="grid gap-6 md:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>Monthly Circulation Trends</CardTitle>
-                <CardDescription>Checkouts vs Returns over time</CardDescription>
-              </CardHeader>
-              <CardContent className="pl-0">
-                <div className="h-[350px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={monthlyData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                      <XAxis dataKey="name" axisLine={false} tickLine={false} />
-                      <YAxis axisLine={false} tickLine={false} />
-                      <Tooltip cursor={{fill: 'transparent'}} />
-                      <Legend />
-                      <Bar dataKey="issues" name="Issues" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="returns" name="Returns" fill="hsl(var(--secondary))" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Popular Categories</CardTitle>
-                <CardDescription>Distribution of borrowed items by genre</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="h-[350px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={categoryData} cx="50%" cy="50%" innerRadius={80} outerRadius={110} paddingAngle={2} dataKey="value">
-                        {categoryData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
-                      </Pie>
-                      <Tooltip />
-                      <Legend verticalAlign="bottom" height={36}/>
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+        <TabsContent value="circulation" className="mt-6">
+          <CirculationReport />
         </TabsContent>
 
         <TabsContent value="acquisitions" className="mt-6">
