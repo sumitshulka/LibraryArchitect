@@ -409,6 +409,7 @@ export default function CirculationPage() {
       toast.success("Book returned successfully!");
       queryClient.invalidateQueries({ queryKey: ["circulation"] });
       queryClient.invalidateQueries({ queryKey: ["books"] });
+      queryClient.invalidateQueries({ queryKey: ["pending-fines"] });
       setReturnInfo(null);
       setReturnIsbn("");
     },

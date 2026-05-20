@@ -88,6 +88,7 @@ export function ReturnBookDialog({ circulationId, bookTitle, borrowerName, onClo
       queryClient.invalidateQueries({ queryKey: ["circulation"] });
       queryClient.invalidateQueries({ queryKey: ["books"] });
       queryClient.invalidateQueries({ queryKey: ["fine-waiver-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["pending-fines"] });
       onClose();
     },
     onError: (err: Error) => toast.error(err.message),
