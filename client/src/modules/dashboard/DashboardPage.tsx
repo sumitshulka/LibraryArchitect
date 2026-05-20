@@ -5,15 +5,15 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
   Book, Users, Repeat, AlertCircle, BookOpen, Banknote,
-  CalendarClock, TrendingUp, TrendingDown, Library,
-  ArrowRight, CheckCircle2, Clock, XCircle,
+  TrendingUp, TrendingDown,
+  ArrowRight, CheckCircle2,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend, LineChart, Line,
 } from "recharts";
 import { useQuery } from "@tanstack/react-query";
-import { statsApi, pendingFinesApi, reservationsApi } from "@/lib/api";
+import { statsApi, pendingFinesApi } from "@/lib/api";
 import { useCurrency } from "@/lib/useCurrency";
 import { Link } from "wouter";
 import { format as fmtDate } from "date-fns";
@@ -79,11 +79,6 @@ export default function DashboardPage() {
     queryFn: () => pendingFinesApi.getAll(),
   });
 
-  const { data: activeReservations = [] } = useQuery({
-    queryKey: ["reservations", "ACTIVE"],
-    queryFn: () => reservationsApi.list({ status: "ACTIVE" }),
-  });
-
   const { data: report } = useQuery({
     queryKey: ["circ-report"],
     queryFn: fetchCirculationReport,
@@ -121,7 +116,7 @@ export default function DashboardPage() {
       </div>
 
       {/* ── Stat Cards ── */}
-      <div className="grid gap-4 grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 mb-6">
+      <div className="grid gap-4 grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 mb-6">
         <StatCard
           title="Total Catalog"
           value={stats?.totalBooks ?? 0}
@@ -163,16 +158,6 @@ export default function DashboardPage() {
           bgClass="bg-green-50"
           borderClass="border-green-100"
           href="/users"
-        />
-        <StatCard
-          title="Reservations"
-          value={activeReservations.length}
-          sub="active holds"
-          icon={CalendarClock}
-          colorClass="text-purple-700"
-          bgClass="bg-purple-50"
-          borderClass="border-purple-100"
-          href="/reservations"
         />
         <StatCard
           title="Pending Fines"
