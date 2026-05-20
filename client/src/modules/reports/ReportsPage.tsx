@@ -19,9 +19,78 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useCurrency } from "@/lib/useCurrency";
 import { useQuery } from "@tanstack/react-query";
-import { finesReportApi, librariesApi, paymentMethodsApi, acquisitionsReportApi, circulationReportApi } from "@/lib/api";
+import { finesReportApi, librariesApi, paymentMethodsApi, acquisitionsReportApi, circulationReportApi, usersApi } from "@/lib/api";
 
 const PIE_COLORS = ['hsl(var(--chart-1))','hsl(var(--chart-2))','hsl(var(--chart-3))','hsl(var(--chart-4))','hsl(var(--chart-5))'];
+
+function UserSearchCombobox({ users, value, onChange, testId }: {
+  users: any[];
+  value: number | undefined;
+  onChange: (id: number | undefined) => void;
+  testId?: string;
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const selected = value !== undefined ? users.find(u => u.id === value) : null;
+  const filtered = query.trim()
+    ? users.filter(u =>
+        `${u.name} ${u.username} ${u.studentId ?? ''} ${u.employeeId ?? ''}`.toLowerCase()
+          .includes(query.toLowerCase())
+      ).slice(0, 8)
+    : users.slice(0, 8);
+
+  return (
+    <div className="relative">
+      {selected ? (
+        <div className="flex items-center gap-1 h-9 px-3 rounded-md border bg-background text-sm">
+          <span className="flex-1 truncate font-medium">{selected.name}</span>
+          <span className="text-xs text-muted-foreground mr-1">{selected.role}</span>
+          <button
+            type="button"
+            onClick={() => { onChange(undefined); setQuery(""); }}
+            className="text-muted-foreground hover:text-foreground flex-shrink-0"
+            data-testid={testId ? `${testId}-clear` : undefined}
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ) : (
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+          <Input
+            className="pl-8 h-9"
+            placeholder="Search borrower…"
+            value={query}
+            onChange={e => { setQuery(e.target.value); setOpen(true); }}
+            onFocus={() => setOpen(true)}
+            onBlur={() => setTimeout(() => setOpen(false), 160)}
+            data-testid={testId}
+          />
+        </div>
+      )}
+      {open && !selected && (
+        <div className="absolute z-50 top-full mt-1 w-full min-w-[220px] rounded-md border bg-popover shadow-md max-h-52 overflow-auto">
+          {filtered.length === 0 ? (
+            <div className="px-3 py-2 text-sm text-muted-foreground">No users found</div>
+          ) : filtered.map((u: any) => (
+            <button
+              key={u.id}
+              type="button"
+              className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center justify-between gap-2"
+              onMouseDown={() => { onChange(u.id); setQuery(""); setOpen(false); }}
+            >
+              <span className="truncate">{u.name}</span>
+              <span className="text-xs text-muted-foreground flex-shrink-0">{u.role}</span>
+            </button>
+          ))}
+          {users.length > 8 && !query.trim() && (
+            <div className="px-3 py-1.5 text-xs text-muted-foreground border-t">Type to search all {users.length} users</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function FinesAndRevenue() {
   const { format, currency } = useCurrency();
@@ -32,15 +101,18 @@ function FinesAndRevenue() {
   const [libraryId, setLibraryId] = useState<string>("ALL");
   const [methodId, setMethodId] = useState<string>("ALL");
   const [type, setType] = useState<string>("ALL");
+  const [userId, setUserId] = useState<number | undefined>(undefined);
 
   const { data: libraries = [] } = useQuery({ queryKey: ["libraries"], queryFn: () => librariesApi.getAll() });
   const { data: methods = [] } = useQuery({ queryKey: ["payment-methods"], queryFn: () => paymentMethodsApi.getAll(false) });
+  const { data: allUsers = [] } = useQuery({ queryKey: ["all-users"], queryFn: () => usersApi.getAll() });
 
   const filters = {
     from, to,
     libraryId: libraryId !== "ALL" ? parseInt(libraryId) : undefined,
     methodId: methodId !== "ALL" ? parseInt(methodId) : undefined,
     type: type !== "ALL" ? (type as 'FINE' | 'DAMAGE') : undefined,
+    userId,
   };
 
   const { data, isLoading } = useQuery({
@@ -74,7 +146,7 @@ function FinesAndRevenue() {
           <CardTitle>Filters</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-3 md:grid-cols-6">
+          <div className="grid gap-3 grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
             <div>
               <Label className="text-xs">From</Label>
               <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} data-testid="input-from" />
@@ -114,11 +186,15 @@ function FinesAndRevenue() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex items-end">
-              <Button variant="outline" onClick={exportCsv} disabled={!data?.payments?.length} className="gap-2 w-full" data-testid="button-export-csv">
-                <Download className="h-4 w-4" /> Export CSV
-              </Button>
+            <div>
+              <Label className="text-xs">Borrower</Label>
+              <UserSearchCombobox users={allUsers} value={userId} onChange={setUserId} testId="input-fines-user" />
             </div>
+          </div>
+          <div className="mt-3 flex justify-end">
+            <Button variant="outline" onClick={exportCsv} disabled={!data?.payments?.length} className="gap-2" data-testid="button-export-csv">
+              <Download className="h-4 w-4" /> Export CSV
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -295,14 +371,17 @@ function CirculationReport() {
   const [to, setTo] = useState(today.toISOString().slice(0, 10));
   const [libraryId, setLibraryId] = useState<string>("ALL");
   const [status, setStatus] = useState<string>("ALL");
+  const [userId, setUserId] = useState<number | undefined>(undefined);
   const [chartsOpen, setChartsOpen] = useState(false);
 
   const { data: libraries = [] } = useQuery({ queryKey: ["libraries"], queryFn: () => librariesApi.getAll() });
+  const { data: allUsers = [] } = useQuery({ queryKey: ["all-users"], queryFn: () => usersApi.getAll() });
 
   const filters = {
     from, to,
     libraryId: libraryId !== "ALL" ? parseInt(libraryId) : undefined,
     status: status !== "ALL" ? status : undefined,
+    userId,
   };
 
   const { data, isLoading } = useQuery({
@@ -340,7 +419,7 @@ function CirculationReport() {
           <CardDescription>Narrow by date range, library, or status.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-3 md:grid-cols-5">
+          <div className="grid gap-3 grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
             <div>
               <Label className="text-xs">From</Label>
               <Input type="date" value={from} onChange={e => setFrom(e.target.value)} data-testid="input-circ-from" />
@@ -369,6 +448,10 @@ function CirculationReport() {
                   <SelectItem value="RETURNED">Returned</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Borrower</Label>
+              <UserSearchCombobox users={allUsers} value={userId} onChange={setUserId} testId="input-circ-user" />
             </div>
           </div>
         </CardContent>

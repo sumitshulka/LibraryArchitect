@@ -1279,6 +1279,7 @@ export async function registerRoutes(
       const libraryId = req.query.libraryId ? parseInt(req.query.libraryId as string) : undefined;
       const paymentMethodId = req.query.methodId ? parseInt(req.query.methodId as string) : undefined;
       const paymentType = (req.query.type as 'FINE' | 'DAMAGE' | undefined);
+      const borrowerIdFilter = req.query.userId ? parseInt(req.query.userId as string) : undefined;
 
       const payments = await storage.getFinePayments({ fromDate, toDate, libraryId, paymentMethodId, paymentType });
       const methods = await storage.getAllPaymentMethods();
@@ -1287,7 +1288,7 @@ export async function registerRoutes(
       const libMap = new Map(libraries.map(l => [l.id, l]));
 
       // Enrich payments with circulation/book/user/library info
-      const enriched = await Promise.all(payments.map(async (p) => {
+      const enrichedAll = await Promise.all(payments.map(async (p) => {
         const circ = await storage.getCirculation(p.circulationId);
         const book = circ ? await storage.getBook(circ.bookId) : null;
         const borrower = circ ? await storage.getUser(circ.userId) : null;
@@ -1300,11 +1301,15 @@ export async function registerRoutes(
           bookTitle: book?.title || null,
           bookIsbn: book?.isbn || null,
           borrowerName: borrower?.name || null,
+          borrowerUserId: borrower?.id ?? null,
           collectorName: collector?.name || null,
           libraryName: lib?.name || null,
           libraryId: circ?.libraryId || null,
         };
       }));
+      const enriched = borrowerIdFilter !== undefined
+        ? enrichedAll.filter(p => p.borrowerUserId === borrowerIdFilter)
+        : enrichedAll;
 
       // Aggregations
       const totalCollected = enriched.reduce((s, p) => s + p.amount, 0);
@@ -1402,6 +1407,7 @@ export async function registerRoutes(
         if (isNaN(libraryIdFilter)) return res.status(400).json({ error: "Invalid libraryId" });
       }
       const statusFilter = req.query.status ? String(req.query.status).toUpperCase() : undefined;
+      const userIdFilter = req.query.userId ? parseInt(String(req.query.userId)) : undefined;
 
       const [allCirc, allBooks, allUsers, allLibraries] = await Promise.all([
         storage.getAllCirculation(),
@@ -1420,6 +1426,7 @@ export async function registerRoutes(
         if (toDate && d > toDate) return false;
         if (libraryIdFilter !== undefined && c.libraryId !== libraryIdFilter) return false;
         if (statusFilter && c.status !== statusFilter) return false;
+        if (userIdFilter !== undefined && c.userId !== userIdFilter) return false;
         return true;
       });
 
