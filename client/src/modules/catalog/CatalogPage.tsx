@@ -926,6 +926,7 @@ export default function CatalogPage() {
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [attributeValueIds, setAttributeValueIds] = useState<number[]>([]);
   const [activeTab, setActiveTab] = useState("browse");
+  const [marcBook, setMarcBook] = useState<Book | null>(null);
   const [selectedBookId, setSelectedBookId] = useState<number | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingBook, setEditingBook] = useState<Book | null>(null);
@@ -1006,7 +1007,7 @@ export default function CatalogPage() {
         </div>
       </div>
 
-      <Tabs defaultValue="browse" className="w-full mt-6" onValueChange={setActiveTab}>
+      <Tabs value={activeTab} className="w-full mt-6" onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="browse" data-testid="tab-browse">Browse Collection</TabsTrigger>
           <TabsTrigger value="marc" className="gap-2" data-testid="tab-marc">
@@ -1130,7 +1131,7 @@ export default function CatalogPage() {
                               <Pencil className="mr-2 h-4 w-4" />
                               Edit Details
                             </DropdownMenuItem>
-                            <DropdownMenuItem>View MARC Record</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => { setMarcBook(book); setActiveTab('marc'); }} data-testid={`button-marc-${book.id}`}>View MARC Record</DropdownMenuItem>
                             <DropdownMenuItem>View History</DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem 
@@ -1166,7 +1167,7 @@ export default function CatalogPage() {
         </TabsContent>
 
         <TabsContent value="marc" className="mt-6">
-          <MarcEditor />
+          <MarcEditor book={marcBook} />
         </TabsContent>
 
         <TabsContent value="z3950" className="mt-6">

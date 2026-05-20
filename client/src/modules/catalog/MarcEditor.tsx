@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -40,8 +40,53 @@ const defaultMarcRecord: MarcField[] = [
   { id: '10', tag: '650', ind1: ' ', ind2: '0', content: '$a Software engineering.' },
 ];
 
-export function MarcEditor() {
-  const [fields, setFields] = useState<MarcField[]>(defaultMarcRecord);
+interface MarcEditorBook {
+  isbn?: string | null;
+  title?: string;
+  author?: string;
+  publisher?: string | null;
+  publishedYear?: number | null;
+  category?: string | null;
+}
+
+function bookToMarcFields(book: MarcEditorBook): MarcField[] {
+  const year = book.publishedYear ? String(book.publishedYear) : '';
+  const yy = year.slice(2, 4);
+  const fields: MarcField[] = [
+    { id: '1', tag: '001', ind1: '', ind2: '', content: (book.isbn || '').replace(/[^0-9X]/gi, '') || 'UNKNOWN' },
+    { id: '2', tag: '003', ind1: '', ind2: '', content: 'LIB' },
+    { id: '3', tag: '005', ind1: '', ind2: '', content: new Date().toISOString().replace(/[-T:.Z]/g, '').slice(0, 16) + '.0' },
+    { id: '4', tag: '008', ind1: '', ind2: '', content: `${yy}0101s${year}           000 0 eng  ` },
+  ];
+  if (book.isbn) {
+    fields.push({ id: '5', tag: '020', ind1: ' ', ind2: ' ', content: `$a ${book.isbn}` });
+  }
+  if (book.author) {
+    fields.push({ id: '6', tag: '100', ind1: '1', ind2: ' ', content: `$a ${book.author}.` });
+  }
+  if (book.title) {
+    const titleContent = book.author
+      ? `$a ${book.title} / $c ${book.author}.`
+      : `$a ${book.title}.`;
+    fields.push({ id: '7', tag: '245', ind1: '1', ind2: '0', content: titleContent });
+  }
+  if (book.publisher && year) {
+    fields.push({ id: '8', tag: '260', ind1: ' ', ind2: ' ', content: `$b ${book.publisher}, $c ${year}.` });
+  }
+  if (book.category) {
+    fields.push({ id: '9', tag: '650', ind1: ' ', ind2: '0', content: `$a ${book.category}.` });
+  }
+  return fields;
+}
+
+export function MarcEditor({ book }: { book?: MarcEditorBook | null }) {
+  const [fields, setFields] = useState<MarcField[]>(book ? bookToMarcFields(book) : defaultMarcRecord);
+
+  useEffect(() => {
+    if (book) {
+      setFields(bookToMarcFields(book));
+    }
+  }, [book?.isbn, book?.title]);
 
   const addField = () => {
     const newField: MarcField = {
@@ -98,8 +143,12 @@ export function MarcEditor() {
       <CardHeader className="px-0 pt-0">
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle>MARC21 Editor</CardTitle>
-            <CardDescription>Edit bibliographic records in raw MARC format.</CardDescription>
+            <CardTitle>MARC21 Editor{book?.title ? ` — ${book.title}` : ''}</CardTitle>
+            <CardDescription>
+              {book
+                ? `Bibliographic record for "${book.title}"${book.author ? ` by ${book.author}` : ''}`
+                : 'Edit bibliographic records in raw MARC format.'}
+            </CardDescription>
           </div>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" className="gap-2">
