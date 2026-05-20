@@ -36,8 +36,8 @@ function StatCard({
   const TrendIcon = trend === "up" ? TrendingUp : trend === "down" ? TrendingDown : null;
   const trendColor = trend === "up" ? "text-green-600" : trend === "down" ? "text-red-600" : "text-muted-foreground";
   const card = (
-    <Card className={`border ${borderClass} ${bgClass} hover:shadow-md transition-shadow`}>
-      <CardContent className="p-5">
+    <Card className={`border ${borderClass} ${bgClass} hover:shadow-md transition-shadow h-full`}>
+      <CardContent className="p-5 h-full">
         <div className="flex items-start justify-between">
           <div className="flex-1 min-w-0">
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">{title}</p>
@@ -57,7 +57,7 @@ function StatCard({
       </CardContent>
     </Card>
   );
-  return href ? <Link href={href}>{card}</Link> : card;
+  return href ? <Link href={href} className="block h-full">{card}</Link> : card;
 }
 
 function monthLabel(m: string) {
@@ -116,7 +116,7 @@ export default function DashboardPage() {
       </div>
 
       {/* ── Stat Cards ── */}
-      <div className="grid gap-4 grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 mb-6">
+      <div className="grid gap-4 grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 items-stretch mb-6">
         <StatCard
           title="Total Catalog"
           value={stats?.totalBooks ?? 0}
