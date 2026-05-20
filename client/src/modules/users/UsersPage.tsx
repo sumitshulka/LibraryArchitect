@@ -57,15 +57,26 @@ export default function UsersPage() {
 
   const queryClient = useQueryClient();
 
-  const { data: staffUsers = [], isLoading: loadingStaff } = useQuery({
+  const { data: staffUsers = [], isLoading: loadingStaff, refetch: refetchStaff } = useQuery({
     queryKey: ["users", "STAFF"],
     queryFn: () => usersApi.getByCategory('STAFF'),
   });
 
-  const { data: patronUsers = [], isLoading: loadingPatrons } = useQuery({
+  const { data: patronUsers = [], isLoading: loadingPatrons, refetch: refetchPatrons } = useQuery({
     queryKey: ["users", "PATRON"],
     queryFn: () => usersApi.getByCategory('PATRON'),
   });
+
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await Promise.all([refetchStaff(), refetchPatrons()]);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   const deleteMutation = useMutation({
     mutationFn: usersApi.delete,
@@ -126,11 +137,12 @@ export default function UsersPage() {
             variant="outline" 
             size="sm" 
             className="gap-2" 
-            onClick={() => queryClient.invalidateQueries({ queryKey: ["users"] })}
+            onClick={handleRefresh}
+            disabled={isRefreshing}
             data-testid="button-refresh-users"
           >
-            <RefreshCw className="h-4 w-4" />
-            Refresh
+            <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+            {isRefreshing ? "Refreshing…" : "Refresh"}
           </Button>
           <Button size="sm" className="gap-2" onClick={handleAddUser} data-testid="button-add-user">
             <Plus className="h-4 w-4" />
