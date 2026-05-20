@@ -234,11 +234,14 @@ export function isOriginWhitelisted(
       const pattern = entry.urlPattern;
       
       if (pattern.includes('*')) {
-        const regex = new RegExp('^' + pattern.replace(/\*/g, '.*') + '$');
-        return regex.test(url.origin) || regex.test(url.hostname);
+        const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\\\*/g, '.*');
+        const regex = new RegExp('^' + escaped + '$');
+        // url.href adds a trailing slash (e.g. "https://domain.com/"), making it match
+        // patterns like "https://domain.com/.*". Also test the raw sourceUrl (full referer).
+        return regex.test(url.href) || regex.test(url.origin) || regex.test(url.hostname) || regex.test(sourceUrl);
       }
       
-      return url.origin === pattern || url.hostname === pattern;
+      return url.origin === pattern || url.hostname === pattern || sourceUrl.startsWith(pattern);
     } catch {
       return false;
     }
