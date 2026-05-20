@@ -534,15 +534,14 @@ function AcquisitionsReport() {
             </div>
             <div className="flex items-stretch gap-2">
               <Button
-                variant="outline"
-                className="h-full flex flex-col gap-1 px-5"
+                className="h-full flex flex-col gap-1 px-5 bg-violet-600 hover:bg-violet-700 text-white"
                 onClick={() => setChartsOpen(true)}
                 data-testid="button-acq-charts"
               >
                 <BarChart2 className="w-5 h-5" />
                 <span className="text-xs">Analytics</span>
               </Button>
-              <Button variant="outline" onClick={exportCsv} disabled={!data.copies.length} className="h-full flex flex-col gap-1 px-5" data-testid="button-acq-export">
+              <Button onClick={exportCsv} disabled={!data.copies.length} className="h-full flex flex-col gap-1 px-5 bg-emerald-600 hover:bg-emerald-700 text-white" data-testid="button-acq-export">
                 <Download className="w-5 h-5" />
                 <span className="text-xs">Export CSV</span>
               </Button>
