@@ -1871,7 +1871,9 @@ export class DBStorage implements IStorage {
   }
 
   async createAuditLog(log: InsertAuditLog): Promise<AuditLog> {
-    const [result] = await db.insert(auditLogs).values(log).returning();
+    const [result] = await returningViaCte<AuditLog>(
+      db.insert(auditLogs).values(nullifyForInsert(log as any)).returning()
+    );
     return result;
   }
 
@@ -2166,15 +2168,19 @@ export class DBStorage implements IStorage {
   async upsertResourceTypeSetting(resourceType: string, data: Partial<InsertResourceTypeSetting>): Promise<ResourceTypeSetting> {
     const existing = await this.getResourceTypeSetting(resourceType);
     if (existing) {
-      const [row] = await db.update(resourceTypeSettings)
-        .set({ ...data, updatedAt: new Date() })
-        .where(eq(resourceTypeSettings.resourceType, resourceType as any))
-        .returning();
+      const [row] = await returningViaCte<ResourceTypeSetting>(
+        db.update(resourceTypeSettings)
+          .set(nullifyForInsert({ ...data, updatedAt: new Date() } as any))
+          .where(eq(resourceTypeSettings.resourceType, resourceType as any))
+          .returning()
+      );
       return row;
     }
-    const [row] = await db.insert(resourceTypeSettings)
-      .values({ resourceType: resourceType as any, ...data })
-      .returning();
+    const [row] = await returningViaCte<ResourceTypeSetting>(
+      db.insert(resourceTypeSettings)
+        .values(nullifyForInsert({ resourceType: resourceType as any, ...data }))
+        .returning()
+    );
     return row;
   }
 
