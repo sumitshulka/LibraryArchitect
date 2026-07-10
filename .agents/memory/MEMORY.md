@@ -1,1 +1,2 @@
 - [Neon HTTP proxy quirks in this env](neon-http-proxy-quirks.md) — zero-row selects, null params on non-text columns, BOOL columns, and INSERT/UPDATE RETURNING all need workarounds in `server/db.ts`.
+- [Digital resources list API shape](digital-resources-api-shape.md) — GET /api/digital-resources returns {resources,total}, not a bare array; unwrap client-side.

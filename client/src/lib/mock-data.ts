@@ -1,4 +1,4 @@
-import { LucideIcon, LayoutDashboard, Book, Users, Repeat, AlertCircle, Settings, PieChart, Layers, Bell, Search, Menu, Building2, Package, ClipboardList, Tags, Coins, BookmarkCheck, Banknote } from "lucide-react";
+import { LucideIcon, LayoutDashboard, Book, Users, Repeat, AlertCircle, Settings, PieChart, Layers, Bell, Search, Menu, Building2, Package, ClipboardList, Tags, Coins, BookmarkCheck, Banknote, FolderOpen } from "lucide-react";
 
 export type UserRole = 'ADMIN' | 'LIBRARIAN' | 'STUDENT';
 
@@ -75,6 +75,7 @@ export const dashboardStats = {
 export const navItems = [
   { label: 'Dashboard', icon: LayoutDashboard, href: '/', localAdminOnly: false },
   { label: 'Catalog', icon: Book, href: '/catalog', localAdminOnly: false },
+  { label: 'Digital Resources', icon: FolderOpen, href: '/digital-resources', localAdminOnly: false },
   { label: 'Search Attributes', icon: Tags, href: '/catalog/search-attributes', localAdminOnly: false },
   { label: 'Allocations', icon: Package, href: '/allocations', localAdminOnly: false },
   { label: 'Circulation', icon: Repeat, href: '/circulation', localAdminOnly: false },

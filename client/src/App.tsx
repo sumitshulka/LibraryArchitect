@@ -28,6 +28,10 @@ import SettingsPage from "@/modules/settings/SettingsPage";
 import SSOTestingPage from "./modules/settings/SSOTestingPage";
 import SearchAttributesPage from "./modules/catalog/SearchAttributesPage";
 import PublicHomePage from "./pages/PublicHomePage";
+import DigitalResourcesDashboardPage from "@/modules/digital-resources/DigitalResourcesDashboardPage";
+import RepositoryPage from "@/modules/digital-resources/RepositoryPage";
+import UploadResourcePage from "@/modules/digital-resources/UploadResourcePage";
+import ResourceDetailsPage from "@/modules/digital-resources/ResourceDetailsPage";
 import { Loader2 } from "lucide-react";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
@@ -59,6 +63,10 @@ function AppRouter() {
       <Route path="/catalog/new">{() => <ProtectedRoute component={AddResourcePage} />}</Route>
       <Route path="/catalog/bulk-upload">{() => <ProtectedRoute component={BulkUploadPage} />}</Route>
       <Route path="/catalog/search-attributes">{() => <ProtectedRoute component={SearchAttributesPage} />}</Route>
+      <Route path="/digital-resources">{() => <ProtectedRoute component={DigitalResourcesDashboardPage} />}</Route>
+      <Route path="/digital-resources/repository">{() => <ProtectedRoute component={RepositoryPage} />}</Route>
+      <Route path="/digital-resources/upload">{() => <ProtectedRoute component={UploadResourcePage} />}</Route>
+      <Route path="/digital-resources/:id">{() => <ProtectedRoute component={ResourceDetailsPage} />}</Route>
       <Route path="/allocations">{() => <ProtectedRoute component={AllocationsPage} />}</Route>
       <Route path="/users">{() => <ProtectedRoute component={UsersPage} />}</Route>
       <Route path="/circulation">{() => <ProtectedRoute component={CirculationPage} />}</Route>

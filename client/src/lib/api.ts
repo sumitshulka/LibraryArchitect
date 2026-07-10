@@ -1,4 +1,4 @@
-import type { Book, User, Circulation, Inventory, SystemConfig, ResourceType, Category, ErpIntegration, ErpWhitelist, OrgUnit, Library, BookCopy, BookTransfer, LibraryMembership, AuditLog } from "@shared/schema";
+import type { Book, User, Circulation, Inventory, SystemConfig, ResourceType, Category, ErpIntegration, ErpWhitelist, OrgUnit, Library, BookCopy, BookTransfer, LibraryMembership, AuditLog, DigitalResource, DigitalResourceVersion } from "@shared/schema";
 
 const API_BASE = "/api";
 
@@ -1798,6 +1798,153 @@ export const searchAttributesApi = {
     });
     if (!res.ok) throw new Error("Failed to update book search attributes");
     return res.json();
+  },
+};
+
+// Digital Resources API
+export interface DigitalResourceFilters {
+  search?: string;
+  department?: string;
+  course?: string;
+  semester?: string;
+  resourceType?: string;
+  category?: string;
+  faculty?: string;
+  uploadedBy?: number;
+  status?: string;
+  libraryId?: number;
+  tags?: string[];
+  fromDate?: string;
+  toDate?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface DigitalResourceWithVersions extends DigitalResource {
+  versions: DigitalResourceVersion[];
+}
+
+export const digitalResourcesApi = {
+  getAll: async (filters: DigitalResourceFilters = {}): Promise<DigitalResource[]> => {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value === undefined || value === "" || (Array.isArray(value) && value.length === 0)) return;
+      params.set(key, Array.isArray(value) ? value.join(",") : String(value));
+    });
+    const qs = params.toString();
+    const res = await fetch(`${API_BASE}/digital-resources${qs ? `?${qs}` : ""}`);
+    if (!res.ok) throw new Error("Failed to fetch digital resources");
+    const data = await res.json();
+    return data.resources ?? data;
+  },
+
+  getById: async (id: number): Promise<DigitalResourceWithVersions> => {
+    const res = await fetch(`${API_BASE}/digital-resources/${id}`);
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || "Failed to fetch digital resource");
+    }
+    return res.json();
+  },
+
+  create: async (data: Partial<DigitalResource>): Promise<DigitalResource> => {
+    const res = await fetch(`${API_BASE}/digital-resources`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to create digital resource");
+    }
+    return res.json();
+  },
+
+  update: async (id: number, data: Partial<DigitalResource>): Promise<DigitalResource> => {
+    const res = await fetch(`${API_BASE}/digital-resources/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to update digital resource");
+    }
+    return res.json();
+  },
+
+  delete: async (id: number): Promise<void> => {
+    const res = await fetch(`${API_BASE}/digital-resources/${id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || "Failed to delete digital resource");
+    }
+  },
+
+  publish: async (id: number, publish: boolean): Promise<DigitalResource> => {
+    const res = await fetch(`${API_BASE}/digital-resources/${id}/publish`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ publish }),
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to update publish status");
+    }
+    return res.json();
+  },
+
+  uploadFile: async (file: File): Promise<{ fileUrl: string; fileName: string; fileSizeBytes: number }> => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const res = await fetch(`${API_BASE}/digital-resources/upload`, {
+      method: "POST",
+      body: formData,
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to upload file");
+    }
+    return res.json();
+  },
+
+  getVersions: async (id: number): Promise<DigitalResourceVersion[]> => {
+    const res = await fetch(`${API_BASE}/digital-resources/${id}/versions`);
+    if (!res.ok) throw new Error("Failed to fetch versions");
+    return res.json();
+  },
+
+  addVersion: async (id: number, data: { file?: File; externalUrl?: string; versionNumber?: string; releaseNotes?: string; reasonForUpdate?: string; changeSummary?: string }): Promise<DigitalResourceVersion> => {
+    const formData = new FormData();
+    if (data.file) formData.append("file", data.file);
+    if (data.externalUrl) formData.append("externalUrl", data.externalUrl);
+    if (data.versionNumber) formData.append("versionNumber", data.versionNumber);
+    if (data.releaseNotes) formData.append("releaseNotes", data.releaseNotes);
+    if (data.reasonForUpdate) formData.append("reasonForUpdate", data.reasonForUpdate);
+    if (data.changeSummary) formData.append("changeSummary", data.changeSummary);
+    const res = await fetch(`${API_BASE}/digital-resources/${id}/versions`, {
+      method: "POST",
+      body: formData,
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to add version");
+    }
+    return res.json();
+  },
+
+  recordDownload: async (id: number): Promise<{ fileUrl: string | null; externalUrl: string | null }> => {
+    const res = await fetch(`${API_BASE}/digital-resources/${id}/download`, { method: "POST" });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to record download");
+    }
+    return res.json();
+  },
+
+  recordView: async (id: number): Promise<void> => {
+    const res = await fetch(`${API_BASE}/digital-resources/${id}/view`, { method: "POST" });
+    if (!res.ok) throw new Error("Failed to record view");
   },
 };
 
