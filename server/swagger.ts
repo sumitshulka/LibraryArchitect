@@ -1777,12 +1777,12 @@ The ERP system should call this endpoint to populate filter dropdowns/checkboxes
                             subject: { type: 'string', nullable: true },
                             language: { type: 'string', nullable: true },
                             difficulty: { type: 'string', nullable: true, enum: ['BEGINNER', 'INTERMEDIATE', 'ADVANCED'] },
-                            fileUrl: { type: 'string', nullable: true },
-                            externalUrl: { type: 'string', nullable: true },
                             thumbnailUrl: { type: 'string', nullable: true },
                             allowDownload: { type: 'boolean' },
                             allowPreview: { type: 'boolean' },
                             publishDate: { type: 'string', format: 'date-time', nullable: true },
+                            accessType: { type: 'string', enum: ['DOWNLOAD', 'EXTERNAL_LINK', 'NONE'], description: 'DOWNLOAD if the resource has an uploaded file, EXTERNAL_LINK if it only points to an external URL, NONE if neither' },
+                            downloadUrl: { type: 'string', nullable: true, description: 'Full URL to call (GET, same ERP auth) to retrieve the file download link or external URL. Null when allowDownload is false.' },
                           },
                         },
                       },
@@ -1807,12 +1807,12 @@ The ERP system should call this endpoint to populate filter dropdowns/checkboxes
                             subject: null,
                             language: null,
                             difficulty: null,
-                            fileUrl: '/uploads/digital-resources/sample.pdf',
-                            externalUrl: null,
                             thumbnailUrl: null,
                             allowDownload: true,
                             allowPreview: true,
                             publishDate: null,
+                            accessType: 'DOWNLOAD',
+                            downloadUrl: 'https://your-app.replit.app/api/erp/digital-resources/1/download',
                           },
                         ],
                       },
@@ -1841,6 +1841,92 @@ The ERP system should call this endpoint to populate filter dropdowns/checkboxes
             },
             '404': {
               description: 'ERP integration not found',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+            },
+          },
+        },
+      },
+      '/api/erp/digital-resources/{id}/download': {
+        get: {
+          tags: ['ERP Digital Resources'],
+          summary: 'Get the download link or external link for a digital resource',
+          description: `Retrieves how to access a specific digital resource's content: either a direct file download URL (for resources hosted in the library system) or an external URL (for resources that link out to a third-party page/platform).
+
+**Important behavior:**
+- Only resources with status \`PUBLISHED\` and visibility \`INSTITUTION\` can be accessed via this endpoint (same restriction as the search endpoint)
+- Returns 403 if downloads are disabled for the resource (\`allowDownload: false\`)
+- \`accessType: "DOWNLOAD"\` — the resource has an uploaded file; \`fileUrl\` is a full, directly-downloadable URL to the file
+- \`accessType: "EXTERNAL_LINK"\` — the resource only has an external URL (e.g. a link to a publisher's site or external video); navigate the user there instead of expecting a downloadable file
+- Each successful call increments the resource's download counter, same as the in-app download action`,
+          security: [{ erpSecretKey: [] }],
+          parameters: [
+            {
+              name: 'id',
+              in: 'path',
+              required: true,
+              schema: { type: 'integer' },
+              description: 'Digital resource ID',
+              example: 1,
+            },
+            {
+              name: 'appId',
+              in: 'query',
+              required: true,
+              schema: { type: 'string' },
+              description: 'ERP integration App ID',
+              example: 'UNIV_ERP_001',
+            },
+          ],
+          responses: {
+            '200': {
+              description: 'Access info for the resource',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      accessType: { type: 'string', enum: ['DOWNLOAD', 'EXTERNAL_LINK'] },
+                      fileUrl: { type: 'string', description: 'Present when accessType is DOWNLOAD — full downloadable URL' },
+                      fileName: { type: 'string', nullable: true },
+                      fileSizeBytes: { type: 'integer', nullable: true },
+                      externalUrl: { type: 'string', description: 'Present when accessType is EXTERNAL_LINK — URL to navigate the user to' },
+                    },
+                  },
+                  examples: {
+                    fileDownload: {
+                      summary: 'Hosted file download',
+                      value: {
+                        accessType: 'DOWNLOAD',
+                        fileUrl: 'https://your-app.replit.app/uploads/digital-resources/sample.pdf',
+                        fileName: 'Intro to Algorithms.pdf',
+                        fileSizeBytes: 2457600,
+                      },
+                    },
+                    externalLink: {
+                      summary: 'External link resource',
+                      value: {
+                        accessType: 'EXTERNAL_LINK',
+                        externalUrl: 'https://publisher.example.com/book/12345',
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            '400': {
+              description: 'Missing appId or invalid resource id',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+            },
+            '401': {
+              description: 'Missing or invalid secret key',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+            },
+            '403': {
+              description: 'Resource not available via external API, or downloads disabled',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+            },
+            '404': {
+              description: 'ERP integration or digital resource not found, or resource has no file/link',
               content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
             },
           },

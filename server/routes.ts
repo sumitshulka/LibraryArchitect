@@ -4348,6 +4348,8 @@ export async function registerRoutes(
         });
       }
 
+      const baseUrl = `${req.protocol}://${req.get('host')}`;
+
       res.json({
         success: true,
         totalCount: result.totalCount,
@@ -4363,17 +4365,83 @@ export async function registerRoutes(
           subject: r.subject,
           language: r.language,
           difficulty: r.difficulty,
-          fileUrl: r.fileUrl,
-          externalUrl: r.externalUrl,
           thumbnailUrl: r.thumbnailUrl,
           allowDownload: r.allowDownload,
           allowPreview: r.allowPreview,
           publishDate: r.publishDate,
+          accessType: r.fileUrl ? 'DOWNLOAD' : r.externalUrl ? 'EXTERNAL_LINK' : 'NONE',
+          downloadUrl: r.allowDownload
+            ? `${baseUrl}/api/erp/digital-resources/${r.id}/download`
+            : null,
         })),
       });
     } catch (error) {
       console.error("ERP digital resources search error:", error);
       res.status(500).json({ error: "Failed to search digital resources" });
+    }
+  });
+
+  // ERP Digital Resources API: Download the file or get the external link for a resource
+  app.get("/api/erp/digital-resources/:id/download", async (req, res) => {
+    try {
+      const appId = req.query.appId as string;
+      const secretKey = req.headers['x-secret-key'] as string;
+
+      if (!appId) {
+        return res.status(400).json({ error: "Query parameter 'appId' is required" });
+      }
+      if (!secretKey) {
+        return res.status(401).json({ error: "X-Secret-Key header required" });
+      }
+
+      const integration = await storage.getErpIntegrationByAppId(appId);
+      if (!integration) {
+        return res.status(404).json({ error: "ERP integration not found" });
+      }
+
+      const { verifySecretKey } = await import('./sso');
+      if (!verifySecretKey(secretKey, integration.secretHash, integration.secretSalt)) {
+        return res.status(401).json({ error: "Invalid secret key" });
+      }
+
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid resource id" });
+      }
+
+      const resource = await storage.getDigitalResource(id);
+      if (!resource) {
+        return res.status(404).json({ error: "Digital resource not found" });
+      }
+      if (resource.status !== 'PUBLISHED' || resource.visibility !== 'INSTITUTION') {
+        return res.status(403).json({ error: "This resource is not available via the external API" });
+      }
+      if (!resource.allowDownload) {
+        return res.status(403).json({ error: "Downloads are disabled for this resource" });
+      }
+      if (!resource.fileUrl && !resource.externalUrl) {
+        return res.status(404).json({ error: "This resource has no downloadable file or external link" });
+      }
+
+      await storage.incrementDigitalResourceDownloadCount(id);
+
+      if (resource.fileUrl) {
+        const baseUrl = `${req.protocol}://${req.get('host')}`;
+        return res.json({
+          accessType: 'DOWNLOAD',
+          fileUrl: `${baseUrl}${resource.fileUrl}`,
+          fileName: resource.fileName,
+          fileSizeBytes: resource.fileSizeBytes,
+        });
+      }
+
+      res.json({
+        accessType: 'EXTERNAL_LINK',
+        externalUrl: resource.externalUrl,
+      });
+    } catch (error) {
+      console.error("ERP digital resources download error:", error);
+      res.status(500).json({ error: "Failed to process download request" });
     }
   });
 
