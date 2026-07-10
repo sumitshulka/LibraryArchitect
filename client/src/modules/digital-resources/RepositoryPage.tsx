@@ -16,7 +16,7 @@ import {
   Search, Upload, FileText, Video, Music, Image as ImageIcon,
   FileArchive, Link as LinkIcon, Eye, Download, Calendar, X, User as UserIcon,
   Building2, GraduationCap, Tag as TagIcon, HardDrive, Tags, Loader2, Save,
-  LayoutDashboard,
+  LayoutDashboard, FolderOpen, CheckCircle2, SlidersHorizontal,
 } from "lucide-react";
 import { digitalResourcesApi, resourceTypeSettingsApi, searchAttributesApi } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -184,31 +184,63 @@ export default function RepositoryPage() {
 
   const hasActiveFilters = search || resourceType !== "all" || category !== "all" || status !== "all" || tagFilter || attributeValueIds.length > 0;
 
+  const totalViews = filtered.reduce((sum, r) => sum + (r.viewCount || 0), 0);
+  const totalDownloads = filtered.reduce((sum, r) => sum + (r.downloadCount || 0), 0);
+  const publishedCount = filtered.filter((r) => r.status === "PUBLISHED").length;
+
   return (
     <MainLayout>
-      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight" data-testid="text-page-title">Digital Repository</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">Browse and search digital resources</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Link href="/digital-resources">
-            <Button variant="outline" size="sm" className="gap-2" data-testid="button-digital-dashboard">
-              <LayoutDashboard className="h-4 w-4" /> Dashboard
-            </Button>
-          </Link>
-          {canUpload && (
-            <Link href="/digital-resources/upload">
-              <Button size="sm" className="gap-2" data-testid="button-upload">
-                <Upload className="h-4 w-4" /> Upload Resource
+      <div className="relative overflow-hidden rounded-xl border bg-gradient-to-br from-primary/10 via-primary/5 to-background mb-6">
+        <div className="relative flex items-center justify-between gap-4 flex-wrap p-6">
+          <div className="flex items-center gap-4">
+            <div className="h-12 w-12 rounded-xl bg-primary/15 border border-primary/20 flex items-center justify-center shrink-0">
+              <FolderOpen className="h-6 w-6 text-primary" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight" data-testid="text-page-title">Digital Repository</h1>
+              <p className="text-muted-foreground text-sm mt-0.5">Browse, search, and manage institutional digital resources</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Link href="/digital-resources">
+              <Button variant="outline" size="sm" className="gap-2 bg-background/80 backdrop-blur" data-testid="button-digital-dashboard">
+                <LayoutDashboard className="h-4 w-4" /> Dashboard
               </Button>
             </Link>
-          )}
+            {canUpload && (
+              <Link href="/digital-resources/upload">
+                <Button size="sm" className="gap-2 shadow-sm" data-testid="button-upload">
+                  <Upload className="h-4 w-4" /> Upload Resource
+                </Button>
+              </Link>
+            )}
+          </div>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-border border-t">
+          <div className="bg-card px-6 py-3">
+            <p className="text-xs text-muted-foreground uppercase tracking-wide">Total Resources</p>
+            <p className="text-xl font-bold mt-0.5" data-testid="stat-total-resources">{filtered.length}</p>
+          </div>
+          <div className="bg-card px-6 py-3">
+            <p className="text-xs text-muted-foreground uppercase tracking-wide flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> Published</p>
+            <p className="text-xl font-bold mt-0.5" data-testid="stat-published-resources">{publishedCount}</p>
+          </div>
+          <div className="bg-card px-6 py-3">
+            <p className="text-xs text-muted-foreground uppercase tracking-wide flex items-center gap-1"><Eye className="h-3 w-3" /> Total Views</p>
+            <p className="text-xl font-bold mt-0.5" data-testid="stat-total-views">{totalViews}</p>
+          </div>
+          <div className="bg-card px-6 py-3">
+            <p className="text-xs text-muted-foreground uppercase tracking-wide flex items-center gap-1"><Download className="h-3 w-3" /> Total Downloads</p>
+            <p className="text-xl font-bold mt-0.5" data-testid="stat-total-downloads">{totalDownloads}</p>
+          </div>
         </div>
       </div>
 
-      <Card className="mb-4">
+      <Card className="mb-4 border-border/80 shadow-sm">
         <CardContent className="p-4 space-y-3">
+          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            <SlidersHorizontal className="h-3.5 w-3.5" /> Filters
+          </div>
           <div className="flex flex-col md:flex-row gap-3">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -276,11 +308,37 @@ export default function RepositoryPage() {
       </Card>
 
       {isLoading ? (
-        <div className="text-center py-16 text-muted-foreground">Loading resources...</div>
-      ) : filtered.length === 0 ? (
-        <div className="text-center py-16 text-muted-foreground" data-testid="text-empty-state">
-          No digital resources found matching your filters.
+        <div className="flex flex-col gap-3" data-testid="loading-resources">
+          {[1, 2, 3].map((i) => (
+            <Card key={i} className="animate-pulse">
+              <CardContent className="p-4 sm:p-5">
+                <div className="flex gap-4">
+                  <div className="h-14 w-14 rounded-xl bg-muted shrink-0" />
+                  <div className="flex-1 space-y-2 py-1">
+                    <div className="h-4 bg-muted rounded w-1/3" />
+                    <div className="h-3 bg-muted rounded w-1/2" />
+                    <div className="h-3 bg-muted rounded w-2/3" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
         </div>
+      ) : filtered.length === 0 ? (
+        <Card className="border-dashed">
+          <CardContent className="flex flex-col items-center justify-center py-16 text-center" data-testid="text-empty-state">
+            <div className="h-14 w-14 rounded-full bg-muted flex items-center justify-center mb-4">
+              <FolderOpen className="h-7 w-7 text-muted-foreground" />
+            </div>
+            <p className="font-medium">No digital resources found</p>
+            <p className="text-muted-foreground text-sm mt-1">Try adjusting your search or filters.</p>
+            {hasActiveFilters && (
+              <Button variant="outline" size="sm" className="gap-1 mt-4" onClick={clearFilters} data-testid="button-clear-filters-empty">
+                <X className="h-3.5 w-3.5" /> Clear filters
+              </Button>
+            )}
+          </CardContent>
+        </Card>
       ) : (
         <div className="flex flex-col gap-3" data-testid="list-resources">
           {filtered.map((r) => {
@@ -290,13 +348,13 @@ export default function RepositoryPage() {
             return (
               <Link key={r.id} href={`/digital-resources/${r.id}`} data-testid={`card-resource-${r.id}`}>
                 <Card
-                  className="hover:shadow-md transition-shadow cursor-pointer border-l-4"
+                  className="hover:shadow-lg hover:-translate-y-0.5 transition-all cursor-pointer border-l-4 border-border/70"
                   style={{ borderLeftColor: color }}
                 >
                   <CardContent className="p-4 sm:p-5">
                     <div className="flex flex-col sm:flex-row gap-4">
                       <div
-                        className="h-14 w-14 rounded-xl border flex items-center justify-center shrink-0"
+                        className="h-14 w-14 rounded-xl border flex items-center justify-center shrink-0 shadow-sm"
                         style={{ backgroundColor: `${color}1a`, borderColor: `${color}40` }}
                       >
                         <Icon className="h-7 w-7" style={{ color }} />

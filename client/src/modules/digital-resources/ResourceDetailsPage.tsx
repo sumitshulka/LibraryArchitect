@@ -17,9 +17,10 @@ import {
   ArrowLeft, Download, Eye, FileText, Video, Music, Image as ImageIcon,
   FileArchive, Link as LinkIcon, Calendar, User as UserIcon, Building2,
   Tag as TagIcon, History, Upload, Trash2, CheckCircle2, XCircle, Loader2, ExternalLink,
+  Globe2, BookOpen, BarChart3, Clock,
 } from "lucide-react";
 import { toast } from "sonner";
-import { digitalResourcesApi } from "@/lib/api";
+import { digitalResourcesApi, resourceTypeSettingsApi } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { format as fmtDate } from "date-fns";
 
@@ -60,6 +61,13 @@ export default function ResourceDetailsPage() {
     queryFn: () => digitalResourcesApi.getById(id),
     enabled: !!id,
   });
+
+  const { data: typeSettings = [] } = useQuery({
+    queryKey: ["resource-type-settings"],
+    queryFn: resourceTypeSettingsApi.getAll,
+  });
+
+  const typeColor = resource ? (typeSettings.find(s => s.resourceType === resource.resourceType)?.color || "#3b82f6") : "#3b82f6";
 
   useEffect(() => {
     if (resource) digitalResourcesApi.recordView(id).catch(() => {});
@@ -120,7 +128,23 @@ export default function ResourceDetailsPage() {
   if (isLoading) {
     return (
       <MainLayout>
-        <div className="text-center py-16 text-muted-foreground">Loading resource...</div>
+        <div className="flex items-center gap-4 mb-6 animate-pulse">
+          <div className="h-9 w-9 rounded-md bg-muted" />
+          <div className="flex-1 space-y-2">
+            <div className="h-6 bg-muted rounded w-1/3" />
+            <div className="h-3 bg-muted rounded w-1/5" />
+          </div>
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 space-y-4">
+            <Card className="animate-pulse"><CardContent className="p-6"><div className="h-[300px] bg-muted rounded-lg" /></CardContent></Card>
+          </div>
+          <Card className="animate-pulse"><CardContent className="p-6 space-y-3">
+            <div className="h-4 bg-muted rounded w-2/3" />
+            <div className="h-4 bg-muted rounded w-1/2" />
+            <div className="h-4 bg-muted rounded w-3/4" />
+          </CardContent></Card>
+        </div>
       </MainLayout>
     );
   }
@@ -128,8 +152,12 @@ export default function ResourceDetailsPage() {
   if (error || !resource) {
     return (
       <MainLayout>
-        <div className="text-center py-16">
-          <p className="text-muted-foreground mb-4" data-testid="text-error">Resource not found or you don't have access.</p>
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4">
+            <FileText className="h-8 w-8 text-muted-foreground" />
+          </div>
+          <p className="font-medium mb-1">Resource not found</p>
+          <p className="text-muted-foreground text-sm mb-4" data-testid="text-error">You don't have access, or it may have been removed.</p>
           <Link href="/digital-resources/repository">
             <Button variant="outline" data-testid="button-back-to-repository">Back to Repository</Button>
           </Link>
@@ -144,55 +172,73 @@ export default function ResourceDetailsPage() {
 
   return (
     <MainLayout>
-      <div className="flex items-center gap-4 mb-6">
-        <Button variant="ghost" size="icon" onClick={() => setLocation("/digital-resources/repository")} data-testid="button-back">
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-2xl font-bold tracking-tight truncate" data-testid="text-title">{resource.title}</h1>
-            <Badge variant={resource.status === "PUBLISHED" ? "default" : resource.status === "PENDING_APPROVAL" ? "secondary" : "outline"} data-testid="badge-status">
-              {resource.status.replace(/_/g, " ")}
-            </Badge>
+      <div className="relative overflow-hidden rounded-xl border bg-gradient-to-br from-primary/10 via-primary/5 to-background mb-6">
+        <div className="flex items-start gap-4 flex-wrap p-6">
+          <Button variant="ghost" size="icon" className="shrink-0 bg-background/70" onClick={() => setLocation("/digital-resources/repository")} data-testid="button-back">
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <div
+            className="h-12 w-12 rounded-xl border flex items-center justify-center shrink-0 shadow-sm"
+            style={{ backgroundColor: `${typeColor}1a`, borderColor: `${typeColor}40` }}
+          >
+            <Icon className="h-6 w-6" style={{ color: typeColor }} />
           </div>
-          <p className="text-muted-foreground text-sm mt-0.5">{resource.resourceType} · v{resource.versionNumber}</p>
-        </div>
-        <div className="flex gap-2">
-          {resource.allowDownload && (resource.fileUrl || resource.externalUrl) && (
-            <Button variant="outline" size="sm" className="gap-2" onClick={() => downloadMutation.mutate()} disabled={downloadMutation.isPending} data-testid="button-download">
-              <Download className="h-4 w-4" /> Download
-            </Button>
-          )}
-          {canManage && (
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                onClick={() => publishMutation.mutate(resource.status !== "PUBLISHED")}
-                disabled={publishMutation.isPending}
-                data-testid="button-toggle-publish"
-              >
-                {resource.status === "PUBLISHED" ? <XCircle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
-                {resource.status === "PUBLISHED" ? "Unpublish" : "Publish"}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-2xl font-bold tracking-tight truncate" data-testid="text-title">{resource.title}</h1>
+              <Badge variant={resource.status === "PUBLISHED" ? "default" : resource.status === "PENDING_APPROVAL" ? "secondary" : "outline"} data-testid="badge-status">
+                {resource.status.replace(/_/g, " ")}
+              </Badge>
+            </div>
+            <p className="text-muted-foreground text-sm mt-0.5 flex items-center gap-1.5 flex-wrap">
+              <span>{resource.resourceType}</span>
+              <span aria-hidden>·</span>
+              <span>v{resource.versionNumber}</span>
+              {resource.category && (
+                <>
+                  <span aria-hidden>·</span>
+                  <span>{resource.category.replace(/_/g, " ")}</span>
+                </>
+              )}
+            </p>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            {resource.allowDownload && (resource.fileUrl || resource.externalUrl) && (
+              <Button variant="outline" size="sm" className="gap-2 bg-background/80" onClick={() => downloadMutation.mutate()} disabled={downloadMutation.isPending} data-testid="button-download">
+                <Download className="h-4 w-4" /> Download
               </Button>
-              <Button variant="outline" size="sm" className="gap-2" onClick={() => setVersionDialogOpen(true)} data-testid="button-add-version">
-                <Upload className="h-4 w-4" /> New Version
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2 text-destructive hover:text-destructive"
-                onClick={() => {
-                  if (confirm("Delete this resource? This cannot be undone.")) deleteMutation.mutate();
-                }}
-                disabled={deleteMutation.isPending}
-                data-testid="button-delete"
-              >
+            )}
+            {canManage && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2 bg-background/80"
+                  onClick={() => publishMutation.mutate(resource.status !== "PUBLISHED")}
+                  disabled={publishMutation.isPending}
+                  data-testid="button-toggle-publish"
+                >
+                  {resource.status === "PUBLISHED" ? <XCircle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
+                  {resource.status === "PUBLISHED" ? "Unpublish" : "Publish"}
+                </Button>
+                <Button variant="outline" size="sm" className="gap-2 bg-background/80" onClick={() => setVersionDialogOpen(true)} data-testid="button-add-version">
+                  <Upload className="h-4 w-4" /> New Version
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2 text-destructive hover:text-destructive bg-background/80"
+                  onClick={() => {
+                    if (confirm("Delete this resource? This cannot be undone.")) deleteMutation.mutate();
+                  }}
+                  disabled={deleteMutation.isPending}
+                  data-testid="button-delete"
+                >
                 <Trash2 className="h-4 w-4" /> Delete
               </Button>
             </>
           )}
+        </div>
         </div>
       </div>
 
@@ -278,26 +324,38 @@ export default function ResourceDetailsPage() {
               <Card>
                 <CardContent className="p-0">
                   {resource.versions.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-8">No prior versions recorded.</p>
+                    <div className="flex flex-col items-center justify-center py-10 text-center">
+                      <Clock className="h-8 w-8 text-muted-foreground mb-2" />
+                      <p className="text-sm text-muted-foreground">No prior versions recorded.</p>
+                    </div>
                   ) : (
                     <div className="divide-y" data-testid="list-versions">
                       {resource.versions
                         .slice()
                         .sort((a, b) => new Date(b.createdAt as any).getTime() - new Date(a.createdAt as any).getTime())
-                        .map((v) => (
-                          <div key={v.id} className="p-4 flex items-start justify-between gap-4" data-testid={`row-version-${v.id}`}>
-                            <div className="min-w-0">
-                              <p className="text-sm font-medium">Version {v.versionNumber}</p>
-                              {v.releaseNotes && <p className="text-xs text-muted-foreground mt-0.5">{v.releaseNotes}</p>}
-                              <p className="text-xs text-muted-foreground mt-1">
-                                {v.createdAt ? fmtDate(new Date(v.createdAt as any), "dd MMM yyyy, HH:mm") : ""}
-                              </p>
+                        .map((v, idx) => (
+                          <div key={v.id} className="p-4 flex items-start gap-3" data-testid={`row-version-${v.id}`}>
+                            <div className="h-8 w-8 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 mt-0.5">
+                              <span className="text-xs font-semibold text-primary">v{v.versionNumber}</span>
                             </div>
-                            {(v.fileUrl || v.externalUrl) && (
-                              <Button variant="ghost" size="sm" className="gap-1 shrink-0" onClick={() => window.open(v.fileUrl || v.externalUrl!, "_blank")} data-testid={`button-view-version-${v.id}`}>
-                                <ExternalLink className="h-3.5 w-3.5" /> View
-                              </Button>
-                            )}
+                            <div className="min-w-0 flex-1 flex items-start justify-between gap-4">
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium flex items-center gap-2">
+                                  Version {v.versionNumber}
+                                  {idx === 0 && <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Current</Badge>}
+                                </p>
+                                {v.releaseNotes && <p className="text-xs text-muted-foreground mt-0.5">{v.releaseNotes}</p>}
+                                <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                                  <Clock className="h-3 w-3" />
+                                  {v.createdAt ? fmtDate(new Date(v.createdAt as any), "dd MMM yyyy, HH:mm") : ""}
+                                </p>
+                              </div>
+                              {(v.fileUrl || v.externalUrl) && (
+                                <Button variant="ghost" size="sm" className="gap-1 shrink-0" onClick={() => window.open(v.fileUrl || v.externalUrl!, "_blank")} data-testid={`button-view-version-${v.id}`}>
+                                  <ExternalLink className="h-3.5 w-3.5" /> View
+                                </Button>
+                              )}
+                            </div>
                           </div>
                         ))}
                     </div>
@@ -309,32 +367,71 @@ export default function ResourceDetailsPage() {
         </div>
 
         <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <Card className="border-border/80">
+              <CardContent className="p-4 flex items-center gap-3">
+                <div className="h-9 w-9 rounded-lg bg-blue-500/10 flex items-center justify-center shrink-0">
+                  <Eye className="h-4 w-4 text-blue-600" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-lg font-bold leading-tight" data-testid="stat-view-count">{resource.viewCount}</p>
+                  <p className="text-xs text-muted-foreground">Views</p>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-border/80">
+              <CardContent className="p-4 flex items-center gap-3">
+                <div className="h-9 w-9 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0">
+                  <Download className="h-4 w-4 text-emerald-600" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-lg font-bold leading-tight" data-testid="stat-download-count">{resource.downloadCount}</p>
+                  <p className="text-xs text-muted-foreground">Downloads</p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">Details</CardTitle>
+              <CardTitle className="text-base flex items-center gap-2"><BookOpen className="h-4 w-4 text-muted-foreground" /> Details</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               <div className="flex items-center gap-2 text-muted-foreground">
                 <UserIcon className="h-4 w-4 shrink-0" />
-                <span>{resource.author || resource.faculty || "Unknown author"}</span>
+                <span className="text-foreground">{resource.author || resource.faculty || "Unknown author"}</span>
               </div>
               <div className="flex items-center gap-2 text-muted-foreground">
                 <Building2 className="h-4 w-4 shrink-0" />
-                <span>{resource.department || "—"}{resource.course ? ` · ${resource.course}` : ""}</span>
+                <span className="text-foreground">{resource.department || "—"}{resource.course ? ` · ${resource.course}` : ""}</span>
               </div>
               <div className="flex items-center gap-2 text-muted-foreground">
                 <Calendar className="h-4 w-4 shrink-0" />
-                <span>{resource.publishDate ? fmtDate(new Date(resource.publishDate as any), "dd MMM yyyy") : "Not published"}</span>
+                <span className="text-foreground">{resource.publishDate ? fmtDate(new Date(resource.publishDate as any), "dd MMM yyyy") : "Not published"}</span>
+              </div>
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Globe2 className="h-4 w-4 shrink-0" />
+                <span className="text-foreground">{resource.visibility.replace(/_/g, " ")}</span>
               </div>
               <Separator />
-              <div className="flex justify-between"><span className="text-muted-foreground">File Size</span><span>{formatFileSize(resource.fileSizeBytes)}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Category</span><span>{resource.category?.replace(/_/g, " ") || "—"}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Difficulty</span><span>{resource.difficulty || "—"}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Language</span><span>{resource.language || "—"}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Visibility</span><span>{resource.visibility.replace(/_/g, " ")}</span></div>
-              <Separator />
-              <div className="flex justify-between"><span className="text-muted-foreground flex items-center gap-1"><Eye className="h-3.5 w-3.5" /> Views</span><span>{resource.viewCount}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground flex items-center gap-1"><Download className="h-3.5 w-3.5" /> Downloads</span><span>{resource.downloadCount}</span></div>
+              <div className="grid grid-cols-2 gap-y-2.5 gap-x-2">
+                <div>
+                  <p className="text-xs text-muted-foreground">File Size</p>
+                  <p className="font-medium">{formatFileSize(resource.fileSizeBytes)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Category</p>
+                  <p className="font-medium truncate">{resource.category?.replace(/_/g, " ") || "—"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Difficulty</p>
+                  <p className="font-medium">{resource.difficulty || "—"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Language</p>
+                  <p className="font-medium">{resource.language || "—"}</p>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </div>
