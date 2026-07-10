@@ -2,9 +2,13 @@ import type { Book, User, Circulation, Inventory, SystemConfig, ResourceType, Ca
 
 const API_BASE = "/api";
 
+export type BookWithSearchAttributes = Book & {
+  searchAttributes: { attributeValueId: number; attributeValue: string; attributeTypeName: string; attributeTypeId: number }[];
+};
+
 // Books API
 export const booksApi = {
-  getAll: async (search?: string, attributeValueIds?: number[]): Promise<Book[]> => {
+  getAll: async (search?: string, attributeValueIds?: number[]): Promise<BookWithSearchAttributes[]> => {
     const params = new URLSearchParams();
     if (search) params.set("search", search);
     if (attributeValueIds && attributeValueIds.length > 0) {

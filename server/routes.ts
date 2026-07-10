@@ -141,7 +141,13 @@ export async function registerRoutes(
         books = books.filter(b => allowedBookIds.has(b.id));
       }
 
-      res.json(books);
+      const attributesByBook = await storage.getResourceSearchAttributesForBooks(books.map(b => b.id));
+      const booksWithAttributes = books.map(b => ({
+        ...b,
+        searchAttributes: attributesByBook.get(b.id) || [],
+      }));
+
+      res.json(booksWithAttributes);
     } catch (error) {
       console.error("Error fetching books:", error);
       res.status(500).json({ error: "Failed to fetch books" });

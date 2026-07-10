@@ -1103,6 +1103,20 @@ export default function CatalogPage() {
                             {book.title}
                           </button>
                           <span className="text-xs text-muted-foreground">{book.author} • {book.publishedYear}</span>
+                          {book.searchAttributes && book.searchAttributes.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-1.5">
+                              {book.searchAttributes.map((attr) => (
+                                <Badge
+                                  key={attr.attributeValueId}
+                                  variant="secondary"
+                                  className="text-[10px] font-normal px-1.5 py-0 h-4"
+                                  data-testid={`badge-catalog-attr-${book.id}-${attr.attributeValueId}`}
+                                >
+                                  {attr.attributeValue}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell>

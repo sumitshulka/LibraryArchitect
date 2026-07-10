@@ -381,6 +381,7 @@ export interface IStorage {
 
   // Resource Search Attributes (assignments)
   getResourceSearchAttributes(bookId: number): Promise<(ResourceSearchAttribute & { attributeValue: string; attributeTypeName: string; attributeTypeId: number })[]>;
+  getResourceSearchAttributesForBooks(bookIds: number[]): Promise<Map<number, { attributeValueId: number; attributeValue: string; attributeTypeName: string; attributeTypeId: number }[]>>;
   assignSearchAttribute(bookId: number, attributeValueId: number): Promise<ResourceSearchAttribute>;
   removeSearchAttribute(bookId: number, attributeValueId: number): Promise<boolean>;
   setResourceSearchAttributes(bookId: number, attributeValueIds: number[]): Promise<void>;
@@ -2039,6 +2040,35 @@ export class DBStorage implements IStorage {
       .orderBy(asc(searchAttributeTypes.sortOrder), asc(searchAttributeValues.value));
     
     return results;
+  }
+
+  async getResourceSearchAttributesForBooks(bookIds: number[]): Promise<Map<number, { attributeValueId: number; attributeValue: string; attributeTypeName: string; attributeTypeId: number }[]>> {
+    const map = new Map<number, { attributeValueId: number; attributeValue: string; attributeTypeName: string; attributeTypeId: number }[]>();
+    if (bookIds.length === 0) return map;
+
+    const results = await db.select({
+      bookId: resourceSearchAttributes.bookId,
+      attributeValueId: resourceSearchAttributes.attributeValueId,
+      attributeValue: searchAttributeValues.value,
+      attributeTypeName: searchAttributeTypes.name,
+      attributeTypeId: searchAttributeTypes.id,
+    })
+      .from(resourceSearchAttributes)
+      .innerJoin(searchAttributeValues, eq(resourceSearchAttributes.attributeValueId, searchAttributeValues.id))
+      .innerJoin(searchAttributeTypes, eq(searchAttributeValues.attributeTypeId, searchAttributeTypes.id))
+      .where(inArray(resourceSearchAttributes.bookId, bookIds))
+      .orderBy(asc(searchAttributeTypes.sortOrder), asc(searchAttributeValues.value));
+
+    for (const row of results) {
+      if (!map.has(row.bookId)) map.set(row.bookId, []);
+      map.get(row.bookId)!.push({
+        attributeValueId: row.attributeValueId,
+        attributeValue: row.attributeValue,
+        attributeTypeName: row.attributeTypeName,
+        attributeTypeId: row.attributeTypeId,
+      });
+    }
+    return map;
   }
 
   async assignSearchAttribute(bookId: number, attributeValueId: number): Promise<ResourceSearchAttribute> {
