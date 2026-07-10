@@ -140,6 +140,20 @@ The system supports three authentication modes:
 
 **Authentication:** All endpoints require the \`X-Secret-Key\` header matching the ERP integration's secret key, and the \`appId\` query parameter.`,
       },
+      {
+        name: 'ERP Digital Resources',
+        description: `API endpoints for ERP systems to search the digital resources repository (e-books, videos, lecture notes, etc.) on behalf of students/faculty.
+
+**Flow:**
+1. ERP calls \`GET /api/erp/digital-resources/search-attributes\` to get available filter options (shares the same attribute taxonomy as the book catalog)
+2. User selects desired attribute values in the ERP console
+3. ERP calls \`GET /api/erp/digital-resources/search\` with the selected attribute value IDs and/or a text query
+4. If results exceed the configured limit (shared with the catalog limit, default: 50), the API returns a message asking to refine the search
+
+**Visibility:** Only \`PUBLISHED\` resources with \`INSTITUTION\`-wide visibility are returned — resources scoped to a specific department, course, batch, role, or user list are not exposed via this external API.
+
+**Authentication:** All endpoints require the \`X-Secret-Key\` header matching the ERP integration's secret key, and the \`appId\` query parameter.`,
+      },
     ],
     components: {
       securitySchemes: {
@@ -1574,6 +1588,243 @@ Each attribute type (e.g., "Program", "Semester", "Subject Type") contains its a
                         totalCount: 127,
                         maxAllowed: 50,
                         books: [],
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            '400': {
+              description: 'Missing required parameters or no filters provided',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+            },
+            '401': {
+              description: 'Missing or invalid secret key',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+            },
+            '404': {
+              description: 'ERP integration not found',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+            },
+          },
+        },
+      },
+      '/api/erp/digital-resources/search-attributes': {
+        get: {
+          tags: ['ERP Digital Resources'],
+          summary: 'Get available search attribute filters for digital resources',
+          description: `Returns all active search attribute types and their values that can be used to filter digital resources (e-books, videos, lecture notes, etc.).
+
+This is the same shared search-attribute taxonomy used by the physical book catalog (\`/api/erp/catalog/search-attributes\`) — attribute values assigned to digital resources come from the same pool.
+
+The ERP system should call this endpoint to populate filter dropdowns/checkboxes before searching digital resources.`,
+          security: [{ erpSecretKey: [] }],
+          parameters: [
+            {
+              name: 'appId',
+              in: 'query',
+              required: true,
+              schema: { type: 'string' },
+              description: 'ERP integration App ID',
+              example: 'UNIV_ERP_001',
+            },
+          ],
+          responses: {
+            '200': {
+              description: 'List of search attribute types with their values',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      searchAttributes: {
+                        type: 'array',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            id: { type: 'integer', example: 1 },
+                            name: { type: 'string', example: 'Program' },
+                            description: { type: 'string', nullable: true, example: 'Academic program' },
+                            values: {
+                              type: 'array',
+                              items: {
+                                type: 'object',
+                                properties: {
+                                  id: { type: 'integer', example: 1 },
+                                  value: { type: 'string', example: 'Computer Science' },
+                                },
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                  examples: {
+                    withData: {
+                      summary: 'Attributes with values',
+                      value: {
+                        searchAttributes: [
+                          {
+                            id: 3,
+                            name: 'Course',
+                            description: null,
+                            values: [
+                              { id: 4, value: 'Artificial Intelligence' },
+                              { id: 5, value: 'Data Science' },
+                            ],
+                          },
+                          {
+                            id: 4,
+                            name: 'Semester',
+                            description: null,
+                            values: [
+                              { id: 9, value: 'Sem 1' },
+                              { id: 10, value: 'Sem 2' },
+                            ],
+                          },
+                        ],
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            '400': {
+              description: 'Missing appId parameter',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+            },
+            '401': {
+              description: 'Missing or invalid secret key',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+            },
+            '404': {
+              description: 'ERP integration not found',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } },
+            },
+          },
+        },
+      },
+      '/api/erp/digital-resources/search': {
+        get: {
+          tags: ['ERP Digital Resources'],
+          summary: 'Search digital resources by attributes',
+          description: `Search published digital resources (e-books, videos, lecture notes, etc.) using search attribute filters and/or text search.
+
+**Important behavior:**
+- At least one filter must be provided: \`attributeValueIds\` and/or \`q\` (text search)
+- Only resources with status \`PUBLISHED\` and visibility \`INSTITUTION\` (institution-wide) are returned — resources restricted to a department, course, batch, specific users, or specific roles are excluded from this external API for privacy
+- If results exceed the configured maximum (shared with the catalog's \`erp_catalog_limit\` setting, default: 50), the API returns \`success: false\` with a message asking to refine the search — no resource data is returned
+- When results are within the limit, \`success: true\` and the matching resources are returned
+
+**Recommended flow:**
+1. First call \`GET /api/erp/digital-resources/search-attributes\` to get filter options
+2. User selects attribute values (e.g., Course=Data Science, Semester=3)
+3. Call this endpoint with the selected value IDs and/or a text query
+4. If too many results, prompt the user to select more filters`,
+          security: [{ erpSecretKey: [] }],
+          parameters: [
+            {
+              name: 'appId',
+              in: 'query',
+              required: true,
+              schema: { type: 'string' },
+              description: 'ERP integration App ID',
+              example: 'UNIV_ERP_001',
+            },
+            {
+              name: 'attributeValueIds',
+              in: 'query',
+              required: false,
+              schema: { type: 'string' },
+              description: 'Comma-separated list of search attribute value IDs to filter by. Get available IDs from the search-attributes endpoint.',
+              example: '4,9',
+            },
+            {
+              name: 'q',
+              in: 'query',
+              required: false,
+              schema: { type: 'string' },
+              description: 'Text search query to match against resource title, author, or subject',
+              example: 'algorithms',
+            },
+          ],
+          responses: {
+            '200': {
+              description: 'Search results (may indicate limit exceeded)',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean', description: 'false if results exceed the maximum allowed limit' },
+                      message: { type: 'string', description: 'Present when success is false, asking user to refine search' },
+                      totalCount: { type: 'integer', description: 'Total number of matching digital resources' },
+                      maxAllowed: { type: 'integer', description: 'Current configured maximum results limit' },
+                      resources: {
+                        type: 'array',
+                        description: 'Empty array when success is false (limit exceeded)',
+                        items: {
+                          type: 'object',
+                          properties: {
+                            id: { type: 'integer', example: 39 },
+                            title: { type: 'string', example: 'Intro to Algorithms' },
+                            shortDescription: { type: 'string', nullable: true },
+                            resourceType: { type: 'string', example: 'PDF' },
+                            category: { type: 'string', example: 'TEXTBOOK' },
+                            author: { type: 'string', nullable: true },
+                            department: { type: 'string', nullable: true },
+                            subject: { type: 'string', nullable: true },
+                            language: { type: 'string', nullable: true },
+                            difficulty: { type: 'string', nullable: true, enum: ['BEGINNER', 'INTERMEDIATE', 'ADVANCED'] },
+                            fileUrl: { type: 'string', nullable: true },
+                            externalUrl: { type: 'string', nullable: true },
+                            thumbnailUrl: { type: 'string', nullable: true },
+                            allowDownload: { type: 'boolean' },
+                            allowPreview: { type: 'boolean' },
+                            publishDate: { type: 'string', format: 'date-time', nullable: true },
+                          },
+                        },
+                      },
+                    },
+                  },
+                  examples: {
+                    successfulSearch: {
+                      summary: 'Successful search (within limit)',
+                      value: {
+                        success: true,
+                        totalCount: 1,
+                        maxAllowed: 50,
+                        resources: [
+                          {
+                            id: 1,
+                            title: 'Intro to Algorithms',
+                            shortDescription: null,
+                            resourceType: 'PDF',
+                            category: 'TEXTBOOK',
+                            author: null,
+                            department: 'CS',
+                            subject: null,
+                            language: null,
+                            difficulty: null,
+                            fileUrl: '/uploads/digital-resources/sample.pdf',
+                            externalUrl: null,
+                            thumbnailUrl: null,
+                            allowDownload: true,
+                            allowPreview: true,
+                            publishDate: null,
+                          },
+                        ],
+                      },
+                    },
+                    limitExceeded: {
+                      summary: 'Too many results — refine search',
+                      value: {
+                        success: false,
+                        message: 'Your search returned 84 results which exceeds the maximum of 50. Please refine your search by selecting more specific filters.',
+                        totalCount: 84,
+                        maxAllowed: 50,
+                        resources: [],
                       },
                     },
                   },

@@ -4246,6 +4246,137 @@ export async function registerRoutes(
     }
   });
 
+  // ERP Digital Resources API: Get available search attributes for digital resources
+  app.get("/api/erp/digital-resources/search-attributes", async (req, res) => {
+    try {
+      const appId = req.query.appId as string;
+      const secretKey = req.headers['x-secret-key'] as string;
+
+      if (!appId) {
+        return res.status(400).json({ error: "Query parameter 'appId' is required" });
+      }
+      if (!secretKey) {
+        return res.status(401).json({ error: "X-Secret-Key header required" });
+      }
+
+      const integration = await storage.getErpIntegrationByAppId(appId);
+      if (!integration) {
+        return res.status(404).json({ error: "ERP integration not found" });
+      }
+
+      const { verifySecretKey } = await import('./sso');
+      if (!verifySecretKey(secretKey, integration.secretHash, integration.secretSalt)) {
+        return res.status(401).json({ error: "Invalid secret key" });
+      }
+
+      const types = await storage.getActiveSearchAttributeTypes();
+      const typesWithValues = await Promise.all(
+        types.map(async (type) => {
+          const values = await storage.getSearchAttributeValuesByType(type.id);
+          const activeValues = values.filter(v => v.isActive);
+          return {
+            id: type.id,
+            name: type.name,
+            description: type.description,
+            values: activeValues.map(v => ({
+              id: v.id,
+              value: v.value,
+            })),
+          };
+        })
+      );
+
+      res.json({
+        searchAttributes: typesWithValues,
+      });
+    } catch (error) {
+      console.error("ERP digital resources search attributes error:", error);
+      res.status(500).json({ error: "Failed to fetch search attributes" });
+    }
+  });
+
+  // ERP Digital Resources API: Search digital resources by attributes
+  app.get("/api/erp/digital-resources/search", async (req, res) => {
+    try {
+      const appId = req.query.appId as string;
+      const secretKey = req.headers['x-secret-key'] as string;
+
+      if (!appId) {
+        return res.status(400).json({ error: "Query parameter 'appId' is required" });
+      }
+      if (!secretKey) {
+        return res.status(401).json({ error: "X-Secret-Key header required" });
+      }
+
+      const integration = await storage.getErpIntegrationByAppId(appId);
+      if (!integration) {
+        return res.status(404).json({ error: "ERP integration not found" });
+      }
+
+      const { verifySecretKey } = await import('./sso');
+      if (!verifySecretKey(secretKey, integration.secretHash, integration.secretSalt)) {
+        return res.status(401).json({ error: "Invalid secret key" });
+      }
+
+      const attributeValueIds = req.query.attributeValueIds
+        ? String(req.query.attributeValueIds).split(',').map(Number).filter(n => !isNaN(n))
+        : [];
+      const searchQuery = req.query.q as string | undefined;
+
+      if (attributeValueIds.length === 0 && !searchQuery) {
+        return res.status(400).json({
+          error: "At least one search filter is required. Provide 'attributeValueIds' and/or 'q' (text search) query parameters.",
+        });
+      }
+
+      const limitConfig = await storage.getSystemConfig("erp_catalog_limit");
+      const maxResults = limitConfig ? parseInt(limitConfig.value, 10) : 50;
+
+      const result = await storage.searchDigitalResourcesByAttributes({
+        attributeValueIds,
+        searchQuery,
+        limit: maxResults,
+      });
+
+      if (result.limitExceeded) {
+        return res.status(200).json({
+          success: false,
+          message: `Your search returned ${result.totalCount} results which exceeds the maximum of ${maxResults}. Please refine your search by selecting more specific filters.`,
+          totalCount: result.totalCount,
+          maxAllowed: maxResults,
+          resources: [],
+        });
+      }
+
+      res.json({
+        success: true,
+        totalCount: result.totalCount,
+        maxAllowed: maxResults,
+        resources: result.resources.map(r => ({
+          id: r.id,
+          title: r.title,
+          shortDescription: r.shortDescription,
+          resourceType: r.resourceType,
+          category: r.category,
+          author: r.author,
+          department: r.department,
+          subject: r.subject,
+          language: r.language,
+          difficulty: r.difficulty,
+          fileUrl: r.fileUrl,
+          externalUrl: r.externalUrl,
+          thumbnailUrl: r.thumbnailUrl,
+          allowDownload: r.allowDownload,
+          allowPreview: r.allowPreview,
+          publishDate: r.publishDate,
+        })),
+      });
+    } catch (error) {
+      console.error("ERP digital resources search error:", error);
+      res.status(500).json({ error: "Failed to search digital resources" });
+    }
+  });
+
   app.get("/api/erp/transactions", async (req, res) => {
     try {
       const appId = req.query.appId as string;

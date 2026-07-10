@@ -398,6 +398,7 @@ export interface IStorage {
   deleteDigitalResource(id: number): Promise<boolean>;
   listDigitalResources(filters: DigitalResourceFilters): Promise<{ resources: DigitalResource[]; total: number }>;
   listVisibleDigitalResources(user: { id: number; role: string; department: string | null }, filters: DigitalResourceFilters): Promise<{ resources: DigitalResource[]; total: number }>;
+  searchDigitalResourcesByAttributes(options: { attributeValueIds: number[]; searchQuery?: string; limit: number }): Promise<{ resources: DigitalResource[]; totalCount: number; limitExceeded: boolean }>;
   incrementDigitalResourceDownloadCount(id: number): Promise<void>;
   incrementDigitalResourceViewCount(id: number): Promise<void>;
 
@@ -2169,6 +2170,64 @@ export class DBStorage implements IStorage {
       .limit(limit);
 
     return { books: results, totalCount, limitExceeded: false };
+  }
+
+  async searchDigitalResourcesByAttributes(options: {
+    attributeValueIds: number[];
+    searchQuery?: string;
+    limit: number;
+  }): Promise<{ resources: DigitalResource[]; totalCount: number; limitExceeded: boolean }> {
+    const { attributeValueIds, searchQuery, limit } = options;
+
+    let resourceIds: number[] | null = null;
+
+    if (attributeValueIds.length > 0) {
+      const attrResults = await db.selectDistinct({ digitalResourceId: digitalResourceSearchAttributes.digitalResourceId })
+        .from(digitalResourceSearchAttributes)
+        .where(inArray(digitalResourceSearchAttributes.attributeValueId, attributeValueIds));
+      resourceIds = attrResults.map(r => r.digitalResourceId);
+      if (resourceIds.length === 0) {
+        return { resources: [], totalCount: 0, limitExceeded: false };
+      }
+    }
+
+    const conditions: any[] = [
+      eq(digitalResources.status, 'PUBLISHED'),
+      eq(digitalResources.visibility, 'INSTITUTION'),
+      or(
+        sql`${digitalResources.publishDate} IS NULL`,
+        sql`${digitalResources.publishDate} <= now()`
+      ),
+    ];
+    if (resourceIds !== null) {
+      conditions.push(inArray(digitalResources.id, resourceIds));
+    }
+    if (searchQuery) {
+      const pattern = `%${searchQuery}%`;
+      conditions.push(or(
+        like(digitalResources.title, pattern),
+        like(digitalResources.author, pattern),
+        like(digitalResources.subject, pattern)
+      ));
+    }
+
+    const whereClause = and(...conditions);
+
+    const countResult = await db.select({ count: sql<number>`count(*)` })
+      .from(digitalResources)
+      .where(whereClause);
+    const totalCount = Number(countResult[0].count);
+
+    if (totalCount > limit) {
+      return { resources: [], totalCount, limitExceeded: true };
+    }
+
+    const results = await db.select().from(digitalResources)
+      .where(whereClause)
+      .orderBy(desc(digitalResources.createdAt))
+      .limit(limit);
+
+    return { resources: results, totalCount, limitExceeded: false };
   }
 
   // ===== Active Circulations =====

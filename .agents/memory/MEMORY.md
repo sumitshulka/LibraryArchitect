@@ -1,3 +1,4 @@
 - [Neon HTTP proxy quirks in this env](neon-http-proxy-quirks.md) — zero-row selects, null params on non-text columns, BOOL columns, and INSERT/UPDATE RETURNING all need workarounds in `server/db.ts`.
 - [Digital resources list API shape](digital-resources-api-shape.md) — GET /api/digital-resources returns {resources,total}, not a bare array; unwrap client-side.
 - [PDF preview blocked by Chrome in nested iframes](pdf-preview-nested-iframe.md) — embedding a PDF in an <iframe> fails when the app itself runs in a nested iframe (e.g. canvas/webview preview); use "open in new tab" instead.
+- [ERP digital-resources search API](erp-digital-resources-search-api.md) — the /api/digital-resources endpoint is session-only; external ERP search needs the separate /api/erp/digital-resources/* pair.
