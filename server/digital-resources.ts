@@ -82,6 +82,55 @@ function requireManageAccess(user: any): boolean {
 }
 
 export function registerDigitalResourceRoutes(app: Express) {
+  // Resource type settings (color coding + max size limits, admin configurable)
+  app.get("/api/resource-type-settings", async (req, res) => {
+    try {
+      const user = await getAuthedUser(req, res);
+      if (!user) return;
+      const settings = await storage.getAllResourceTypeSettings();
+      res.json(settings);
+    } catch (error) {
+      console.error("Error fetching resource type settings:", error);
+      res.status(500).json({ error: "Failed to fetch resource type settings" });
+    }
+  });
+
+  app.put("/api/resource-type-settings/:type", async (req, res) => {
+    try {
+      const user = await getAuthedUser(req, res);
+      if (!user) return;
+      if (user.role !== "ADMIN") {
+        return res.status(403).json({ error: "Only admins can configure resource type settings" });
+      }
+
+      const resourceType = req.params.type;
+      const schema = z.object({
+        color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Color must be a hex value like #3b82f6").optional(),
+        maxSizeMb: z.coerce.number().int().min(1).max(5000).optional(),
+        isActive: z.boolean().optional(),
+      });
+      const validated = schema.parse(req.body);
+
+      const setting = await storage.upsertResourceTypeSetting(resourceType, validated);
+
+      logAudit(req, {
+        category: "DIGITAL_RESOURCES",
+        action: "RESOURCE_TYPE_SETTING_UPDATED",
+        targetType: "resource_type_setting",
+        targetId: resourceType,
+        details: validated,
+      });
+
+      res.json(setting);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error updating resource type setting:", error);
+      res.status(500).json({ error: "Failed to update resource type setting" });
+    }
+  });
+
   // List / search digital resources (visibility-aware for non-staff)
   app.get("/api/digital-resources", async (req, res) => {
     try {
@@ -164,6 +213,14 @@ export function registerDigitalResourceRoutes(app: Express) {
 
       if (!validated.fileUrl && !validated.externalUrl) {
         return res.status(400).json({ error: "Either a file or an external URL is required" });
+      }
+
+      if (validated.fileSizeBytes) {
+        const typeSetting = await storage.getResourceTypeSetting(validated.resourceType);
+        const maxSizeMb = typeSetting?.maxSizeMb ?? 200;
+        if (validated.fileSizeBytes > maxSizeMb * 1024 * 1024) {
+          return res.status(400).json({ error: `File exceeds the ${maxSizeMb}MB size limit configured for ${validated.resourceType} resources` });
+        }
       }
 
       const resource = await storage.createDigitalResource(validated);

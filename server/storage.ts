@@ -62,8 +62,11 @@ import {
   type InsertDigitalResource,
   type DigitalResourceVersion,
   type InsertDigitalResourceVersion,
+  type ResourceTypeSetting,
+  type InsertResourceTypeSetting,
   digitalResources,
   digitalResourceVersions,
+  resourceTypeSettings,
   circulationPolicyVersions,
   type CirculationPolicyVersion,
   type InsertCirculationPolicyVersion,
@@ -195,6 +198,11 @@ export interface IStorage {
   createPaymentMethod(data: InsertPaymentMethod): Promise<PaymentMethod>;
   updatePaymentMethod(id: number, data: Partial<InsertPaymentMethod>): Promise<PaymentMethod | undefined>;
   deletePaymentMethod(id: number): Promise<boolean>;
+
+  // Resource Type Settings
+  getAllResourceTypeSettings(): Promise<ResourceTypeSetting[]>;
+  getResourceTypeSetting(resourceType: string): Promise<ResourceTypeSetting | undefined>;
+  upsertResourceTypeSetting(resourceType: string, data: Partial<InsertResourceTypeSetting>): Promise<ResourceTypeSetting>;
 
   // Fine Payments
   createFinePayment(data: InsertFinePayment): Promise<FinePayment>;
@@ -2145,6 +2153,29 @@ export class DBStorage implements IStorage {
   async deletePaymentMethod(id: number): Promise<boolean> {
     const result = await db.delete(paymentMethods).where(eq(paymentMethods.id, id)).returning();
     return result.length > 0;
+  }
+
+  // ===== Resource Type Settings =====
+  async getAllResourceTypeSettings(): Promise<ResourceTypeSetting[]> {
+    return await db.select().from(resourceTypeSettings).orderBy(asc(resourceTypeSettings.resourceType));
+  }
+  async getResourceTypeSetting(resourceType: string): Promise<ResourceTypeSetting | undefined> {
+    const [row] = await db.select().from(resourceTypeSettings).where(eq(resourceTypeSettings.resourceType, resourceType as any));
+    return row;
+  }
+  async upsertResourceTypeSetting(resourceType: string, data: Partial<InsertResourceTypeSetting>): Promise<ResourceTypeSetting> {
+    const existing = await this.getResourceTypeSetting(resourceType);
+    if (existing) {
+      const [row] = await db.update(resourceTypeSettings)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(resourceTypeSettings.resourceType, resourceType as any))
+        .returning();
+      return row;
+    }
+    const [row] = await db.insert(resourceTypeSettings)
+      .values({ resourceType: resourceType as any, ...data })
+      .returning();
+    return row;
   }
 
   // ===== Fine Payments =====

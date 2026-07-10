@@ -96,6 +96,24 @@ export async function bootstrapSystem(): Promise<void> {
     }
 
     await ensureInitialCirculationPolicyVersion();
+
+    const DEFAULT_TYPE_COLORS: Record<string, string> = {
+      PDF: "#ef4444", DOC: "#2563eb", DOCX: "#2563eb",
+      PPT: "#f97316", PPTX: "#f97316", XLS: "#16a34a", XLSX: "#16a34a",
+      ZIP: "#71717a", IMAGE: "#a855f7", VIDEO: "#dc2626",
+      AUDIO: "#0ea5e9", HTML: "#f59e0b", SCORM: "#8b5cf6",
+      EXTERNAL_URL: "#0891b2", YOUTUBE: "#dc2626",
+      GOOGLE_DRIVE: "#16a34a", ONEDRIVE: "#2563eb",
+    };
+    const existingTypeSettings = await storage.getAllResourceTypeSettings();
+    const existingTypes = new Set(existingTypeSettings.map(s => s.resourceType));
+    for (const [type, color] of Object.entries(DEFAULT_TYPE_COLORS)) {
+      if (!existingTypes.has(type as any)) {
+        await storage.upsertResourceTypeSetting(type, { color, maxSizeMb: 200, isActive: true });
+      }
+    }
+    log("Resource type settings initialized.");
+
     log("Bootstrap check completed.");
   } catch (error) {
     console.error(`Bootstrap error: ${error}`);

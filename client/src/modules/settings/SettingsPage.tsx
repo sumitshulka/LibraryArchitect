@@ -50,7 +50,7 @@ import {
   Users, Repeat, Layers, PieChart, Loader2
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { resourceTypesApi, categoriesApi, erpIntegrationsApi, configApi, paymentMethodsApi, type ErpIntegrationPublic, type ErpCredentials, type ErpPullEndpoint, type PaymentMethodApi } from "@/lib/api";
+import { resourceTypesApi, categoriesApi, erpIntegrationsApi, configApi, paymentMethodsApi, resourceTypeSettingsApi, type ErpIntegrationPublic, type ErpCredentials, type ErpPullEndpoint, type PaymentMethodApi, type ResourceTypeSettingApi } from "@/lib/api";
 import { toast } from "sonner";
 import type { ResourceType, Category, ErpWhitelist } from "@shared/schema";
 import { useLocation } from "wouter";
@@ -2811,6 +2811,114 @@ function EmailProviderSettings() {
   );
 }
 
+const DIGITAL_RESOURCE_TYPES = ["PDF", "DOC", "DOCX", "PPT", "PPTX", "XLS", "XLSX", "ZIP", "IMAGE", "VIDEO", "AUDIO", "HTML", "SCORM", "EXTERNAL_URL", "YOUTUBE", "GOOGLE_DRIVE", "ONEDRIVE"];
+
+function ResourceTypeSettings() {
+  const queryClient = useQueryClient();
+  const { data: settings = [], isLoading } = useQuery({
+    queryKey: ["resource-type-settings"],
+    queryFn: resourceTypeSettingsApi.getAll,
+  });
+
+  const [drafts, setDrafts] = useState<Record<string, { color: string; maxSizeMb: number }>>({});
+
+  const getSetting = (type: string): ResourceTypeSettingApi | undefined =>
+    settings.find(s => s.resourceType === type);
+
+  const getDraft = (type: string) => {
+    if (drafts[type]) return drafts[type];
+    const s = getSetting(type);
+    return { color: s?.color ?? "#3b82f6", maxSizeMb: s?.maxSizeMb ?? 200 };
+  };
+
+  const updateMut = useMutation({
+    mutationFn: ({ type, data }: { type: string; data: { color?: string; maxSizeMb?: number } }) =>
+      resourceTypeSettingsApi.update(type, data),
+    onSuccess: (_res, vars) => {
+      toast.success(`${vars.type} settings saved`);
+      queryClient.invalidateQueries({ queryKey: ["resource-type-settings"] });
+      setDrafts(prev => { const next = { ...prev }; delete next[vars.type]; return next; });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const toggleMut = useMutation({
+    mutationFn: ({ type, isActive }: { type: string; isActive: boolean }) =>
+      resourceTypeSettingsApi.update(type, { isActive }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["resource-type-settings"] }),
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><Layers className="h-5 w-5" />Digital Resource Types</CardTitle>
+        <CardDescription>Configure the color badge and maximum upload size for each digital resource type.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+        ) : (
+          <div className="rounded-md border divide-y">
+            {DIGITAL_RESOURCE_TYPES.map((type) => {
+              const setting = getSetting(type);
+              const draft = getDraft(type);
+              const dirty = drafts[type] !== undefined && (drafts[type].color !== (setting?.color ?? "#3b82f6") || drafts[type].maxSizeMb !== (setting?.maxSizeMb ?? 200));
+              return (
+                <div key={type} className="flex items-center justify-between gap-4 p-3 flex-wrap" data-testid={`row-resource-type-${type}`}>
+                  <div className="flex items-center gap-3 min-w-[140px]">
+                    <span className="h-4 w-4 rounded-full border shrink-0" style={{ backgroundColor: draft.color }} />
+                    <span className="font-medium text-sm">{type.replace(/_/g, " ")}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Label className="text-xs text-muted-foreground">Color</Label>
+                    <input
+                      type="color"
+                      value={draft.color}
+                      onChange={(e) => setDrafts(prev => ({ ...prev, [type]: { ...draft, color: e.target.value } }))}
+                      className="h-8 w-10 rounded border cursor-pointer"
+                      data-testid={`input-color-${type}`}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Label className="text-xs text-muted-foreground">Max size (MB)</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={5000}
+                      value={draft.maxSizeMb}
+                      onChange={(e) => setDrafts(prev => ({ ...prev, [type]: { ...draft, maxSizeMb: Number(e.target.value) || 1 } }))}
+                      className="w-24 h-8"
+                      data-testid={`input-max-size-${type}`}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={setting?.isActive ?? true}
+                      onCheckedChange={(v) => toggleMut.mutate({ type, isActive: v })}
+                      data-testid={`switch-active-${type}`}
+                    />
+                    <span className="text-xs text-muted-foreground w-14">{(setting?.isActive ?? true) ? "Active" : "Inactive"}</span>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!dirty || updateMut.isPending}
+                    onClick={() => updateMut.mutate({ type, data: { color: draft.color, maxSizeMb: draft.maxSizeMb } })}
+                    data-testid={`button-save-type-${type}`}
+                  >
+                    Save
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function PaymentMethodsSettings() {
   const queryClient = useQueryClient();
   const { data: methods = [], isLoading } = useQuery({
@@ -3160,6 +3268,14 @@ export default function SettingsPage() {
               >
                 <Coins className="h-4 w-4 mr-2" />
                 Payment Methods
+              </TabsTrigger>
+              <TabsTrigger
+                value="digital-resources"
+                className="justify-start px-3 py-2 h-10 data-[state=active]:bg-muted data-[state=active]:text-foreground hover:bg-muted/50 transition-colors"
+                data-testid="tab-digital-resources"
+              >
+                <Layers className="h-4 w-4 mr-2" />
+                Digital Resources
               </TabsTrigger>
               <TabsTrigger 
                 value="audit" 
@@ -3521,6 +3637,10 @@ export default function SettingsPage() {
                   </div>
                 </CardContent>
               </Card>
+            </TabsContent>
+
+            <TabsContent value="digital-resources" className="mt-0 space-y-6">
+              <ResourceTypeSettings />
             </TabsContent>
 
             <TabsContent value="payment-methods" className="mt-0 space-y-6">

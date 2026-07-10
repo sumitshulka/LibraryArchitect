@@ -1948,6 +1948,34 @@ export const digitalResourcesApi = {
   },
 };
 
+export interface ResourceTypeSettingApi {
+  id: number;
+  resourceType: string;
+  color: string;
+  maxSizeMb: number;
+  isActive: boolean;
+}
+
+export const resourceTypeSettingsApi = {
+  getAll: async (): Promise<ResourceTypeSettingApi[]> => {
+    const res = await fetch(`${API_BASE}/resource-type-settings`);
+    if (!res.ok) throw new Error("Failed to fetch resource type settings");
+    return res.json();
+  },
+  update: async (resourceType: string, data: { color?: string; maxSizeMb?: number; isActive?: boolean }): Promise<ResourceTypeSettingApi> => {
+    const res = await fetch(`${API_BASE}/resource-type-settings/${resourceType}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || "Failed to update resource type setting");
+    }
+    return res.json();
+  },
+};
+
 export const auditLogsApi = {
   query: async (filters: {
     category?: string;

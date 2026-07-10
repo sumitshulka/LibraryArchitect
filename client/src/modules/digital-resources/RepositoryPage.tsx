@@ -14,7 +14,7 @@ import {
   FileArchive, Link as LinkIcon, Eye, Download, Calendar, X, User as UserIcon,
   Building2, GraduationCap, Tag as TagIcon, HardDrive,
 } from "lucide-react";
-import { digitalResourcesApi } from "@/lib/api";
+import { digitalResourcesApi, resourceTypeSettingsApi } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { DigitalResource } from "@shared/schema";
 import { format as fmtDate } from "date-fns";
@@ -68,6 +68,14 @@ export default function RepositoryPage() {
         limit: 200,
       }),
   });
+
+  const { data: typeSettings = [] } = useQuery({
+    queryKey: ["resource-type-settings"],
+    queryFn: resourceTypeSettingsApi.getAll,
+  });
+
+  const typeColor = (resourceType: string) =>
+    typeSettings.find(s => s.resourceType === resourceType)?.color || "#3b82f6";
 
   const filtered = useMemo(() => {
     if (!tagFilter) return resources;
@@ -176,13 +184,20 @@ export default function RepositoryPage() {
           {filtered.map((r) => {
             const Icon = typeIcon(r.resourceType);
             const academicBits = [r.department, r.course, r.semester, r.batch].filter(Boolean);
+            const color = typeColor(r.resourceType);
             return (
               <Link key={r.id} href={`/digital-resources/${r.id}`} data-testid={`card-resource-${r.id}`}>
-                <Card className="hover:shadow-md hover:border-primary/30 transition-shadow cursor-pointer">
+                <Card
+                  className="hover:shadow-md transition-shadow cursor-pointer border-l-4"
+                  style={{ borderLeftColor: color }}
+                >
                   <CardContent className="p-4 sm:p-5">
                     <div className="flex flex-col sm:flex-row gap-4">
-                      <div className="h-14 w-14 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center shrink-0">
-                        <Icon className="h-7 w-7 text-blue-600" />
+                      <div
+                        className="h-14 w-14 rounded-xl border flex items-center justify-center shrink-0"
+                        style={{ backgroundColor: `${color}1a`, borderColor: `${color}40` }}
+                      >
+                        <Icon className="h-7 w-7" style={{ color }} />
                       </div>
 
                       <div className="flex-1 min-w-0">

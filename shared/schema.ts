@@ -551,6 +551,16 @@ export const digitalResources = pgTable("digital_resources", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+export const resourceTypeSettings = pgTable("resource_type_settings", {
+  id: serial("id").primaryKey(),
+  resourceType: digitalResourceTypeEnum("resource_type").notNull().unique(),
+  color: text("color").notNull().default('#3b82f6'),
+  maxSizeMb: integer("max_size_mb").notNull().default(200),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
 export const digitalResourceVersions = pgTable("digital_resource_versions", {
   id: serial("id").primaryKey(),
   resourceId: integer("resource_id").notNull().references(() => digitalResources.id, { onDelete: 'cascade' }),
@@ -888,3 +898,11 @@ export const insertDigitalResourceVersionSchema = createInsertSchema(digitalReso
 });
 export type InsertDigitalResourceVersion = z.infer<typeof insertDigitalResourceVersionSchema>;
 export type DigitalResourceVersion = typeof digitalResourceVersions.$inferSelect;
+
+export const insertResourceTypeSettingSchema = createInsertSchema(resourceTypeSettings).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertResourceTypeSetting = z.infer<typeof insertResourceTypeSettingSchema>;
+export type ResourceTypeSetting = typeof resourceTypeSettings.$inferSelect;
