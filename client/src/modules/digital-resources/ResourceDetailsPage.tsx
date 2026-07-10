@@ -10,6 +10,10 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -17,7 +21,7 @@ import {
   ArrowLeft, Download, Eye, FileText, Video, Music, Image as ImageIcon,
   FileArchive, Link as LinkIcon, Calendar, User as UserIcon, Building2,
   Tag as TagIcon, History, Upload, Trash2, CheckCircle2, XCircle, Loader2, ExternalLink,
-  Globe2, BookOpen, BarChart3, Clock,
+  Globe2, BookOpen, BarChart3, Clock, Archive, ArchiveRestore,
 } from "lucide-react";
 import { toast } from "sonner";
 import { digitalResourcesApi, resourceTypeSettingsApi } from "@/lib/api";
@@ -55,6 +59,8 @@ export default function ResourceDetailsPage() {
   const [versionFile, setVersionFile] = useState<File | null>(null);
   const [versionNotes, setVersionNotes] = useState("");
   const [versionNumber, setVersionNumber] = useState("");
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
 
   const { data: resource, isLoading, error } = useQuery({
     queryKey: ["digital-resources", id],
@@ -95,6 +101,19 @@ export default function ResourceDetailsPage() {
       setLocation("/digital-resources/repository");
     },
     onError: (e: Error) => toast.error(e.message),
+    onSettled: () => setDeleteDialogOpen(false),
+  });
+
+  const archiveMutation = useMutation({
+    mutationFn: (archive: boolean) =>
+      digitalResourcesApi.update(id, { status: archive ? "ARCHIVED" : "DRAFT" }),
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ["digital-resources"] });
+      queryClient.invalidateQueries({ queryKey: ["digital-resources", id] });
+      toast.success(updated.status === "ARCHIVED" ? "Resource archived" : "Resource unarchived");
+    },
+    onError: (e: Error) => toast.error(e.message),
+    onSettled: () => setArchiveDialogOpen(false),
   });
 
   const addVersionMutation = useMutation({
@@ -210,37 +229,99 @@ export default function ResourceDetailsPage() {
             )}
             {canManage && (
               <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-2 bg-background/80"
-                  onClick={() => publishMutation.mutate(resource.status !== "PUBLISHED")}
-                  disabled={publishMutation.isPending}
-                  data-testid="button-toggle-publish"
-                >
-                  {resource.status === "PUBLISHED" ? <XCircle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
-                  {resource.status === "PUBLISHED" ? "Unpublish" : "Publish"}
-                </Button>
+                {resource.status !== "ARCHIVED" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2 bg-background/80"
+                    onClick={() => publishMutation.mutate(resource.status !== "PUBLISHED")}
+                    disabled={publishMutation.isPending}
+                    data-testid="button-toggle-publish"
+                  >
+                    {resource.status === "PUBLISHED" ? <XCircle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
+                    {resource.status === "PUBLISHED" ? "Unpublish" : "Publish"}
+                  </Button>
+                )}
                 <Button variant="outline" size="sm" className="gap-2 bg-background/80" onClick={() => setVersionDialogOpen(true)} data-testid="button-add-version">
                   <Upload className="h-4 w-4" /> New Version
                 </Button>
                 <Button
                   variant="outline"
                   size="sm"
+                  className="gap-2 bg-background/80"
+                  onClick={() => setArchiveDialogOpen(true)}
+                  disabled={archiveMutation.isPending}
+                  data-testid="button-toggle-archive"
+                >
+                  {resource.status === "ARCHIVED" ? <ArchiveRestore className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
+                  {resource.status === "ARCHIVED" ? "Unarchive" : "Archive"}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
                   className="gap-2 text-destructive hover:text-destructive bg-background/80"
-                  onClick={() => {
-                    if (confirm("Delete this resource? This cannot be undone.")) deleteMutation.mutate();
-                  }}
+                  onClick={() => setDeleteDialogOpen(true)}
                   disabled={deleteMutation.isPending}
                   data-testid="button-delete"
                 >
-                <Trash2 className="h-4 w-4" /> Delete
-              </Button>
-            </>
-          )}
+                  <Trash2 className="h-4 w-4" /> Delete
+                </Button>
+              </>
+            )}
         </div>
         </div>
       </div>
+
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent data-testid="dialog-confirm-delete">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this resource?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete "{resource.title}" and all of its versions and download/view history.
+              This action cannot be undone. Consider archiving instead if you want to keep the record but hide it
+              from the repository.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => deleteMutation.mutate()}
+              disabled={deleteMutation.isPending}
+              data-testid="button-confirm-delete"
+            >
+              {deleteMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Delete Resource
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={archiveDialogOpen} onOpenChange={setArchiveDialogOpen}>
+        <AlertDialogContent data-testid="dialog-confirm-archive">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {resource.status === "ARCHIVED" ? "Unarchive this resource?" : "Archive this resource?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {resource.status === "ARCHIVED"
+                ? `"${resource.title}" will be restored as a draft, unpublished from the repository. You can publish it again afterward.`
+                : `"${resource.title}" will be hidden from the repository and marked as archived. It will no longer be visible to students or faculty, but its file, versions, and history are kept and it can be unarchived later.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-archive">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => archiveMutation.mutate(resource.status !== "ARCHIVED")}
+              disabled={archiveMutation.isPending}
+              data-testid="button-confirm-archive"
+            >
+              {archiveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              {resource.status === "ARCHIVED" ? "Unarchive" : "Archive"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-4">
