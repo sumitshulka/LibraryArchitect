@@ -236,25 +236,28 @@ export default function RepositoryPage() {
         </div>
       </div>
 
-      <Card className="mb-4 border-border/80 shadow-sm">
+      <Card className="mb-4 border-indigo-100 dark:border-indigo-900/40 shadow-sm bg-gradient-to-br from-indigo-50/70 via-slate-50/60 to-violet-50/50 dark:from-indigo-950/20 dark:via-slate-900/30 dark:to-violet-950/20">
         <CardContent className="p-4 space-y-3">
-          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
-            <SlidersHorizontal className="h-3.5 w-3.5" /> Filters
+          <div className="flex items-center gap-2 text-xs font-semibold text-indigo-700/80 dark:text-indigo-300/80 uppercase tracking-wide">
+            <span className="flex items-center justify-center h-5 w-5 rounded-md bg-indigo-100 dark:bg-indigo-900/40">
+              <SlidersHorizontal className="h-3 w-3 text-indigo-600 dark:text-indigo-300" />
+            </span>
+            Filters
           </div>
           <div className="flex flex-col md:flex-row gap-3">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-indigo-400" />
               <Input
                 placeholder="Search by title, description, keywords..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="pl-9"
+                className="pl-9 bg-white/70 dark:bg-slate-900/40 border-indigo-100 dark:border-indigo-900/40 focus-visible:ring-indigo-300"
                 data-testid="input-search"
               />
             </div>
             <div className="flex gap-2 flex-wrap">
               <Select value={resourceType} onValueChange={setResourceType}>
-                <SelectTrigger className="w-[150px]" data-testid="select-resource-type">
+                <SelectTrigger className="w-[150px] bg-white/70 dark:bg-slate-900/40 border-indigo-100 dark:border-indigo-900/40" data-testid="select-resource-type">
                   <SelectValue placeholder="Type" />
                 </SelectTrigger>
                 <SelectContent>
@@ -263,7 +266,7 @@ export default function RepositoryPage() {
                 </SelectContent>
               </Select>
               <Select value={category} onValueChange={setCategory}>
-                <SelectTrigger className="w-[170px]" data-testid="select-category">
+                <SelectTrigger className="w-[170px] bg-white/70 dark:bg-slate-900/40 border-indigo-100 dark:border-indigo-900/40" data-testid="select-category">
                   <SelectValue placeholder="Category" />
                 </SelectTrigger>
                 <SelectContent>
@@ -273,7 +276,7 @@ export default function RepositoryPage() {
               </Select>
               {isStaff && (
                 <Select value={status} onValueChange={setStatus}>
-                  <SelectTrigger className="w-[150px]" data-testid="select-status">
+                  <SelectTrigger className="w-[150px] bg-white/70 dark:bg-slate-900/40 border-indigo-100 dark:border-indigo-900/40" data-testid="select-status">
                     <SelectValue placeholder="Status" />
                   </SelectTrigger>
                   <SelectContent>
@@ -287,7 +290,7 @@ export default function RepositoryPage() {
                 onChange={setAttributeValueIds}
               />
               {hasActiveFilters && (
-                <Button variant="ghost" size="sm" onClick={clearFilters} className="gap-1" data-testid="button-clear-filters">
+                <Button variant="ghost" size="sm" onClick={clearFilters} className="gap-1 text-indigo-700 hover:text-indigo-800 hover:bg-indigo-100/60 dark:text-indigo-300" data-testid="button-clear-filters">
                   <X className="h-3.5 w-3.5" /> Clear
                 </Button>
               )}
@@ -296,7 +299,7 @@ export default function RepositoryPage() {
           {tagFilter && (
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground">Filtering by tag:</span>
-              <Badge variant="secondary" className="gap-1">
+              <Badge variant="secondary" className="gap-1 bg-indigo-100 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-900/40 dark:text-indigo-300">
                 {tagFilter}
                 <button onClick={() => setTagFilter(null)} aria-label="Remove tag filter">
                   <X className="h-3 w-3" />
