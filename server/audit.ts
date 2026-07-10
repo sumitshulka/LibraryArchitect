@@ -5,7 +5,7 @@ import type { InsertAuditLog } from "@shared/schema";
 const AUDIT_CATEGORIES = [
   'AUTHENTICATION', 'USER_MANAGEMENT', 'CATALOG', 'CIRCULATION',
   'FINES', 'INVENTORY', 'REPORTS', 'ERP_INTEGRATION',
-  'SYSTEM_CONFIG', 'STAFF_ALLOCATION', 'API_ACCESS'
+  'SYSTEM_CONFIG', 'STAFF_ALLOCATION', 'API_ACCESS', 'DIGITAL_RESOURCES'
 ] as const;
 
 export type AuditCategory = typeof AUDIT_CATEGORIES[number];

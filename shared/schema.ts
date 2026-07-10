@@ -22,6 +22,23 @@ export const waiverRequestStatusEnum = pgEnum('waiver_request_status', ['PENDING
 export const reservationStatusEnum = pgEnum('reservation_status', ['ACTIVE', 'FULFILLED', 'CANCELLED', 'EXPIRED']);
 export const reservationPickupStatusEnum = pgEnum('reservation_pickup_status', ['PENDING', 'CONFIRMED', 'EXPIRED', 'CANCELLED']);
 
+export const digitalResourceTypeEnum = pgEnum('digital_resource_type', [
+  'PDF', 'DOC', 'DOCX', 'PPT', 'PPTX', 'XLS', 'XLSX', 'ZIP',
+  'IMAGE', 'VIDEO', 'AUDIO', 'HTML', 'SCORM',
+  'EXTERNAL_URL', 'YOUTUBE', 'GOOGLE_DRIVE', 'ONEDRIVE'
+]);
+export const digitalResourceCategoryEnum = pgEnum('digital_resource_category', [
+  'TEXTBOOK', 'LECTURE_NOTES', 'LAB_MANUAL', 'QUESTION_BANK', 'PRESENTATION',
+  'RESEARCH_PAPER', 'ASSIGNMENT', 'CASE_STUDY', 'REFERENCE_MATERIAL',
+  'TUTORIAL', 'VIDEO_LECTURE', 'POLICY_DOCUMENT', 'OTHER'
+]);
+export const digitalResourceStatusEnum = pgEnum('digital_resource_status', ['DRAFT', 'PENDING_APPROVAL', 'PUBLISHED', 'ARCHIVED']);
+export const digitalResourceVisibilityEnum = pgEnum('digital_resource_visibility', [
+  'INSTITUTION', 'LIBRARY', 'DEPARTMENT', 'COURSE', 'BATCH',
+  'FACULTY_ONLY', 'STUDENTS_ONLY', 'SELECTED_USERS', 'ROLE_BASED'
+]);
+export const digitalResourceDifficultyEnum = pgEnum('digital_resource_difficulty', ['BEGINNER', 'INTERMEDIATE', 'ADVANCED']);
+
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   username: text("username").notNull().unique(),
@@ -400,7 +417,7 @@ export const libraryMemberships = pgTable("library_memberships", {
 export const auditLogCategoryEnum = pgEnum('audit_log_category', [
   'AUTHENTICATION', 'USER_MANAGEMENT', 'CATALOG', 'CIRCULATION', 
   'FINES', 'INVENTORY', 'REPORTS', 'ERP_INTEGRATION', 
-  'SYSTEM_CONFIG', 'STAFF_ALLOCATION', 'API_ACCESS'
+  'SYSTEM_CONFIG', 'STAFF_ALLOCATION', 'API_ACCESS', 'DIGITAL_RESOURCES'
 ]);
 
 export const auditLogStatusEnum = pgEnum('audit_log_status', ['SUCCESS', 'FAILURE']);
@@ -474,6 +491,79 @@ export const reservationPickups = pgTable("reservation_pickups", {
   reservationIds: jsonb("reservation_ids").$type<number[]>().notNull(),
   createdBy: integer("created_by").notNull().references(() => users.id),
   confirmedAt: timestamp("confirmed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// ===== Digital Resources =====
+
+export const digitalResources = pgTable("digital_resources", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  shortDescription: text("short_description"),
+  description: text("description"),
+  keywords: text("keywords").array(),
+  tags: text("tags").array(),
+  resourceType: digitalResourceTypeEnum("resource_type").notNull(),
+  language: text("language"),
+  versionNumber: text("version_number").notNull().default('1.0'),
+  isbn: text("isbn"),
+  doi: text("doi"),
+  author: text("author"),
+  faculty: text("faculty"),
+
+  libraryId: integer("library_id").references(() => libraries.id),
+  department: text("department"),
+  program: text("program"),
+  course: text("course"),
+  subject: text("subject"),
+  semester: text("semester"),
+  academicYear: text("academic_year"),
+  section: text("section"),
+  batch: text("batch"),
+
+  fileUrl: text("file_url"),
+  fileName: text("file_name"),
+  fileSizeBytes: integer("file_size_bytes"),
+  externalUrl: text("external_url"),
+  thumbnailUrl: text("thumbnail_url"),
+
+  visibility: digitalResourceVisibilityEnum("visibility").notNull().default('INSTITUTION'),
+  visibleToRoles: text("visible_to_roles").array(),
+  visibleToUserIds: integer("visible_to_user_ids").array(),
+  allowDownload: boolean("allow_download").notNull().default(true),
+  allowPreview: boolean("allow_preview").notNull().default(true),
+  publishDate: timestamp("publish_date"),
+
+  status: digitalResourceStatusEnum("status").notNull().default('DRAFT'),
+
+  category: digitalResourceCategoryEnum("category"),
+  topics: text("topics"),
+  learningOutcomes: text("learning_outcomes"),
+  credits: integer("credits"),
+  estimatedReadingTimeMinutes: integer("estimated_reading_time_minutes"),
+  difficulty: digitalResourceDifficultyEnum("difficulty"),
+
+  downloadCount: integer("download_count").notNull().default(0),
+  viewCount: integer("view_count").notNull().default(0),
+
+  uploadedBy: integer("uploaded_by").references(() => users.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const digitalResourceVersions = pgTable("digital_resource_versions", {
+  id: serial("id").primaryKey(),
+  resourceId: integer("resource_id").notNull().references(() => digitalResources.id, { onDelete: 'cascade' }),
+  versionNumber: text("version_number").notNull(),
+  fileUrl: text("file_url"),
+  fileName: text("file_name"),
+  fileSizeBytes: integer("file_size_bytes"),
+  externalUrl: text("external_url"),
+  releaseNotes: text("release_notes"),
+  reasonForUpdate: text("reason_for_update"),
+  changeSummary: text("change_summary"),
+  isCurrent: boolean("is_current").notNull().default(true),
+  uploadedBy: integer("uploaded_by").references(() => users.id),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -781,3 +871,20 @@ export const insertReservationPickupSchema = createInsertSchema(reservationPicku
 });
 export type InsertReservationPickup = z.infer<typeof insertReservationPickupSchema>;
 export type ReservationPickup = typeof reservationPickups.$inferSelect;
+
+export const insertDigitalResourceSchema = createInsertSchema(digitalResources).omit({
+  id: true,
+  downloadCount: true,
+  viewCount: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertDigitalResource = z.infer<typeof insertDigitalResourceSchema>;
+export type DigitalResource = typeof digitalResources.$inferSelect;
+
+export const insertDigitalResourceVersionSchema = createInsertSchema(digitalResourceVersions).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertDigitalResourceVersion = z.infer<typeof insertDigitalResourceVersionSchema>;
+export type DigitalResourceVersion = typeof digitalResourceVersions.$inferSelect;

@@ -1,1 +1,1 @@
-- [Neon HTTP timestamp parser ordering](neon-http-timestamp-parsing.md) — drizzle() re-registers type parsers on construction; register custom ones after, not before.
+- [Neon HTTP proxy quirks in this env](neon-http-proxy-quirks.md) — zero-row selects, null params on non-text columns, BOOL columns, and INSERT/UPDATE RETURNING all need workarounds in `server/db.ts`.

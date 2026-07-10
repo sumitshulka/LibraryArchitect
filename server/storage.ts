@@ -58,6 +58,12 @@ import {
   type InsertReservation,
   type ReservationPickup,
   type InsertReservationPickup,
+  type DigitalResource,
+  type InsertDigitalResource,
+  type DigitalResourceVersion,
+  type InsertDigitalResourceVersion,
+  digitalResources,
+  digitalResourceVersions,
   circulationPolicyVersions,
   type CirculationPolicyVersion,
   type InsertCirculationPolicyVersion,
@@ -121,7 +127,7 @@ export interface LibraryStaffMember {
   role: string;
   allocatedAt: Date;
 }
-import { db } from "./db";
+import { db, nullifyForInsert, returningViaCte } from "./db";
 import { eq, and, or, like, desc, asc, sql, isNull, inArray } from "drizzle-orm";
 
 export interface IStorage {
@@ -368,6 +374,39 @@ export interface IStorage {
   removeSearchAttribute(bookId: number, attributeValueId: number): Promise<boolean>;
   setResourceSearchAttributes(bookId: number, attributeValueIds: number[]): Promise<void>;
   searchBooksByAttributes(attributeValueIds: number[]): Promise<number[]>;
+
+  // Digital Resources
+  getDigitalResource(id: number): Promise<DigitalResource | undefined>;
+  createDigitalResource(data: InsertDigitalResource): Promise<DigitalResource>;
+  updateDigitalResource(id: number, data: Partial<InsertDigitalResource>): Promise<DigitalResource | undefined>;
+  deleteDigitalResource(id: number): Promise<boolean>;
+  listDigitalResources(filters: DigitalResourceFilters): Promise<{ resources: DigitalResource[]; total: number }>;
+  listVisibleDigitalResources(user: { id: number; role: string; department: string | null }, filters: DigitalResourceFilters): Promise<{ resources: DigitalResource[]; total: number }>;
+  incrementDigitalResourceDownloadCount(id: number): Promise<void>;
+  incrementDigitalResourceViewCount(id: number): Promise<void>;
+
+  // Digital Resource Versions
+  createDigitalResourceVersion(data: InsertDigitalResourceVersion): Promise<DigitalResourceVersion>;
+  getDigitalResourceVersions(resourceId: number): Promise<DigitalResourceVersion[]>;
+  getDigitalResourceVersion(id: number): Promise<DigitalResourceVersion | undefined>;
+}
+
+export interface DigitalResourceFilters {
+  search?: string;
+  department?: string;
+  course?: string;
+  semester?: string;
+  resourceType?: string;
+  category?: string;
+  faculty?: string;
+  uploadedBy?: number;
+  status?: string;
+  libraryId?: number;
+  tags?: string[];
+  fromDate?: Date;
+  toDate?: Date;
+  limit?: number;
+  offset?: number;
 }
 
 export interface LibraryDashboardStats {
@@ -2213,6 +2252,166 @@ export class DBStorage implements IStorage {
   async updateReservationPickup(id: number, data: Partial<ReservationPickup>): Promise<ReservationPickup | undefined> {
     const [p] = await db.update(reservationPickups).set(data as any).where(eq(reservationPickups.id, id)).returning();
     return p;
+  }
+
+  // ===== Digital Resources =====
+  async getDigitalResource(id: number): Promise<DigitalResource | undefined> {
+    const [r] = await db.select().from(digitalResources).where(eq(digitalResources.id, id));
+    return r;
+  }
+
+  async createDigitalResource(data: InsertDigitalResource): Promise<DigitalResource> {
+    const [r] = await returningViaCte<DigitalResource>(
+      db.insert(digitalResources).values(nullifyForInsert(data as any)).returning()
+    );
+    return r;
+  }
+
+  async updateDigitalResource(id: number, data: Partial<InsertDigitalResource>): Promise<DigitalResource | undefined> {
+    const [r] = await returningViaCte<DigitalResource>(
+      db.update(digitalResources)
+        .set(nullifyForInsert({ ...data, updatedAt: new Date() } as any))
+        .where(eq(digitalResources.id, id))
+        .returning()
+    );
+    return r;
+  }
+
+  async deleteDigitalResource(id: number): Promise<boolean> {
+    const result = await db.delete(digitalResources).where(eq(digitalResources.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  private buildDigitalResourceConditions(filters: DigitalResourceFilters): any[] {
+    const conditions: any[] = [];
+    if (filters.search) {
+      const pattern = `%${filters.search}%`;
+      conditions.push(or(
+        like(digitalResources.title, pattern),
+        like(digitalResources.description, pattern),
+        like(digitalResources.shortDescription, pattern),
+        sql`${digitalResources.keywords}::text ILIKE ${pattern}`,
+        sql`${digitalResources.tags}::text ILIKE ${pattern}`,
+      ));
+    }
+    if (filters.department) conditions.push(eq(digitalResources.department, filters.department));
+    if (filters.course) conditions.push(eq(digitalResources.course, filters.course));
+    if (filters.semester) conditions.push(eq(digitalResources.semester, filters.semester));
+    if (filters.resourceType) conditions.push(eq(digitalResources.resourceType, filters.resourceType as any));
+    if (filters.category) conditions.push(eq(digitalResources.category, filters.category as any));
+    if (filters.faculty) conditions.push(eq(digitalResources.faculty, filters.faculty));
+    if (filters.uploadedBy) conditions.push(eq(digitalResources.uploadedBy, filters.uploadedBy));
+    if (filters.status) conditions.push(eq(digitalResources.status, filters.status as any));
+    if (filters.libraryId) conditions.push(eq(digitalResources.libraryId, filters.libraryId));
+    if (filters.tags && filters.tags.length > 0) {
+      conditions.push(sql`${digitalResources.tags} && ${filters.tags}`);
+    }
+    if (filters.fromDate) conditions.push(sql`${digitalResources.createdAt} >= ${filters.fromDate}`);
+    if (filters.toDate) conditions.push(sql`${digitalResources.createdAt} <= ${filters.toDate}`);
+    return conditions;
+  }
+
+  async listDigitalResources(filters: DigitalResourceFilters): Promise<{ resources: DigitalResource[]; total: number }> {
+    const conditions = this.buildDigitalResourceConditions(filters);
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const countResult = await db.select({ count: sql<number>`count(*)` }).from(digitalResources).where(whereClause);
+    const total = Number(countResult[0].count);
+
+    let query = db.select().from(digitalResources).where(whereClause).orderBy(desc(digitalResources.createdAt)) as any;
+    if (filters.limit) query = query.limit(filters.limit);
+    if (filters.offset) query = query.offset(filters.offset);
+
+    const resources = await query;
+    return { resources, total };
+  }
+
+  async listVisibleDigitalResources(user: { id: number; role: string; department: string | null }, filters: DigitalResourceFilters): Promise<{ resources: DigitalResource[]; total: number }> {
+    const isStaff = user.role === 'ADMIN' || user.role === 'LIBRARIAN';
+    const conditions = this.buildDigitalResourceConditions(filters);
+
+    if (!isStaff) {
+      // Non-staff only see PUBLISHED resources they are allowed to see
+      conditions.push(eq(digitalResources.status, 'PUBLISHED'));
+      conditions.push(or(
+        sql`${digitalResources.publishDate} IS NULL`,
+        sql`${digitalResources.publishDate} <= now()`
+      ));
+
+      const visibilityConditions: any[] = [
+        eq(digitalResources.visibility, 'INSTITUTION'),
+      ];
+      if (user.role === 'FACULTY') {
+        visibilityConditions.push(eq(digitalResources.visibility, 'FACULTY_ONLY'));
+      }
+      if (user.role === 'STUDENT') {
+        visibilityConditions.push(eq(digitalResources.visibility, 'STUDENTS_ONLY'));
+      }
+      if (user.department) {
+        visibilityConditions.push(and(
+          eq(digitalResources.visibility, 'DEPARTMENT'),
+          eq(digitalResources.department, user.department)
+        ));
+      }
+      visibilityConditions.push(and(
+        eq(digitalResources.visibility, 'ROLE_BASED'),
+        sql`${digitalResources.visibleToRoles} && ${[user.role]}`
+      ));
+      visibilityConditions.push(and(
+        eq(digitalResources.visibility, 'SELECTED_USERS'),
+        sql`${digitalResources.visibleToUserIds} && ${[user.id]}`
+      ));
+
+      conditions.push(or(...visibilityConditions));
+    }
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const countResult = await db.select({ count: sql<number>`count(*)` }).from(digitalResources).where(whereClause);
+    const total = Number(countResult[0].count);
+
+    let query = db.select().from(digitalResources).where(whereClause).orderBy(desc(digitalResources.createdAt)) as any;
+    if (filters.limit) query = query.limit(filters.limit);
+    if (filters.offset) query = query.offset(filters.offset);
+
+    const resources = await query;
+    return { resources, total };
+  }
+
+  async incrementDigitalResourceDownloadCount(id: number): Promise<void> {
+    await db.update(digitalResources)
+      .set({ downloadCount: sql`${digitalResources.downloadCount} + 1` })
+      .where(eq(digitalResources.id, id));
+  }
+
+  async incrementDigitalResourceViewCount(id: number): Promise<void> {
+    await db.update(digitalResources)
+      .set({ viewCount: sql`${digitalResources.viewCount} + 1` })
+      .where(eq(digitalResources.id, id));
+  }
+
+  // ===== Digital Resource Versions =====
+  async createDigitalResourceVersion(data: InsertDigitalResourceVersion): Promise<DigitalResourceVersion> {
+    if (data.isCurrent !== false) {
+      await db.update(digitalResourceVersions)
+        .set({ isCurrent: false })
+        .where(eq(digitalResourceVersions.resourceId, data.resourceId));
+    }
+    const [v] = await returningViaCte<DigitalResourceVersion>(
+      db.insert(digitalResourceVersions).values(nullifyForInsert(data as any)).returning()
+    );
+    return v;
+  }
+
+  async getDigitalResourceVersions(resourceId: number): Promise<DigitalResourceVersion[]> {
+    return await db.select().from(digitalResourceVersions)
+      .where(eq(digitalResourceVersions.resourceId, resourceId))
+      .orderBy(desc(digitalResourceVersions.createdAt));
+  }
+
+  async getDigitalResourceVersion(id: number): Promise<DigitalResourceVersion | undefined> {
+    const [v] = await db.select().from(digitalResourceVersions).where(eq(digitalResourceVersions.id, id));
+    return v;
   }
 }
 
