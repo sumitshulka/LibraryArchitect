@@ -10,8 +10,9 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  Grid3x3, List, Search, Upload, FileText, Video, Music, Image as ImageIcon,
-  FileArchive, Link as LinkIcon, Eye, Download, Calendar, X,
+  Search, Upload, FileText, Video, Music, Image as ImageIcon,
+  FileArchive, Link as LinkIcon, Eye, Download, Calendar, X, User as UserIcon,
+  Building2, GraduationCap, Tag as TagIcon, HardDrive,
 } from "lucide-react";
 import { digitalResourcesApi } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -50,7 +51,6 @@ export default function RepositoryPage() {
   const canUpload = isStaff || user?.role === "FACULTY";
 
   const params = new URLSearchParams(window.location.search);
-  const [view, setView] = useState<"grid" | "list">("grid");
   const [search, setSearch] = useState("");
   const [resourceType, setResourceType] = useState<string>(params.get("resourceType") || "all");
   const [category, setCategory] = useState<string>(params.get("category") || "all");
@@ -149,26 +149,6 @@ export default function RepositoryPage() {
                   <X className="h-3.5 w-3.5" /> Clear
                 </Button>
               )}
-              <div className="flex border rounded-md overflow-hidden ml-auto">
-                <Button
-                  variant={view === "grid" ? "secondary" : "ghost"}
-                  size="icon"
-                  className="rounded-none h-9 w-9"
-                  onClick={() => setView("grid")}
-                  data-testid="button-view-grid"
-                >
-                  <Grid3x3 className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant={view === "list" ? "secondary" : "ghost"}
-                  size="icon"
-                  className="rounded-none h-9 w-9"
-                  onClick={() => setView("list")}
-                  data-testid="button-view-list"
-                >
-                  <List className="h-4 w-4" />
-                </Button>
-              </div>
             </div>
           </div>
           {tagFilter && (
@@ -191,36 +171,73 @@ export default function RepositoryPage() {
         <div className="text-center py-16 text-muted-foreground" data-testid="text-empty-state">
           No digital resources found matching your filters.
         </div>
-      ) : view === "grid" ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4" data-testid="grid-resources">
+      ) : (
+        <div className="flex flex-col gap-3" data-testid="list-resources">
           {filtered.map((r) => {
             const Icon = typeIcon(r.resourceType);
+            const academicBits = [r.department, r.course, r.semester, r.batch].filter(Boolean);
             return (
               <Link key={r.id} href={`/digital-resources/${r.id}`} data-testid={`card-resource-${r.id}`}>
-                <Card className="hover:shadow-md transition-shadow h-full cursor-pointer">
-                  <CardContent className="p-4 flex flex-col h-full">
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="h-10 w-10 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center shrink-0">
-                        <Icon className="h-5 w-5 text-blue-600" />
+                <Card className="hover:shadow-md hover:border-primary/30 transition-shadow cursor-pointer">
+                  <CardContent className="p-4 sm:p-5">
+                    <div className="flex flex-col sm:flex-row gap-4">
+                      <div className="h-14 w-14 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center shrink-0">
+                        <Icon className="h-7 w-7 text-blue-600" />
                       </div>
-                      <Badge variant={r.status === "PUBLISHED" ? "default" : r.status === "PENDING_APPROVAL" ? "secondary" : "outline"} className="text-xs">
-                        {r.status.replace(/_/g, " ")}
-                      </Badge>
-                    </div>
-                    <h3 className="font-semibold text-sm leading-tight line-clamp-2 mb-1" data-testid={`text-title-${r.id}`}>{r.title}</h3>
-                    {r.shortDescription && (
-                      <p className="text-xs text-muted-foreground line-clamp-2 mb-2">{r.shortDescription}</p>
-                    )}
-                    <div className="flex flex-wrap gap-1 mb-2">
-                      {(r.tags || []).slice(0, 3).map(t => (
-                        <Badge key={t} variant="outline" className="text-[10px] px-1.5 py-0">{t}</Badge>
-                      ))}
-                    </div>
-                    <div className="mt-auto pt-2 border-t flex items-center justify-between text-xs text-muted-foreground">
-                      <span>{r.resourceType} · {formatFileSize(r.fileSizeBytes)}</span>
-                      <div className="flex items-center gap-2">
-                        <span className="flex items-center gap-0.5"><Eye className="h-3 w-3" />{r.viewCount}</span>
-                        <span className="flex items-center gap-0.5"><Download className="h-3 w-3" />{r.downloadCount}</span>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-3 flex-wrap">
+                          <div className="min-w-0">
+                            <h3 className="font-semibold text-base leading-tight truncate" data-testid={`text-title-${r.id}`}>{r.title}</h3>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {r.resourceType} · v{r.versionNumber} · {formatFileSize(r.fileSizeBytes)}
+                              {r.category ? ` · ${r.category.replace(/_/g, " ")}` : ""}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <Badge variant={r.status === "PUBLISHED" ? "default" : r.status === "PENDING_APPROVAL" ? "secondary" : "outline"} className="text-xs" data-testid={`badge-status-${r.id}`}>
+                              {r.status.replace(/_/g, " ")}
+                            </Badge>
+                            {r.difficulty && (
+                              <Badge variant="outline" className="text-xs">{r.difficulty}</Badge>
+                            )}
+                          </div>
+                        </div>
+
+                        {(r.shortDescription || r.description) && (
+                          <p className="text-sm text-muted-foreground line-clamp-2 mt-2">
+                            {r.shortDescription || r.description}
+                          </p>
+                        )}
+
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-3 text-xs text-muted-foreground">
+                          {(r.author || r.faculty) && (
+                            <span className="flex items-center gap-1"><UserIcon className="h-3.5 w-3.5" />{r.author || r.faculty}</span>
+                          )}
+                          {academicBits.length > 0 && (
+                            <span className="flex items-center gap-1"><Building2 className="h-3.5 w-3.5" />{academicBits.join(" · ")}</span>
+                          )}
+                          {r.program && (
+                            <span className="flex items-center gap-1"><GraduationCap className="h-3.5 w-3.5" />{r.program}</span>
+                          )}
+                          <span className="flex items-center gap-1">
+                            <Calendar className="h-3.5 w-3.5" />
+                            {r.publishDate ? `Published ${fmtDate(new Date(r.publishDate as any), "dd MMM yyyy")}` : `Updated ${r.updatedAt ? fmtDate(new Date(r.updatedAt as any), "dd MMM yyyy") : "—"}`}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-3 mt-3 pt-3 border-t flex-wrap">
+                          <div className="flex flex-wrap gap-1">
+                            {(r.tags || []).slice(0, 5).map(t => (
+                              <Badge key={t} variant="outline" className="text-[10px] px-1.5 py-0 gap-1"><TagIcon className="h-2.5 w-2.5" />{t}</Badge>
+                            ))}
+                          </div>
+                          <div className="flex items-center gap-4 text-xs text-muted-foreground shrink-0">
+                            <span className="flex items-center gap-1"><Eye className="h-3.5 w-3.5" />{r.viewCount} views</span>
+                            <span className="flex items-center gap-1"><Download className="h-3.5 w-3.5" />{r.downloadCount} downloads</span>
+                            <span className="flex items-center gap-1"><HardDrive className="h-3.5 w-3.5" />{formatFileSize(r.fileSizeBytes)}</span>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </CardContent>
@@ -229,40 +246,6 @@ export default function RepositoryPage() {
             );
           })}
         </div>
-      ) : (
-        <Card>
-          <CardContent className="p-0">
-            <div className="divide-y" data-testid="list-resources">
-              {filtered.map((r) => {
-                const Icon = typeIcon(r.resourceType);
-                return (
-                  <Link key={r.id} href={`/digital-resources/${r.id}`} className="flex items-center gap-4 p-4 hover:bg-muted/40" data-testid={`row-resource-${r.id}`}>
-                    <div className="h-9 w-9 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center shrink-0">
-                      <Icon className="h-4 w-4 text-blue-600" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{r.title}</p>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {r.resourceType} · v{r.versionNumber}{r.department ? ` · ${r.department}` : ""}{r.course ? ` · ${r.course}` : ""}
-                      </p>
-                    </div>
-                    <div className="hidden md:flex items-center gap-1 text-xs text-muted-foreground shrink-0">
-                      <Calendar className="h-3.5 w-3.5" />
-                      {r.updatedAt ? fmtDate(new Date(r.updatedAt as any), "dd MMM yyyy") : "—"}
-                    </div>
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground shrink-0">
-                      <span className="flex items-center gap-0.5"><Eye className="h-3.5 w-3.5" />{r.viewCount}</span>
-                      <span className="flex items-center gap-0.5"><Download className="h-3.5 w-3.5" />{r.downloadCount}</span>
-                    </div>
-                    <Badge variant={r.status === "PUBLISHED" ? "default" : r.status === "PENDING_APPROVAL" ? "secondary" : "outline"} className="text-xs shrink-0">
-                      {r.status.replace(/_/g, " ")}
-                    </Badge>
-                  </Link>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
       )}
     </MainLayout>
   );
