@@ -1,0 +1,850 @@
+I would actually position this module as **Digital Resources**, not **Digital Resource Catalog**.
+
+The word *Catalog* implies metadata only. What you're building is an institutional repository where users can actually consume the content.
+
+Below is a prompt designed for **Replit AI** that follows the same enterprise architecture as the rest of Scholars24.
+
+---
+
+# Replit Prompt – Build Digital Resources Module (Phase I)
+
+## Project Overview
+
+Build an enterprise-grade **Digital Resources Module** for the Scholars24 Library Management System (LibraTech).
+
+This module is **NOT** a Learning Management System and **NOT** a DRM platform.
+
+Its purpose is to provide institutions with a centralized repository where digital learning resources can be uploaded, organized, searched, managed and securely accessed by authorized users.
+
+The system should follow the same UI/UX style as the existing LibraTech modules.
+
+---
+
+# Module Name
+
+Digital Resources
+
+Appears in the left navigation below Catalog.
+
+---
+
+# Objectives
+
+Allow institutions to
+
+* Upload digital assets
+* Organize resources
+* Categorize by academic hierarchy
+* Control who can access resources
+* Maintain versions
+* Search quickly
+* Track usage
+
+There is NO DRM in Phase I.
+
+Students can download resources if permission allows.
+
+---
+
+# Dashboard
+
+Create a dashboard showing
+
+Top Cards
+
+* Total Resources
+* Total Downloads
+* Total Views
+* Storage Used
+* Recently Uploaded
+* Pending Approval
+
+Charts
+
+* Resource Type Distribution
+* Department Wise Resources
+* Monthly Upload Trend
+* Top Downloaded Resources
+* Most Viewed Resources
+
+Widgets
+
+Recently Added Resources
+
+Recently Updated
+
+Pending Approval
+
+Popular Tags
+
+Quick Upload Button
+
+---
+
+# Resource Repository
+
+Main listing screen.
+
+Grid and List View.
+
+Columns
+
+Thumbnail
+
+Title
+
+Type
+
+Department
+
+Course
+
+Semester
+
+Faculty
+
+Version
+
+Visibility
+
+Downloads
+
+Views
+
+Uploaded By
+
+Status
+
+Last Updated
+
+Actions
+
+Filters
+
+Department
+
+Course
+
+Semester
+
+Resource Type
+
+Faculty
+
+Uploaded By
+
+Status
+
+Visibility
+
+Tags
+
+File Extension
+
+Date Range
+
+Search
+
+Global Search
+
+Search by
+
+Title
+
+Description
+
+Keywords
+
+Tags
+
+Faculty
+
+Course
+
+Subject
+
+Department
+
+---
+
+# Resource Types
+
+Support
+
+PDF
+
+DOC
+
+DOCX
+
+PPT
+
+PPTX
+
+XLS
+
+XLSX
+
+ZIP
+
+Images
+
+Video
+
+Audio
+
+HTML
+
+SCORM Package
+
+External URL
+
+YouTube Link
+
+Google Drive Link
+
+OneDrive Link
+
+---
+
+# Create Resource
+
+Large wizard.
+
+Section 1
+
+Basic Information
+
+Title
+
+Short Description
+
+Detailed Description
+
+Keywords
+
+Tags
+
+Resource Type
+
+Language
+
+Version Number
+
+ISBN (optional)
+
+DOI (optional)
+
+Author
+
+Faculty
+
+---
+
+Section 2
+
+Academic Mapping
+
+Organization
+
+Campus
+
+Department
+
+Program
+
+Course
+
+Subject
+
+Semester
+
+Academic Year
+
+Section
+
+Batch
+
+This mapping should integrate with Scholars24 academic master tables.
+
+---
+
+Section 3
+
+Upload
+
+Upload File
+
+OR
+
+Provide External URL
+
+OR
+
+Provide YouTube URL
+
+OR
+
+Provide Google Drive Link
+
+OR
+
+Provide OneDrive Link
+
+Show preview where possible.
+
+Maximum file size configurable.
+
+---
+
+Section 4
+
+Visibility
+
+Visible To
+
+Entire Institution
+
+Department
+
+Course
+
+Specific Batch
+
+Faculty Only
+
+Students Only
+
+Selected Users
+
+Role Based
+
+Allow Download
+
+Yes
+
+No
+
+Allow Preview
+
+Yes
+
+No
+
+Hide Until Publish Date
+
+Optional
+
+Publish Immediately
+
+Optional
+
+---
+
+Section 5
+
+Metadata
+
+Resource Category
+
+Textbook
+
+Lecture Notes
+
+Lab Manual
+
+Question Bank
+
+Presentation
+
+Research Paper
+
+Assignment
+
+Case Study
+
+Reference Material
+
+Tutorial
+
+Video Lecture
+
+Policy Document
+
+Others
+
+Topics
+
+Learning Outcomes
+
+Credits
+
+Estimated Reading Time
+
+Difficulty
+
+Beginner
+
+Intermediate
+
+Advanced
+
+---
+
+Section 6
+
+Version Notes
+
+Release Notes
+
+Reason for Update
+
+Change Summary
+
+---
+
+Section 7
+
+Review
+
+Validate everything
+
+Publish
+
+Save Draft
+
+---
+
+# Resource Details Page
+
+Display
+
+Thumbnail
+
+Description
+
+Metadata
+
+Academic Mapping
+
+Versions
+
+Downloads
+
+Views
+
+Uploaded By
+
+Last Modified
+
+Preview
+
+Download
+
+Share Link
+
+Related Resources
+
+Recent Activity
+
+---
+
+# Version Management
+
+Every resource supports versions.
+
+Example
+
+Programming in Java
+
+Version 1.0
+
+Version 1.1
+
+Version 2.0
+
+Mark Current Version
+
+Rollback Version
+
+Compare Metadata
+
+View Version History
+
+Soft archive older versions.
+
+---
+
+# Preview
+
+Preview inside browser.
+
+PDF Viewer
+
+Image Viewer
+
+Audio Player
+
+Video Player
+
+Office Document Viewer if browser supports.
+
+External links open safely.
+
+---
+
+# Download
+
+Track
+
+Download Count
+
+Downloaded By
+
+Date
+
+IP Address
+
+No download restrictions.
+
+---
+
+# Access Control
+
+Role Based
+
+Administrator
+
+Librarian
+
+Faculty
+
+Student
+
+Guest
+
+Visibility controlled by
+
+Organization
+
+Campus
+
+Department
+
+Course
+
+Semester
+
+Batch
+
+Role
+
+Individual User
+
+---
+
+# Workflow
+
+Statuses
+
+Draft
+
+Pending Review
+
+Approved
+
+Published
+
+Archived
+
+Rejected
+
+Workflow
+
+Create
+
+↓
+
+Review
+
+↓
+
+Approve
+
+↓
+
+Publish
+
+↓
+
+Archive
+
+---
+
+# Search
+
+Fast search.
+
+Support
+
+Title
+
+Description
+
+Keywords
+
+Tags
+
+Faculty
+
+Department
+
+Subject
+
+Course
+
+File Type
+
+Academic Year
+
+Resource Category
+
+Language
+
+---
+
+# Bulk Operations
+
+Bulk Upload
+
+Bulk Publish
+
+Bulk Archive
+
+Bulk Delete
+
+Bulk Change Visibility
+
+Bulk Change Tags
+
+Bulk Move Department
+
+Bulk Download Metadata
+
+---
+
+# Usage Analytics
+
+Track
+
+Views
+
+Downloads
+
+Unique Users
+
+Average View Duration
+
+Most Popular Resources
+
+Least Used Resources
+
+Department Wise Usage
+
+Course Wise Usage
+
+Faculty Wise Uploads
+
+Student Consumption Trends
+
+Display graphs.
+
+---
+
+# Notifications
+
+Notify users when
+
+New Resource Published
+
+Resource Updated
+
+Resource Archived
+
+Approval Required
+
+Approval Completed
+
+---
+
+# Activity Timeline
+
+Maintain timeline
+
+Uploaded
+
+Edited
+
+Version Created
+
+Downloaded
+
+Published
+
+Archived
+
+Deleted
+
+Approval Actions
+
+---
+
+# Integrations
+
+Integrate with Scholars24
+
+Organizations
+
+Academic Structure
+
+Courses
+
+Subjects
+
+Faculty
+
+Students
+
+Authentication
+
+Notification Engine
+
+Audit Logs
+
+Reports
+
+Library Dashboard
+
+---
+
+# Reports
+
+Generate
+
+Resource Inventory
+
+Department Resource Report
+
+Faculty Contribution Report
+
+Download Report
+
+Usage Report
+
+Inactive Resources
+
+Version History Report
+
+Approval Report
+
+Export
+
+PDF
+
+Excel
+
+CSV
+
+---
+
+# Settings
+
+Administrators should configure
+
+Maximum Upload Size
+
+Allowed File Types
+
+Default Visibility
+
+Approval Workflow
+
+Version Number Format
+
+Storage Locations
+
+Resource Categories
+
+Languages
+
+Tag Dictionary
+
+Thumbnail Generation
+
+Preview Settings
+
+---
+
+# Non-Functional Requirements
+
+Enterprise responsive UI
+
+Pagination
+
+Server-side filtering
+
+Fast search
+
+Lazy loading
+
+Role-based authorization
+
+Audit logging
+
+Soft delete
+
+Version management
+
+Mobile responsive
+
+Dark mode support
+
+Accessibility compliance
+
+---
+
+# Phase I Exclusions
+
+Do NOT build
+
+❌ DRM
+
+❌ Watermarking
+
+❌ Digital Rights Enforcement
+
+❌ AI Recommendations
+
+❌ OCR
+
+❌ Semantic Search
+
+❌ Auto Metadata Generation
+
+❌ Citation Generator
+
+❌ Plagiarism Detection
+
+❌ Recommendation Engine
+
+❌ Streaming Security
+
+❌ Offline Sync
+
+---
+
+# Design Philosophy
+
+The module should feel like an enterprise **Digital Knowledge Repository** rather than a simple file manager. The interface should emphasize discoverability, structured academic organization, and ease of access, while maintaining consistency with the existing LibraTech design language. Future AI, analytics, and research capabilities should be easy to plug into this foundation without requiring major architectural changes.
+
+This prompt gives Replit enough functional and architectural detail to generate a production-grade Phase I module that aligns naturally with the rest of the Scholars24 ecosystem.
