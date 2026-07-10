@@ -204,7 +204,21 @@ export default function ResourceDetailsPage() {
                 resource.resourceType === "IMAGE" ? (
                   <img src={previewUrl!} alt={resource.title} className="w-full rounded-lg max-h-[480px] object-contain bg-muted" data-testid="img-preview" />
                 ) : (
-                  <iframe src={previewUrl!} className="w-full h-[480px] rounded-lg border" title="Resource preview" data-testid="iframe-preview" />
+                  <div className="flex flex-col items-center justify-center py-12 bg-muted/40 rounded-lg" data-testid="preview-pdf-fallback">
+                    <Icon className="h-14 w-14 text-muted-foreground mb-3" />
+                    <p className="text-sm text-muted-foreground mb-1 font-medium">{resource.fileName || resource.title}</p>
+                    <p className="text-xs text-muted-foreground mb-3">
+                      PDF preview opens in a new tab (browsers block embedded PDF viewers inside this preview).
+                    </p>
+                    <Button
+                      size="sm"
+                      className="gap-2"
+                      onClick={() => window.open(previewUrl!, "_blank", "noopener,noreferrer")}
+                      data-testid="button-open-pdf-preview"
+                    >
+                      <ExternalLink className="h-4 w-4" /> Open PDF in New Tab
+                    </Button>
+                  </div>
                 )
               ) : (
                 <div className="flex flex-col items-center justify-center py-12 bg-muted/40 rounded-lg">
