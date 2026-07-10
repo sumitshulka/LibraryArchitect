@@ -75,7 +75,7 @@ export const dashboardStats = {
 export const navItems = [
   { label: 'Dashboard', icon: LayoutDashboard, href: '/', localAdminOnly: false },
   { label: 'Catalog', icon: Book, href: '/catalog', localAdminOnly: false },
-  { label: 'Digital Resources', icon: FolderOpen, href: '/digital-resources', localAdminOnly: false },
+  { label: 'Digital Repository', icon: FolderOpen, href: '/digital-resources/repository', localAdminOnly: false },
   { label: 'Search Attributes', icon: Tags, href: '/catalog/search-attributes', localAdminOnly: false },
   { label: 'Allocations', icon: Package, href: '/allocations', localAdminOnly: false },
   { label: 'Circulation', icon: Repeat, href: '/circulation', localAdminOnly: false },

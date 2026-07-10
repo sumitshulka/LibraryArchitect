@@ -140,8 +140,12 @@ export function registerDigitalResourceRoutes(app: Express) {
       const {
         search, department, course, semester, resourceType, category,
         faculty, uploadedBy, status, libraryId, tags, fromDate, toDate,
-        limit, offset,
+        limit, offset, attributeValueIds,
       } = req.query;
+
+      const attrIds = attributeValueIds
+        ? String(attributeValueIds).split(",").map(Number).filter((n) => !isNaN(n))
+        : [];
 
       const filters = {
         search: typeof search === "string" ? search : undefined,
@@ -162,12 +166,18 @@ export function registerDigitalResourceRoutes(app: Express) {
       };
 
       const isStaff = user.role === "ADMIN" || user.role === "LIBRARIAN";
-      const result = isStaff
+      let result = isStaff
         ? await storage.listDigitalResources(filters)
         : await storage.listVisibleDigitalResources(
             { id: user.id, role: user.role, department: user.department ?? null },
             filters
           );
+
+      if (attrIds.length > 0) {
+        const allowedIds = new Set(await storage.getDigitalResourceIdsByAttributeValueIds(attrIds));
+        const resources = result.resources.filter((r) => allowedIds.has(r.id));
+        result = { resources, total: resources.length };
+      }
 
       res.json(result);
     } catch (error) {

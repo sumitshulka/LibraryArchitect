@@ -6,7 +6,7 @@ import { Separator } from "@/components/ui/separator";
 import {
   Book, Users, Repeat, AlertCircle, BookOpen, Banknote,
   TrendingUp, TrendingDown,
-  ArrowRight, CheckCircle2,
+  ArrowRight, CheckCircle2, FolderOpen,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -108,11 +108,18 @@ export default function DashboardPage() {
             Library operations at a glance · Updated {new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
           </p>
         </div>
-        <Link href="/circulation">
-          <Button size="sm" className="gap-2">
-            <Repeat className="h-4 w-4" /> Circulation
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link href="/digital-resources">
+            <Button variant="outline" size="sm" className="gap-2" data-testid="button-digital-dashboard">
+              <FolderOpen className="h-4 w-4" /> Digital Resources
+            </Button>
+          </Link>
+          <Link href="/circulation">
+            <Button size="sm" className="gap-2">
+              <Repeat className="h-4 w-4" /> Circulation
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {/* ── Stat Cards ── */}

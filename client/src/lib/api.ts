@@ -1844,6 +1844,7 @@ export interface DigitalResourceFilters {
   toDate?: string;
   limit?: number;
   offset?: number;
+  attributeValueIds?: number[];
 }
 
 export interface DigitalResourceWithVersions extends DigitalResource {

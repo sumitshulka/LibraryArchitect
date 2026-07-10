@@ -16,12 +16,14 @@ import {
   Search, Upload, FileText, Video, Music, Image as ImageIcon,
   FileArchive, Link as LinkIcon, Eye, Download, Calendar, X, User as UserIcon,
   Building2, GraduationCap, Tag as TagIcon, HardDrive, Tags, Loader2, Save,
+  LayoutDashboard,
 } from "lucide-react";
 import { digitalResourcesApi, resourceTypeSettingsApi, searchAttributesApi } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { DigitalResource } from "@shared/schema";
 import { format as fmtDate } from "date-fns";
 import { DigitalResourceAttributesEditor } from "@/components/DigitalResourceAttributesEditor";
+import { SearchAttributesFilter } from "@/components/SearchAttributesFilter";
 import { toast } from "sonner";
 
 const RESOURCE_TYPES = ["PDF", "DOC", "DOCX", "PPT", "PPTX", "XLS", "XLSX", "ZIP", "IMAGE", "VIDEO", "AUDIO", "HTML", "SCORM", "EXTERNAL_URL", "YOUTUBE", "GOOGLE_DRIVE", "ONEDRIVE"];
@@ -142,15 +144,17 @@ export default function RepositoryPage() {
   const [category, setCategory] = useState<string>(params.get("category") || "all");
   const [status, setStatus] = useState<string>(isStaff ? (params.get("status") || "all") : "all");
   const [tagFilter, setTagFilter] = useState<string | null>(params.get("tag"));
+  const [attributeValueIds, setAttributeValueIds] = useState<number[]>([]);
 
   const { data: resources = [], isLoading } = useQuery<DigitalResource[]>({
-    queryKey: ["digital-resources", "repository", search, resourceType, category, status],
+    queryKey: ["digital-resources", "repository", search, resourceType, category, status, attributeValueIds],
     queryFn: () =>
       digitalResourcesApi.getAll({
         search: search || undefined,
         resourceType: resourceType !== "all" ? resourceType : undefined,
         category: category !== "all" ? category : undefined,
         status: isStaff && status !== "all" ? status : undefined,
+        attributeValueIds: attributeValueIds.length > 0 ? attributeValueIds : undefined,
         limit: 200,
       }),
   });
@@ -174,25 +178,33 @@ export default function RepositoryPage() {
     setCategory("all");
     setStatus("all");
     setTagFilter(null);
+    setAttributeValueIds([]);
     setLocation("/digital-resources/repository");
   };
 
-  const hasActiveFilters = search || resourceType !== "all" || category !== "all" || status !== "all" || tagFilter;
+  const hasActiveFilters = search || resourceType !== "all" || category !== "all" || status !== "all" || tagFilter || attributeValueIds.length > 0;
 
   return (
     <MainLayout>
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight" data-testid="text-page-title">Repository</h1>
+          <h1 className="text-2xl font-bold tracking-tight" data-testid="text-page-title">Digital Repository</h1>
           <p className="text-muted-foreground text-sm mt-0.5">Browse and search digital resources</p>
         </div>
-        {canUpload && (
-          <Link href="/digital-resources/upload">
-            <Button size="sm" className="gap-2" data-testid="button-upload">
-              <Upload className="h-4 w-4" /> Upload Resource
+        <div className="flex items-center gap-2">
+          <Link href="/digital-resources">
+            <Button variant="outline" size="sm" className="gap-2" data-testid="button-digital-dashboard">
+              <LayoutDashboard className="h-4 w-4" /> Dashboard
             </Button>
           </Link>
-        )}
+          {canUpload && (
+            <Link href="/digital-resources/upload">
+              <Button size="sm" className="gap-2" data-testid="button-upload">
+                <Upload className="h-4 w-4" /> Upload Resource
+              </Button>
+            </Link>
+          )}
+        </div>
       </div>
 
       <Card className="mb-4">
@@ -238,6 +250,10 @@ export default function RepositoryPage() {
                   </SelectContent>
                 </Select>
               )}
+              <SearchAttributesFilter
+                selectedValueIds={attributeValueIds}
+                onChange={setAttributeValueIds}
+              />
               {hasActiveFilters && (
                 <Button variant="ghost" size="sm" onClick={clearFilters} className="gap-1" data-testid="button-clear-filters">
                   <X className="h-3.5 w-3.5" /> Clear
