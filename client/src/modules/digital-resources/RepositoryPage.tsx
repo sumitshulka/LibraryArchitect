@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MainLayout } from "@/components/layout/MainLayout";
@@ -86,7 +86,7 @@ function EditResourceAttributesDialog({
     enabled: open && !!resourceId,
   });
 
-  useMemo(() => {
+  useEffect(() => {
     if (open) setSelectedIds(currentAttrs.map((a) => a.attributeValueId));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, resourceId, JSON.stringify(currentAttrs.map((a) => a.attributeValueId))]);
