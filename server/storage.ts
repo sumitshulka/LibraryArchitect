@@ -48,6 +48,8 @@ import {
   type InsertSearchAttributeValue,
   type ResourceSearchAttribute,
   type InsertResourceSearchAttribute,
+  type DigitalResourceSearchAttribute,
+  type InsertDigitalResourceSearchAttribute,
   type PaymentMethod,
   type InsertPaymentMethod,
   type FinePayment,
@@ -100,6 +102,7 @@ import {
   searchAttributeTypes,
   searchAttributeValues,
   resourceSearchAttributes,
+  digitalResourceSearchAttributes,
 } from "@shared/schema";
 
 export interface AuditLogFilters {
@@ -382,6 +385,11 @@ export interface IStorage {
   removeSearchAttribute(bookId: number, attributeValueId: number): Promise<boolean>;
   setResourceSearchAttributes(bookId: number, attributeValueIds: number[]): Promise<void>;
   searchBooksByAttributes(attributeValueIds: number[]): Promise<number[]>;
+
+  // Digital Resource Search Attributes (assignments)
+  getDigitalResourceSearchAttributes(digitalResourceId: number): Promise<(DigitalResourceSearchAttribute & { attributeValue: string; attributeTypeName: string; attributeTypeId: number })[]>;
+  setDigitalResourceSearchAttributes(digitalResourceId: number, attributeValueIds: number[]): Promise<void>;
+  getDigitalResourceIdsByAttributeValueIds(attributeValueIds: number[]): Promise<number[]>;
 
   // Digital Resources
   getDigitalResource(id: number): Promise<DigitalResource | undefined>;
@@ -2073,6 +2081,43 @@ export class DBStorage implements IStorage {
       .where(inArray(resourceSearchAttributes.attributeValueId, attributeValueIds));
     
     return results.map(r => r.bookId);
+  }
+
+  // Digital Resource Search Attributes
+  async getDigitalResourceSearchAttributes(digitalResourceId: number): Promise<(DigitalResourceSearchAttribute & { attributeValue: string; attributeTypeName: string; attributeTypeId: number })[]> {
+    const results = await db.select({
+      id: digitalResourceSearchAttributes.id,
+      digitalResourceId: digitalResourceSearchAttributes.digitalResourceId,
+      attributeValueId: digitalResourceSearchAttributes.attributeValueId,
+      assignedAt: digitalResourceSearchAttributes.assignedAt,
+      attributeValue: searchAttributeValues.value,
+      attributeTypeName: searchAttributeTypes.name,
+      attributeTypeId: searchAttributeTypes.id,
+    })
+      .from(digitalResourceSearchAttributes)
+      .innerJoin(searchAttributeValues, eq(digitalResourceSearchAttributes.attributeValueId, searchAttributeValues.id))
+      .innerJoin(searchAttributeTypes, eq(searchAttributeValues.attributeTypeId, searchAttributeTypes.id))
+      .where(eq(digitalResourceSearchAttributes.digitalResourceId, digitalResourceId))
+      .orderBy(asc(searchAttributeTypes.sortOrder), asc(searchAttributeValues.value));
+
+    return results;
+  }
+
+  async setDigitalResourceSearchAttributes(digitalResourceId: number, attributeValueIds: number[]): Promise<void> {
+    await db.delete(digitalResourceSearchAttributes).where(eq(digitalResourceSearchAttributes.digitalResourceId, digitalResourceId));
+
+    if (attributeValueIds.length > 0) {
+      await db.insert(digitalResourceSearchAttributes)
+        .values(attributeValueIds.map(attributeValueId => ({ digitalResourceId, attributeValueId })));
+    }
+  }
+
+  async getDigitalResourceIdsByAttributeValueIds(attributeValueIds: number[]): Promise<number[]> {
+    if (attributeValueIds.length === 0) return [];
+    const rows = await db.selectDistinct({ digitalResourceId: digitalResourceSearchAttributes.digitalResourceId })
+      .from(digitalResourceSearchAttributes)
+      .where(inArray(digitalResourceSearchAttributes.attributeValueId, attributeValueIds));
+    return rows.map(r => r.digitalResourceId);
   }
 
   async searchCatalogByAttributes(options: {

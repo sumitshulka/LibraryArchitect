@@ -198,6 +198,67 @@ export function registerDigitalResourceRoutes(app: Express) {
     }
   });
 
+  app.get("/api/digital-resources/:id/search-attributes", async (req, res) => {
+    try {
+      const user = await getAuthedUser(req, res);
+      if (!user) return;
+
+      const id = parseInt(req.params.id);
+      const resource = await storage.getDigitalResource(id);
+      if (!resource) return res.status(404).json({ error: "Digital resource not found" });
+
+      const isStaff = user.role === "ADMIN" || user.role === "LIBRARIAN";
+      if (!isStaff && !(await isResourceVisibleToUser(resource, user))) {
+        return res.status(403).json({ error: "You do not have access to this resource" });
+      }
+
+      const attrs = await storage.getDigitalResourceSearchAttributes(id);
+      res.json(attrs);
+    } catch (error) {
+      console.error("Error fetching digital resource search attributes:", error);
+      res.status(500).json({ error: "Failed to fetch digital resource search attributes" });
+    }
+  });
+
+  app.put("/api/digital-resources/:id/search-attributes", async (req, res) => {
+    try {
+      const user = await getAuthedUser(req, res);
+      if (!user) return;
+      if (!requireManageAccess(user)) {
+        return res.status(403).json({ error: "You do not have permission to update digital resources" });
+      }
+
+      const id = parseInt(req.params.id);
+      const resource = await storage.getDigitalResource(id);
+      if (!resource) return res.status(404).json({ error: "Digital resource not found" });
+
+      if (user.role === "FACULTY" && resource.uploadedBy !== user.id) {
+        return res.status(403).json({ error: "You can only update resources you uploaded" });
+      }
+
+      const { attributeValueIds } = req.body;
+      if (!Array.isArray(attributeValueIds)) {
+        return res.status(400).json({ error: "attributeValueIds must be an array" });
+      }
+
+      await storage.setDigitalResourceSearchAttributes(id, attributeValueIds);
+      const updated = await storage.getDigitalResourceSearchAttributes(id);
+
+      logAudit(req, {
+        category: "DIGITAL_RESOURCES",
+        action: "SEARCH_ATTRS_UPDATED",
+        targetType: "digital_resource",
+        targetId: String(id),
+        details: { title: resource.title, attributeCount: attributeValueIds.length },
+      });
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating digital resource search attributes:", error);
+      res.status(500).json({ error: "Failed to update digital resource search attributes" });
+    }
+  });
+
   app.post("/api/digital-resources", async (req, res) => {
     try {
       const user = await getAuthedUser(req, res);

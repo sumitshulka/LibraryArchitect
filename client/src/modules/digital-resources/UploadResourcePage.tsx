@@ -17,8 +17,9 @@ import {
   ArrowLeft, ArrowRight, Upload, Link as LinkIcon, FileText, Check, Loader2, X, Save,
 } from "lucide-react";
 import { toast } from "sonner";
-import { digitalResourcesApi, librariesApi } from "@/lib/api";
+import { digitalResourcesApi, librariesApi, searchAttributesApi } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { DigitalResourceAttributesEditor } from "@/components/DigitalResourceAttributesEditor";
 
 const RESOURCE_TYPES = ["PDF", "DOC", "DOCX", "PPT", "PPTX", "XLS", "XLSX", "ZIP", "IMAGE", "VIDEO", "AUDIO", "HTML", "SCORM", "EXTERNAL_URL", "YOUTUBE", "GOOGLE_DRIVE", "ONEDRIVE"];
 const CATEGORIES = ["TEXTBOOK", "LECTURE_NOTES", "LAB_MANUAL", "QUESTION_BANK", "PRESENTATION", "RESEARCH_PAPER", "ASSIGNMENT", "CASE_STUDY", "REFERENCE_MATERIAL", "TUTORIAL", "VIDEO_LECTURE", "POLICY_DOCUMENT", "OTHER"];
@@ -45,6 +46,7 @@ export default function UploadResourcePage() {
   const [sourceMode, setSourceMode] = useState<"file" | "url">("file");
   const [file, setFile] = useState<File | null>(null);
   const [externalUrl, setExternalUrl] = useState("");
+  const [selectedAttributeIds, setSelectedAttributeIds] = useState<number[]>([]);
 
   const [form, setForm] = useState({
     title: "",
@@ -84,6 +86,15 @@ export default function UploadResourcePage() {
     queryKey: ["libraries", "active"],
     queryFn: librariesApi.getActive,
   });
+
+  const { data: attributeTypes = [] } = useQuery({
+    queryKey: ["search-attribute-types"],
+    queryFn: searchAttributesApi.getTypes,
+  });
+
+  const selectedAttributeLabels = attributeTypes
+    .flatMap((t) => t.values.map((v) => ({ id: v.id, label: `${t.name}: ${v.value}` })))
+    .filter((v) => selectedAttributeIds.includes(v.id));
 
   const update = (patch: Partial<typeof form>) => setForm(prev => ({ ...prev, ...patch }));
 
@@ -139,7 +150,13 @@ export default function UploadResourcePage() {
         externalUrl: sourceMode === "url" ? externalUrl : undefined,
       };
 
-      return digitalResourcesApi.create(payload);
+      const created = await digitalResourcesApi.create(payload);
+
+      if (selectedAttributeIds.length > 0) {
+        await searchAttributesApi.setDigitalResourceAttributes(created.id, selectedAttributeIds);
+      }
+
+      return created;
     },
     onSuccess: (resource) => {
       queryClient.invalidateQueries({ queryKey: ["digital-resources"] });
@@ -389,6 +406,13 @@ export default function UploadResourcePage() {
                 <Textarea id="learningOutcomes" rows={2} value={form.learningOutcomes} onChange={(e) => update({ learningOutcomes: e.target.value })} data-testid="input-learning-outcomes" />
               </div>
             </div>
+
+            <Separator />
+            <p className="text-sm font-medium">Search Attributes</p>
+            <DigitalResourceAttributesEditor
+              selectedValueIds={selectedAttributeIds}
+              onChange={setSelectedAttributeIds}
+            />
           </CardContent>
         </Card>
       )}
@@ -473,6 +497,16 @@ export default function UploadResourcePage() {
               <div><span className="text-muted-foreground">Download: </span>{form.allowDownload ? "Allowed" : "Disabled"}</div>
               <div><span className="text-muted-foreground">Preview: </span>{form.allowPreview ? "Allowed" : "Disabled"}</div>
             </div>
+            {selectedAttributeLabels.length > 0 && (
+              <div>
+                <span className="text-muted-foreground text-sm">Search Attributes: </span>
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {selectedAttributeLabels.map((a) => (
+                    <Badge key={a.id} variant="secondary" className="text-xs">{a.label}</Badge>
+                  ))}
+                </div>
+              </div>
+            )}
             {form.tags && (
               <div className="flex flex-wrap gap-1">
                 {form.tags.split(",").map(t => t.trim()).filter(Boolean).map(t => (

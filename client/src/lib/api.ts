@@ -1721,6 +1721,16 @@ export interface ResourceSearchAttribute {
   attributeTypeId: number;
 }
 
+export interface DigitalResourceSearchAttribute {
+  id: number;
+  digitalResourceId: number;
+  attributeValueId: number;
+  assignedAt: string;
+  attributeValue: string;
+  attributeTypeName: string;
+  attributeTypeId: number;
+}
+
 export const searchAttributesApi = {
   getTypes: async (): Promise<SearchAttributeType[]> => {
     const res = await fetch(`${API_BASE}/search-attributes/types`);
@@ -1797,6 +1807,22 @@ export const searchAttributesApi = {
       body: JSON.stringify({ attributeValueIds }),
     });
     if (!res.ok) throw new Error("Failed to update book search attributes");
+    return res.json();
+  },
+
+  getDigitalResourceAttributes: async (digitalResourceId: number): Promise<DigitalResourceSearchAttribute[]> => {
+    const res = await fetch(`${API_BASE}/digital-resources/${digitalResourceId}/search-attributes`);
+    if (!res.ok) throw new Error("Failed to fetch digital resource search attributes");
+    return res.json();
+  },
+
+  setDigitalResourceAttributes: async (digitalResourceId: number, attributeValueIds: number[]): Promise<DigitalResourceSearchAttribute[]> => {
+    const res = await fetch(`${API_BASE}/digital-resources/${digitalResourceId}/search-attributes`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ attributeValueIds }),
+    });
+    if (!res.ok) throw new Error("Failed to update digital resource search attributes");
     return res.json();
   },
 };

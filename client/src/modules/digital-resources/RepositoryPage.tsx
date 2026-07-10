@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10,14 +10,19 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from "@/components/ui/dialog";
+import {
   Search, Upload, FileText, Video, Music, Image as ImageIcon,
   FileArchive, Link as LinkIcon, Eye, Download, Calendar, X, User as UserIcon,
-  Building2, GraduationCap, Tag as TagIcon, HardDrive,
+  Building2, GraduationCap, Tag as TagIcon, HardDrive, Tags, Loader2, Save,
 } from "lucide-react";
-import { digitalResourcesApi, resourceTypeSettingsApi } from "@/lib/api";
+import { digitalResourcesApi, resourceTypeSettingsApi, searchAttributesApi } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { DigitalResource } from "@shared/schema";
 import { format as fmtDate } from "date-fns";
+import { DigitalResourceAttributesEditor } from "@/components/DigitalResourceAttributesEditor";
+import { toast } from "sonner";
 
 const RESOURCE_TYPES = ["PDF", "DOC", "DOCX", "PPT", "PPTX", "XLS", "XLSX", "ZIP", "IMAGE", "VIDEO", "AUDIO", "HTML", "SCORM", "EXTERNAL_URL", "YOUTUBE", "GOOGLE_DRIVE", "ONEDRIVE"];
 const CATEGORIES = ["TEXTBOOK", "LECTURE_NOTES", "LAB_MANUAL", "QUESTION_BANK", "PRESENTATION", "RESEARCH_PAPER", "ASSIGNMENT", "CASE_STUDY", "REFERENCE_MATERIAL", "TUTORIAL", "VIDEO_LECTURE", "POLICY_DOCUMENT", "OTHER"];
@@ -44,11 +49,92 @@ function formatFileSize(bytes?: number | null) {
   return `${size.toFixed(1)} ${units[i]}`;
 }
 
+function ResourceAttributeBadges({ resourceId }: { resourceId: number }) {
+  const { data: attrs = [] } = useQuery({
+    queryKey: ["digital-resource-search-attributes", resourceId],
+    queryFn: () => searchAttributesApi.getDigitalResourceAttributes(resourceId),
+  });
+
+  if (attrs.length === 0) return null;
+
+  return (
+    <>
+      {attrs.map((a) => (
+        <Badge key={a.id} variant="outline" className="text-[10px] px-1.5 py-0 gap-1" data-testid={`badge-resource-attr-${a.id}`}>
+          <Tags className="h-2.5 w-2.5" />{a.attributeValue}
+        </Badge>
+      ))}
+    </>
+  );
+}
+
+function EditResourceAttributesDialog({
+  resourceId,
+  open,
+  onOpenChange,
+}: {
+  resourceId: number | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const queryClient = useQueryClient();
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+
+  const { data: currentAttrs = [] } = useQuery({
+    queryKey: ["digital-resource-search-attributes", resourceId],
+    queryFn: () => searchAttributesApi.getDigitalResourceAttributes(resourceId!),
+    enabled: open && !!resourceId,
+  });
+
+  useMemo(() => {
+    if (open) setSelectedIds(currentAttrs.map((a) => a.attributeValueId));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, resourceId, JSON.stringify(currentAttrs.map((a) => a.attributeValueId))]);
+
+  const saveMutation = useMutation({
+    mutationFn: () => searchAttributesApi.setDigitalResourceAttributes(resourceId!, selectedIds),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["digital-resource-search-attributes", resourceId] });
+      toast.success("Search attributes updated");
+      onOpenChange(false);
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg" onClick={(e) => e.stopPropagation()}>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Tags className="h-4 w-4" /> Search Attributes
+          </DialogTitle>
+        </DialogHeader>
+        <DigitalResourceAttributesEditor selectedValueIds={selectedIds} onChange={setSelectedIds} />
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} data-testid="button-cancel-attributes">
+            Cancel
+          </Button>
+          <Button
+            onClick={() => saveMutation.mutate()}
+            disabled={saveMutation.isPending}
+            className="gap-2"
+            data-testid="button-save-resource-attributes"
+          >
+            {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function RepositoryPage() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   const isStaff = user?.role === "ADMIN" || user?.role === "LIBRARIAN";
   const canUpload = isStaff || user?.role === "FACULTY";
+  const [editingAttrsFor, setEditingAttrsFor] = useState<number | null>(null);
 
   const params = new URLSearchParams(window.location.search);
   const [search, setSearch] = useState("");
@@ -216,6 +302,22 @@ export default function RepositoryPage() {
                             {r.difficulty && (
                               <Badge variant="outline" className="text-xs">{r.difficulty}</Badge>
                             )}
+                            {canUpload && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                title="Edit search attributes"
+                                data-testid={`button-edit-attributes-${r.id}`}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setEditingAttrsFor(r.id);
+                                }}
+                              >
+                                <Tags className="h-4 w-4" />
+                              </Button>
+                            )}
                           </div>
                         </div>
 
@@ -246,6 +348,7 @@ export default function RepositoryPage() {
                             {(r.tags || []).slice(0, 5).map(t => (
                               <Badge key={t} variant="outline" className="text-[10px] px-1.5 py-0 gap-1"><TagIcon className="h-2.5 w-2.5" />{t}</Badge>
                             ))}
+                            <ResourceAttributeBadges resourceId={r.id} />
                           </div>
                           <div className="flex items-center gap-4 text-xs text-muted-foreground shrink-0">
                             <span className="flex items-center gap-1"><Eye className="h-3.5 w-3.5" />{r.viewCount} views</span>
@@ -262,6 +365,12 @@ export default function RepositoryPage() {
           })}
         </div>
       )}
+
+      <EditResourceAttributesDialog
+        resourceId={editingAttrsFor}
+        open={editingAttrsFor !== null}
+        onOpenChange={(open) => !open && setEditingAttrsFor(null)}
+      />
     </MainLayout>
   );
 }

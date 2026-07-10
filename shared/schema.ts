@@ -746,6 +746,13 @@ export const resourceSearchAttributes = pgTable("resource_search_attributes", {
   assignedAt: timestamp("assigned_at").notNull().defaultNow(),
 });
 
+export const digitalResourceSearchAttributes = pgTable("digital_resource_search_attributes", {
+  id: serial("id").primaryKey(),
+  digitalResourceId: integer("digital_resource_id").notNull().references(() => digitalResources.id, { onDelete: 'cascade' }),
+  attributeValueId: integer("attribute_value_id").notNull().references(() => searchAttributeValues.id, { onDelete: 'cascade' }),
+  assignedAt: timestamp("assigned_at").notNull().defaultNow(),
+});
+
 export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({
   id: true,
   timestamp: true,
@@ -850,6 +857,14 @@ export type SearchAttributeValue = typeof searchAttributeValues.$inferSelect;
 
 export type InsertResourceSearchAttribute = z.infer<typeof insertResourceSearchAttributeSchema>;
 export type ResourceSearchAttribute = typeof resourceSearchAttributes.$inferSelect;
+
+export const insertDigitalResourceSearchAttributeSchema = createInsertSchema(digitalResourceSearchAttributes).omit({
+  id: true,
+  assignedAt: true,
+});
+
+export type InsertDigitalResourceSearchAttribute = z.infer<typeof insertDigitalResourceSearchAttributeSchema>;
+export type DigitalResourceSearchAttribute = typeof digitalResourceSearchAttributes.$inferSelect;
 
 export type InsertPaymentMethod = z.infer<typeof insertPaymentMethodSchema>;
 export type PaymentMethod = typeof paymentMethods.$inferSelect;
