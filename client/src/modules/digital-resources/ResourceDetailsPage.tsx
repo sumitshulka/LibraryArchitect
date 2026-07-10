@@ -64,7 +64,7 @@ export default function ResourceDetailsPage() {
   useEffect(() => {
     if (resource) digitalResourcesApi.recordView(id).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [id, !!resource]);
 
   const isStaff = user?.role === "ADMIN" || user?.role === "LIBRARIAN";
   const isOwner = resource?.uploadedBy === user?.id;
