@@ -76,16 +76,25 @@ export const navItems = [
   { label: 'Dashboard', icon: LayoutDashboard, href: '/', localAdminOnly: false },
   { label: 'Catalog', icon: Book, href: '/catalog', localAdminOnly: false },
   { label: 'Digital Repository', icon: FolderOpen, href: '/digital-resources/repository', localAdminOnly: false },
+  { label: 'Inventory', icon: Layers, href: '/inventory', localAdminOnly: false },
   { label: 'Search Attributes', icon: Tags, href: '/catalog/search-attributes', localAdminOnly: false },
   { label: 'Allocations', icon: Package, href: '/allocations', localAdminOnly: false },
   { label: 'Circulation', icon: Repeat, href: '/circulation', localAdminOnly: false },
   { label: 'Reservations', icon: BookmarkCheck, href: '/reservations', localAdminOnly: false },
+  { label: 'Fines', icon: Banknote, href: '/circulation/pending-fines', localAdminOnly: false },
   { label: 'Waiver Requests', icon: Coins, href: '/circulation/waiver-requests', localAdminOnly: true },
-  { label: 'Pending Fines', icon: Banknote, href: '/circulation/pending-fines', localAdminOnly: false },
   { label: 'Patrons', icon: Users, href: '/users', localAdminOnly: false },
-  { label: 'Inventory', icon: Layers, href: '/inventory', localAdminOnly: false },
   { label: 'Organizations', icon: Building2, href: '/organizations', localAdminOnly: false },
   { label: 'Reports', icon: PieChart, href: '/reports', localAdminOnly: false },
   { label: 'Audit Logs', icon: ClipboardList, href: '/audit-logs', localAdminOnly: true },
   { label: 'Settings', icon: Settings, href: '/settings', localAdminOnly: true },
+];
+
+export const navGroups: { title: string | null; items: string[] }[] = [
+  { title: null, items: ['Dashboard'] },
+  { title: 'Collections', items: ['Catalog', 'Digital Repository', 'Inventory', 'Search Attributes'] },
+  { title: 'Library Operations', items: ['Allocations', 'Circulation', 'Reservations', 'Fines', 'Waiver Requests'] },
+  { title: 'Members', items: ['Patrons', 'Organizations'] },
+  { title: 'Insights', items: ['Reports'] },
+  { title: 'Administration', items: ['Audit Logs', 'Settings'] },
 ];

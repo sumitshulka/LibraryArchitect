@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { navItems } from "@/lib/mock-data";
+import { navItems, navGroups } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import logo from "@assets/generated_images/minimalist_abstract_library_logo_icon.png";
@@ -15,6 +15,15 @@ export function Sidebar() {
     return true;
   });
 
+  const itemsByLabel = new Map(visibleItems.map(item => [item.label, item]));
+
+  const visibleGroups = navGroups
+    .map(group => ({
+      title: group.title,
+      items: group.items.map(label => itemsByLabel.get(label)).filter((item): item is NonNullable<typeof item> => !!item),
+    }))
+    .filter(group => group.items.length > 0);
+
   return (
     <aside className="fixed inset-y-0 left-0 z-50 w-64 bg-sidebar text-sidebar-foreground border-r border-sidebar-border hidden md:flex flex-col">
       <div className="h-16 flex items-center px-6 border-b border-sidebar-border">
@@ -24,24 +33,35 @@ export function Sidebar() {
         </div>
       </div>
 
-      <div className="flex-1 py-6 flex flex-col gap-1 px-3">
-        {visibleItems.map((item) => {
-          const hasMoreSpecificMatch = visibleItems.some(
-            other => other.href !== item.href && other.href.startsWith(item.href) && location.startsWith(other.href)
-          );
-          const isActive = !hasMoreSpecificMatch && (location === item.href || (item.href !== '/' && location.startsWith(item.href)));
-          return (
-            <Link key={item.href} href={item.href} className={cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors cursor-pointer",
-                isActive 
-                  ? "bg-sidebar-primary text-sidebar-primary-foreground" 
-                  : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-              )}>
-                <item.icon className="h-4 w-4" />
-                {item.label}
-            </Link>
-          );
-        })}
+      <div className="flex-1 py-4 flex flex-col gap-4 px-3 overflow-y-auto">
+        {visibleGroups.map((group, groupIndex) => (
+          <div key={group.title ?? `group-${groupIndex}`} className="flex flex-col gap-1">
+            {group.title && (
+              <div className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/40" data-testid={`heading-nav-${group.title.toLowerCase().replace(/\s+/g, '-')}`}>
+                {group.title}
+              </div>
+            )}
+            {group.items.map((item) => {
+              const hasMoreSpecificMatch = visibleItems.some(
+                other => other.href !== item.href && other.href.startsWith(item.href) && location.startsWith(other.href)
+              );
+              const isActive = !hasMoreSpecificMatch && (location === item.href || (item.href !== '/' && location.startsWith(item.href)));
+              return (
+                <Link key={item.href} href={item.href} className={cn(
+                    "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors cursor-pointer",
+                    isActive
+                      ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                      : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  )}
+                  data-testid={`link-nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
+                >
+                    <item.icon className="h-4 w-4" />
+                    {item.label}
+                </Link>
+              );
+            })}
+          </div>
+        ))}
       </div>
 
       <div className="p-4 border-t border-sidebar-border">
