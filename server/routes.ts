@@ -305,14 +305,16 @@ export async function registerRoutes(
         const price = copy.price || 0;
         totalAcquisitionCost += price;
         
-        const key = `${copy.acquisitionDate?.toISOString() || 'unknown'}_${copy.acquisitionSource || 'unknown'}`;
+        const acqDate = copy.acquisitionDate ? new Date(copy.acquisitionDate) : null;
+        const acqDateKey = acqDate && !isNaN(acqDate.getTime()) ? acqDate.toISOString() : 'unknown';
+        const key = `${acqDateKey}_${copy.acquisitionSource || 'unknown'}`;
         const existing = acquisitionGroups.get(key);
         if (existing) {
           existing.cost += price;
           existing.quantity += 1;
         } else {
           acquisitionGroups.set(key, {
-            date: copy.acquisitionDate,
+            date: acqDate && !isNaN(acqDate.getTime()) ? acqDate : null,
             source: copy.acquisitionSource,
             cost: price,
             quantity: 1,

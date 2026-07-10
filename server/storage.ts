@@ -689,12 +689,18 @@ export class DBStorage implements IStorage {
   }
 
   async getActiveCirculationByBookAll(bookId: number): Promise<Circulation[]> {
-    return await db.select().from(circulation).where(
-      and(
-        eq(circulation.bookId, bookId),
-        or(eq(circulation.status, 'ACTIVE'), eq(circulation.status, 'OVERDUE'))
-      )
-    );
+    try {
+      return await db.select().from(circulation).where(
+        and(
+          eq(circulation.bookId, bookId),
+          inArray(circulation.status, ['ACTIVE', 'OVERDUE'])
+        )
+      );
+    } catch (err) {
+      console.error("getActiveCirculationByBookAll query failed, falling back:", err);
+      const all = await db.select().from(circulation).where(eq(circulation.bookId, bookId));
+      return all.filter(c => c.status === 'ACTIVE' || c.status === 'OVERDUE');
+    }
   }
 
   async getCirculationByUser(userId: number): Promise<Circulation[]> {
