@@ -2,9 +2,15 @@ import { Link, useLocation } from "wouter";
 import { navItems, navGroups } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import logo from "@assets/generated_images/minimalist_abstract_library_logo_icon.png";
 
-export function Sidebar() {
+interface SidebarProps {
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
+}
+
+function SidebarContent({ onLinkClick }: { onLinkClick?: () => void }) {
   const [location] = useLocation();
   const { user } = useAuth();
 
@@ -25,8 +31,8 @@ export function Sidebar() {
     .filter(group => group.items.length > 0);
 
   return (
-    <aside className="fixed inset-y-0 left-0 z-50 w-64 bg-sidebar text-sidebar-foreground border-r border-sidebar-border hidden md:flex flex-col">
-      <div className="h-16 flex items-center px-6 border-b border-sidebar-border">
+    <div className="flex flex-col h-full bg-sidebar text-sidebar-foreground">
+      <div className="h-16 flex items-center px-6 border-b border-sidebar-border flex-shrink-0">
         <div className="flex items-center gap-3">
           <img src={logo} alt="LibraTech" className="h-8 w-8 rounded-md bg-white p-1" />
           <span className="font-bold text-lg tracking-tight">LibraTech</span>
@@ -37,7 +43,10 @@ export function Sidebar() {
         {visibleGroups.map((group, groupIndex) => (
           <div key={group.title ?? `group-${groupIndex}`} className="flex flex-col gap-1">
             {group.title && (
-              <div className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/40" data-testid={`heading-nav-${group.title.toLowerCase().replace(/\s+/g, '-')}`}>
+              <div
+                className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/40"
+                data-testid={`heading-nav-${group.title.toLowerCase().replace(/\s+/g, '-')}`}
+              >
                 {group.title}
               </div>
             )}
@@ -47,7 +56,11 @@ export function Sidebar() {
               );
               const isActive = !hasMoreSpecificMatch && (location === item.href || (item.href !== '/' && location.startsWith(item.href)));
               return (
-                <Link key={item.href} href={item.href} className={cn(
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={onLinkClick}
+                  className={cn(
                     "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors cursor-pointer",
                     isActive
                       ? "bg-sidebar-primary text-sidebar-primary-foreground"
@@ -55,8 +68,8 @@ export function Sidebar() {
                   )}
                   data-testid={`link-nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
                 >
-                    <item.icon className="h-4 w-4" />
-                    {item.label}
+                  <item.icon className="h-4 w-4" />
+                  {item.label}
                 </Link>
               );
             })}
@@ -64,7 +77,7 @@ export function Sidebar() {
         ))}
       </div>
 
-      <div className="p-4 border-t border-sidebar-border">
+      <div className="p-4 border-t border-sidebar-border flex-shrink-0">
         <div className="flex items-center gap-3 p-2 rounded-md hover:bg-sidebar-accent cursor-pointer">
           <div className="h-8 w-8 rounded-full bg-sidebar-primary flex items-center justify-center text-sidebar-primary-foreground font-bold text-xs">
             {user?.name?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'U'}
@@ -75,6 +88,24 @@ export function Sidebar() {
           </div>
         </div>
       </div>
-    </aside>
+    </div>
+  );
+}
+
+export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
+  return (
+    <>
+      {/* Desktop sidebar */}
+      <aside className="fixed inset-y-0 left-0 z-50 w-64 hidden md:flex flex-col border-r border-sidebar-border">
+        <SidebarContent />
+      </aside>
+
+      {/* Mobile sidebar — Sheet overlay */}
+      <Sheet open={mobileOpen} onOpenChange={(open) => { if (!open) onMobileClose?.(); }}>
+        <SheetContent side="left" className="p-0 w-64 border-r border-sidebar-border" data-testid="mobile-sidebar">
+          <SidebarContent onLinkClick={onMobileClose} />
+        </SheetContent>
+      </Sheet>
+    </>
   );
 }

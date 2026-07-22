@@ -25,7 +25,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 
-export function TopBar() {
+export function TopBar({ onMenuClick }: { onMenuClick?: () => void }) {
   const { user, logout } = useAuth();
   const queryClient = useQueryClient();
   const [showChangePassword, setShowChangePassword] = useState(false);
@@ -132,7 +132,7 @@ export function TopBar() {
     <>
       <header className="h-16 border-b bg-background sticky top-0 z-40 flex items-center justify-between px-6">
         <div className="flex items-center gap-4 md:hidden">
-          <Button variant="ghost" size="icon">
+          <Button variant="ghost" size="icon" onClick={onMenuClick} data-testid="button-mobile-menu">
             <Menu className="h-5 w-5" />
           </Button>
           <span className="font-bold">LibraTech</span>
