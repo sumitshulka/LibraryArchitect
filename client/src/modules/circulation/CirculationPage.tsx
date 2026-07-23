@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -248,6 +248,136 @@ function MemberSearchBox({
   );
 }
 
+function BookSearchBox({
+  books,
+  selectedBook,
+  onSelect,
+  onClear,
+}: {
+  books: Book[];
+  selectedBook: Book | null;
+  onSelect: (book: Book) => void;
+  onClear: () => void;
+}) {
+  const [searchText, setSearchText] = useState("");
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const filteredBooks = useMemo(() => {
+    if (!searchText.trim()) return books.slice(0, 15);
+    const q = searchText.toLowerCase();
+    const qClean = q.replace(/[-\s]/g, "");
+    return books.filter(b =>
+      b.title.toLowerCase().includes(q) ||
+      b.author.toLowerCase().includes(q) ||
+      b.isbn.replace(/[-\s]/g, "").includes(qClean) ||
+      (b.category && b.category.toLowerCase().includes(q))
+    ).slice(0, 20);
+  }, [searchText, books]);
+
+  const handleSelect = (book: Book) => {
+    onSelect(book);
+    setIsOpen(false);
+    setSearchText("");
+  };
+
+  if (selectedBook) {
+    return (
+      <div className="flex items-center gap-2 p-3 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-lg">
+        <BookOpen className="h-5 w-5 text-green-600 dark:text-green-400 shrink-0" />
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold truncate" data-testid="text-selected-book-title">{selectedBook.title}</p>
+          <p className="text-xs text-muted-foreground truncate">by {selectedBook.author} · {formatIsbn(selectedBook.isbn)}</p>
+        </div>
+        <Button variant="ghost" size="sm" onClick={onClear} className="shrink-0 h-7 w-7 p-0" data-testid="button-clear-book">
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div ref={containerRef} className="relative">
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          ref={inputRef}
+          placeholder="Search by title, author, ISBN, or category..."
+          value={searchText}
+          onChange={(e) => { setSearchText(e.target.value); setIsOpen(true); }}
+          onFocus={() => setIsOpen(true)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && filteredBooks.length === 1) {
+              e.preventDefault();
+              handleSelect(filteredBooks[0]);
+            }
+            if (e.key === "Escape") setIsOpen(false);
+          }}
+          className="h-10 pl-9"
+          data-testid="input-book-search"
+          autoComplete="off"
+        />
+      </div>
+      {isOpen && (
+        <div className="absolute z-50 mt-1 w-full bg-popover border rounded-lg shadow-lg max-h-[300px] overflow-hidden">
+          {filteredBooks.length === 0 ? (
+            <div className="py-6 text-center text-sm text-muted-foreground">
+              {searchText ? `No books found for "${searchText}"` : "No books in catalog"}
+            </div>
+          ) : (
+            <div className="overflow-y-auto max-h-[300px]">
+              {books.length > filteredBooks.length && searchText && (
+                <div className="px-3 py-1.5 bg-muted/50 text-xs text-muted-foreground border-b">
+                  Showing {filteredBooks.length} of {books.length} — type more to narrow down
+                </div>
+              )}
+              {filteredBooks.map((book) => (
+                <button
+                  key={book.id}
+                  onClick={() => handleSelect(book)}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-accent text-left transition-colors border-b last:border-b-0"
+                  data-testid={`button-select-book-${book.id}`}
+                >
+                  <div className="w-8 h-8 rounded bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                    <BookOpen className="h-4 w-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium truncate">{book.title}</span>
+                      {book.category && (
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">{book.category}</Badge>
+                      )}
+                      {book.status !== "AVAILABLE" && (
+                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">{book.status}</Badge>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
+                      <span className="truncate">by {book.author}</span>
+                      <span>·</span>
+                      <span className="font-mono shrink-0">{formatIsbn(book.isbn)}</span>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function CirculationPage() {
   const queryClient = useQueryClient();
   const { user: currentUser } = useAuth();
@@ -271,6 +401,7 @@ export default function CirculationPage() {
   const [returnIsbn, setReturnIsbn] = useState("");
   const [returnInfo, setReturnInfo] = useState<{ circulationId: number; book: Book; user: SafeUser; dueDate: string; isOverdue: boolean } | null>(null);
   const [isLookingUpReturn, setIsLookingUpReturn] = useState(false);
+  const [bookLookupMode, setBookLookupMode] = useState<"isbn" | "browse">("isbn");
 
   const isAdmin = currentUser?.role === 'ADMIN';
 
@@ -318,13 +449,39 @@ export default function CirculationPage() {
 
   const activeTransactions = circulation.filter(c => c.status === "ACTIVE" || c.status === "OVERDUE");
 
-  const lookupBook = async () => {
-    if (!isbnInput.trim()) return;
+  const clearBook = useCallback(() => {
+    setIsbnInput("");
+    setResolvedBook(null);
+    setBookError("");
+    setAvailableCopies([]);
+    setSelectedCopy(null);
+    setHasCopiesWithSSN(false);
+  }, []);
+
+  const handleBookSelect = useCallback(async (book: Book) => {
     setBookError("");
     setResolvedBook(null);
     setAvailableCopies([]);
     setSelectedCopy(null);
     setHasCopiesWithSSN(false);
+    if (book.status !== "AVAILABLE") {
+      setBookError(`This book is currently ${book.status.toLowerCase()}`);
+      return;
+    }
+    setResolvedBook(book);
+    try {
+      const copies = selectedLibraryId
+        ? await bookCopiesApi.getByBookAndLibrary(book.id, selectedLibraryId)
+        : await bookCopiesApi.getByBook(book.id);
+      const issuableCopies = copies.filter(c => c.status === "AVAILABLE");
+      setAvailableCopies(issuableCopies);
+      setHasCopiesWithSSN(issuableCopies.length > 0);
+      if (issuableCopies.length === 1) setSelectedCopy(issuableCopies[0]);
+    } catch {}
+  }, [selectedLibraryId]);
+
+  const lookupBook = async () => {
+    if (!isbnInput.trim()) return;
     setIsLookingUpBook(true);
     try {
       const cleanIsbn = isbnInput.replace(/[-\s]/g, "");
@@ -333,26 +490,10 @@ export default function CirculationPage() {
       );
       if (!book) {
         setBookError("No book found with this ISBN");
+        setResolvedBook(null);
         return;
       }
-      if (book.status !== "AVAILABLE") {
-        setBookError(`This book is currently ${book.status.toLowerCase()}`);
-        return;
-      }
-      setResolvedBook(book);
-
-      try {
-        const copies = selectedLibraryId
-          ? await bookCopiesApi.getByBookAndLibrary(book.id, selectedLibraryId)
-          : await bookCopiesApi.getByBook(book.id);
-        const issuableCopies = copies.filter(c => c.status === "AVAILABLE");
-        setAvailableCopies(issuableCopies);
-        setHasCopiesWithSSN(issuableCopies.length > 0);
-        if (issuableCopies.length === 1) {
-          setSelectedCopy(issuableCopies[0]);
-        }
-      } catch {
-      }
+      await handleBookSelect(book);
     } finally {
       setIsLookingUpBook(false);
     }
@@ -580,43 +721,82 @@ export default function CirculationPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="flex items-center gap-1.5 text-sm font-medium">
-                    <Hash className="h-3.5 w-3.5" />
-                    Book ISBN
-                  </Label>
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder="Enter or scan ISBN..."
-                      value={isbnInput}
-                      onChange={(e) => { setIsbnInput(e.target.value); setBookError(""); setResolvedBook(null); setAvailableCopies([]); setSelectedCopy(null); setHasCopiesWithSSN(false); }}
-                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); lookupBook(); } }}
-                      className="h-10"
-                      data-testid="input-isbn"
-                    />
-                    <Button
-                      variant="secondary"
-                      onClick={lookupBook}
-                      disabled={isLookingUpBook || !isbnInput.trim()}
-                      className="h-10 px-3"
-                      data-testid="button-lookup-isbn"
-                    >
-                      {isLookingUpBook ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-                    </Button>
-                  </div>
-                  {bookError && (
-                    <p className="text-xs text-red-600 flex items-center gap-1">
-                      <AlertCircle className="h-3 w-3" /> {bookError}
-                    </p>
-                  )}
-                  {resolvedBook && (
-                    <div className="text-xs p-2 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-md space-y-0.5">
-                      <div className="flex items-center gap-1 text-green-700 dark:text-green-400 font-medium">
-                        <CheckCircle2 className="h-3 w-3" /> Book Found
-                      </div>
-                      <p className="font-medium text-foreground">{resolvedBook.title}</p>
-                      <p className="text-muted-foreground">by {resolvedBook.author}</p>
-                      <p className="text-muted-foreground">ISBN: {formatIsbn(resolvedBook.isbn)}</p>
+                  <div className="flex items-center justify-between gap-2">
+                    <Label className="flex items-center gap-1.5 text-sm font-medium">
+                      <Hash className="h-3.5 w-3.5" />
+                      Book
+                    </Label>
+                    <div className="flex text-xs border rounded-md overflow-hidden shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => { setBookLookupMode("isbn"); clearBook(); }}
+                        className={`px-2.5 py-1 transition-colors ${bookLookupMode === "isbn" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+                        data-testid="button-mode-isbn"
+                      >
+                        ISBN / Barcode
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setBookLookupMode("browse"); clearBook(); }}
+                        className={`px-2.5 py-1 border-l transition-colors ${bookLookupMode === "browse" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+                        data-testid="button-mode-browse"
+                      >
+                        Browse Catalog
+                      </button>
                     </div>
+                  </div>
+
+                  {bookLookupMode === "isbn" ? (
+                    <>
+                      <div className="flex gap-2">
+                        <Input
+                          placeholder="Enter or scan ISBN..."
+                          value={isbnInput}
+                          onChange={(e) => { setIsbnInput(e.target.value); setBookError(""); setResolvedBook(null); setAvailableCopies([]); setSelectedCopy(null); setHasCopiesWithSSN(false); }}
+                          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); lookupBook(); } }}
+                          className="h-10"
+                          data-testid="input-isbn"
+                        />
+                        <Button
+                          variant="secondary"
+                          onClick={lookupBook}
+                          disabled={isLookingUpBook || !isbnInput.trim()}
+                          className="h-10 px-3"
+                          data-testid="button-lookup-isbn"
+                        >
+                          {isLookingUpBook ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                        </Button>
+                      </div>
+                      {bookError && (
+                        <p className="text-xs text-red-600 flex items-center gap-1">
+                          <AlertCircle className="h-3 w-3" /> {bookError}
+                        </p>
+                      )}
+                      {resolvedBook && (
+                        <div className="text-xs p-2 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-md space-y-0.5">
+                          <div className="flex items-center gap-1 text-green-700 dark:text-green-400 font-medium">
+                            <CheckCircle2 className="h-3 w-3" /> Book Found
+                          </div>
+                          <p className="font-medium text-foreground">{resolvedBook.title}</p>
+                          <p className="text-muted-foreground">by {resolvedBook.author}</p>
+                          <p className="text-muted-foreground">ISBN: {formatIsbn(resolvedBook.isbn)}</p>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <BookSearchBox
+                        books={books}
+                        selectedBook={resolvedBook}
+                        onSelect={handleBookSelect}
+                        onClear={clearBook}
+                      />
+                      {bookError && (
+                        <p className="text-xs text-red-600 flex items-center gap-1">
+                          <AlertCircle className="h-3 w-3" /> {bookError}
+                        </p>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
