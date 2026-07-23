@@ -16,7 +16,7 @@ import {
   Search, Upload, FileText, Video, Music, Image as ImageIcon,
   FileArchive, Link as LinkIcon, Eye, Download, Calendar, X, User as UserIcon,
   Building2, GraduationCap, Tag as TagIcon, HardDrive, Tags, Loader2, Save,
-  LayoutDashboard, FolderOpen, CheckCircle2, SlidersHorizontal,
+  LayoutDashboard, FolderOpen, CheckCircle2, SlidersHorizontal, LayoutGrid, List,
 } from "lucide-react";
 import { digitalResourcesApi, resourceTypeSettingsApi, searchAttributesApi } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -145,6 +145,14 @@ export default function RepositoryPage() {
   const [status, setStatus] = useState<string>(isStaff ? (params.get("status") || "all") : "all");
   const [tagFilter, setTagFilter] = useState<string | null>(params.get("tag"));
   const [attributeValueIds, setAttributeValueIds] = useState<number[]>([]);
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
+  const [deptFilter, setDeptFilter] = useState('');
+  const [courseFilter, setCourseFilter] = useState('');
+  const [semesterFilter, setSemesterFilter] = useState('');
+  const [facultyFilter, setFacultyFilter] = useState('');
+  const [visibilityFilter, setVisibilityFilter] = useState('all');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
 
   const { data: resources = [], isLoading } = useQuery<DigitalResource[]>({
     queryKey: ["digital-resources", "repository", search, resourceType, category, status, attributeValueIds],
@@ -168,9 +176,17 @@ export default function RepositoryPage() {
     typeSettings.find(s => s.resourceType === resourceType)?.color || "#3b82f6";
 
   const filtered = useMemo(() => {
-    if (!tagFilter) return resources;
-    return resources.filter(r => (r.tags || []).includes(tagFilter));
-  }, [resources, tagFilter]);
+    let result = resources;
+    if (tagFilter) result = result.filter(r => (r.tags || []).includes(tagFilter));
+    if (deptFilter) result = result.filter(r => (r.department || '').toLowerCase().includes(deptFilter.toLowerCase()));
+    if (courseFilter) result = result.filter(r => (r.course || '').toLowerCase().includes(courseFilter.toLowerCase()));
+    if (semesterFilter) result = result.filter(r => (r.semester || '').toLowerCase().includes(semesterFilter.toLowerCase()));
+    if (facultyFilter) result = result.filter(r => ((r.faculty || '') + ' ' + (r.author || '')).toLowerCase().includes(facultyFilter.toLowerCase()));
+    if (visibilityFilter !== 'all') result = result.filter(r => r.visibility === visibilityFilter);
+    if (dateFrom) result = result.filter(r => r.createdAt && new Date(r.createdAt as any) >= new Date(dateFrom));
+    if (dateTo) result = result.filter(r => r.createdAt && new Date(r.createdAt as any) <= new Date(dateTo + 'T23:59:59'));
+    return result;
+  }, [resources, tagFilter, deptFilter, courseFilter, semesterFilter, facultyFilter, visibilityFilter, dateFrom, dateTo]);
 
   const clearFilters = () => {
     setSearch("");
@@ -179,10 +195,17 @@ export default function RepositoryPage() {
     setStatus("all");
     setTagFilter(null);
     setAttributeValueIds([]);
+    setDeptFilter('');
+    setCourseFilter('');
+    setSemesterFilter('');
+    setFacultyFilter('');
+    setVisibilityFilter('all');
+    setDateFrom('');
+    setDateTo('');
     setLocation("/digital-resources/repository");
   };
 
-  const hasActiveFilters = search || resourceType !== "all" || category !== "all" || status !== "all" || tagFilter || attributeValueIds.length > 0;
+  const hasActiveFilters = search || resourceType !== "all" || category !== "all" || status !== "all" || tagFilter || attributeValueIds.length > 0 || deptFilter || courseFilter || semesterFilter || facultyFilter || visibilityFilter !== 'all' || dateFrom || dateTo;
 
   const totalViews = filtered.reduce((sum, r) => sum + (r.viewCount || 0), 0);
   const totalDownloads = filtered.reduce((sum, r) => sum + (r.downloadCount || 0), 0);
@@ -295,6 +318,49 @@ export default function RepositoryPage() {
                 </Button>
               )}
             </div>
+            <div className="flex flex-wrap gap-2 pt-2 border-t mt-1">
+              <Input
+                placeholder="Department…"
+                value={deptFilter}
+                onChange={e => setDeptFilter(e.target.value)}
+                className="w-[140px] h-8 text-sm"
+                data-testid="input-filter-department"
+              />
+              <Input
+                placeholder="Course…"
+                value={courseFilter}
+                onChange={e => setCourseFilter(e.target.value)}
+                className="w-[120px] h-8 text-sm"
+                data-testid="input-filter-course"
+              />
+              <Input
+                placeholder="Semester…"
+                value={semesterFilter}
+                onChange={e => setSemesterFilter(e.target.value)}
+                className="w-[115px] h-8 text-sm"
+                data-testid="input-filter-semester"
+              />
+              <Input
+                placeholder="Faculty / Author…"
+                value={facultyFilter}
+                onChange={e => setFacultyFilter(e.target.value)}
+                className="w-[150px] h-8 text-sm"
+                data-testid="input-filter-faculty"
+              />
+              <Select value={visibilityFilter} onValueChange={setVisibilityFilter}>
+                <SelectTrigger className="w-[155px] h-8 text-sm" data-testid="select-visibility-filter">
+                  <SelectValue placeholder="All Visibility" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Visibility</SelectItem>
+                  {["INSTITUTION","LIBRARY","DEPARTMENT","COURSE","BATCH","FACULTY_ONLY","STUDENTS_ONLY","ROLE_BASED"].map(v => (
+                    <SelectItem key={v} value={v}>{v.replace(/_/g, " ")}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="w-[140px] h-8 text-sm" title="Uploaded from" data-testid="input-filter-date-from" />
+              <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="w-[140px] h-8 text-sm" title="Uploaded until" data-testid="input-filter-date-to" />
+            </div>
           </div>
           {tagFilter && (
             <div className="flex items-center gap-2">
@@ -309,6 +375,32 @@ export default function RepositoryPage() {
           )}
         </CardContent>
       </Card>
+
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-sm text-muted-foreground">
+          {isLoading ? "Loading…" : `${filtered.length} resource${filtered.length !== 1 ? "s" : ""}`}
+        </p>
+        <div className="flex items-center border rounded-md overflow-hidden">
+          <Button
+            variant={viewMode === "list" ? "secondary" : "ghost"}
+            size="sm"
+            className="h-8 rounded-none px-3"
+            onClick={() => setViewMode("list")}
+            data-testid="button-view-list"
+          >
+            <List className="h-4 w-4" />
+          </Button>
+          <Button
+            variant={viewMode === "grid" ? "secondary" : "ghost"}
+            size="sm"
+            className="h-8 rounded-none px-3"
+            onClick={() => setViewMode("grid")}
+            data-testid="button-view-grid"
+          >
+            <LayoutGrid className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
 
       {isLoading ? (
         <div className="flex flex-col gap-3" data-testid="loading-resources">
@@ -342,6 +434,29 @@ export default function RepositoryPage() {
             )}
           </CardContent>
         </Card>
+      ) : viewMode === "grid" ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3" data-testid="grid-resources">
+          {filtered.map(r => {
+            const Icon = typeIcon(r.resourceType);
+            const color = typeColor(r.resourceType);
+            return (
+              <Link key={r.id} href={`/digital-resources/${r.id}`} data-testid={`card-grid-resource-${r.id}`}>
+                <Card className="hover:shadow-md hover:-translate-y-0.5 transition-all cursor-pointer h-full">
+                  <CardContent className="p-3 flex flex-col items-center text-center gap-2">
+                    <div className="h-12 w-12 rounded-xl flex items-center justify-center mt-2" style={{ backgroundColor: `${color}1a`, border: `1px solid ${color}40` }}>
+                      <Icon className="h-6 w-6" style={{ color }} />
+                    </div>
+                    <p className="text-xs font-medium line-clamp-2 leading-tight">{r.title}</p>
+                    <div className="flex flex-col gap-0.5 items-center">
+                      <Badge variant={r.status === "PUBLISHED" ? "default" : "outline"} className="text-[10px] px-1.5 py-0">{r.status.replace(/_/g, " ")}</Badge>
+                      <span className="text-[10px] text-muted-foreground">{r.resourceType}</span>
+                    </div>
+                  </CardContent>
+                </Card>
+              </Link>
+            );
+          })}
+        </div>
       ) : (
         <div className="flex flex-col gap-3" data-testid="list-resources">
           {filtered.map((r) => {

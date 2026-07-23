@@ -1977,6 +1977,17 @@ export const digitalResourcesApi = {
     const res = await fetch(`${API_BASE}/digital-resources/${id}/view`, { method: "POST" });
     if (!res.ok) throw new Error("Failed to record view");
   },
+
+  restoreVersion: async (id: number, versionId: number): Promise<DigitalResource> => {
+    const res = await fetch(`${API_BASE}/digital-resources/${id}/restore-version/${versionId}`, {
+      method: "PUT",
+    });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || "Failed to restore version");
+    }
+    return res.json();
+  },
 };
 
 export interface ResourceTypeSettingApi {

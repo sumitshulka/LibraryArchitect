@@ -80,6 +80,8 @@ export default function UploadResourcePage() {
     allowDownload: true,
     allowPreview: true,
     publishNow: false,
+    versionNumber: "1.0",
+    releaseNotes: "",
   });
 
   const { data: libraries = [] } = useQuery({
@@ -148,6 +150,7 @@ export default function UploadResourcePage() {
         fileName,
         fileSizeBytes,
         externalUrl: sourceMode === "url" ? externalUrl : undefined,
+        versionNumber: form.versionNumber || "1.0",
       };
 
       const created = await digitalResourcesApi.create(payload);
@@ -267,6 +270,32 @@ export default function UploadResourcePage() {
                 />
               </div>
             )}
+            <div className="border-t pt-4 space-y-4">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Initial Version Info</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="initial-version">Version Number</Label>
+                  <Input
+                    id="initial-version"
+                    placeholder="e.g. 1.0"
+                    value={form.versionNumber}
+                    onChange={(e) => update({ versionNumber: e.target.value })}
+                    data-testid="input-initial-version"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="release-notes">Release Notes <span className="text-muted-foreground text-xs">(optional)</span></Label>
+                <Textarea
+                  id="release-notes"
+                  rows={2}
+                  placeholder="What's included in this initial version?"
+                  value={form.releaseNotes}
+                  onChange={(e) => update({ releaseNotes: e.target.value })}
+                  data-testid="input-release-notes"
+                />
+              </div>
+            </div>
           </CardContent>
         </Card>
       )}

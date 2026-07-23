@@ -536,6 +536,47 @@ export function registerDigitalResourceRoutes(app: Express) {
     }
   });
 
+  // Restore/rollback to a specific version
+  app.put("/api/digital-resources/:id/restore-version/:versionId", async (req, res) => {
+    try {
+      const user = await getAuthedUser(req, res);
+      if (!user) return;
+      if (!requireManageAccess(user)) {
+        return res.status(403).json({ error: "You do not have permission to restore versions" });
+      }
+      const id = parseInt(req.params.id);
+      const versionId = parseInt(req.params.versionId);
+      const resource = await storage.getDigitalResource(id);
+      if (!resource) return res.status(404).json({ error: "Digital resource not found" });
+      if (user.role === "FACULTY" && resource.uploadedBy !== user.id) {
+        return res.status(403).json({ error: "You can only restore versions of your own resources" });
+      }
+      const version = await storage.getDigitalResourceVersion(versionId);
+      if (!version || version.resourceId !== id) {
+        return res.status(404).json({ error: "Version not found for this resource" });
+      }
+      await storage.updateDigitalResource(id, {
+        versionNumber: version.versionNumber,
+        fileUrl: version.fileUrl ?? undefined,
+        fileName: version.fileName ?? undefined,
+        fileSizeBytes: version.fileSizeBytes ?? undefined,
+        externalUrl: version.externalUrl ?? undefined,
+      });
+      logAudit(req, {
+        category: "DIGITAL_RESOURCES",
+        action: "RESOURCE_VERSION_RESTORED",
+        targetType: "digital_resource",
+        targetId: String(id),
+        details: { versionId, versionNumber: version.versionNumber },
+      });
+      const updated = await storage.getDigitalResource(id);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error restoring digital resource version:", error);
+      res.status(500).json({ error: "Failed to restore version" });
+    }
+  });
+
   // Track a download
   app.post("/api/digital-resources/:id/download", async (req, res) => {
     try {

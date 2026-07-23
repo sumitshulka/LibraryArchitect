@@ -75,7 +75,7 @@ export const dashboardStats = {
 export const navItems = [
   { label: 'Dashboard', icon: LayoutDashboard, href: '/', localAdminOnly: false },
   { label: 'Catalog', icon: Book, href: '/catalog', localAdminOnly: false },
-  { label: 'Digital Repository', icon: FolderOpen, href: '/digital-resources/repository', localAdminOnly: false },
+  { label: 'Digital Resources', icon: FolderOpen, href: '/digital-resources', localAdminOnly: false },
   { label: 'Inventory', icon: Layers, href: '/inventory', localAdminOnly: false },
   { label: 'Search Attributes', icon: Tags, href: '/catalog/search-attributes', localAdminOnly: false },
   { label: 'Allocations', icon: Package, href: '/allocations', localAdminOnly: false },
@@ -93,7 +93,7 @@ export const navItems = [
 
 export const navGroups: { title: string | null; items: string[] }[] = [
   { title: null, items: ['Dashboard'] },
-  { title: 'Collections', items: ['Catalog', 'Digital Repository', 'Inventory', 'Search Attributes'] },
+  { title: 'Collections', items: ['Catalog', 'Digital Resources', 'Inventory', 'Search Attributes'] },
   { title: 'Library Operations', items: ['Allocations', 'Circulation', 'Reservations', 'Lost & Damaged', 'Fines', 'Waiver Requests'] },
   { title: 'Members', items: ['Patrons', 'Organizations'] },
   { title: 'Insights', items: ['Reports'] },

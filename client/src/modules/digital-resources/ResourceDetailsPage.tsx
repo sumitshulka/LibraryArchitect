@@ -21,7 +21,7 @@ import {
   ArrowLeft, Download, Eye, FileText, Video, Music, Image as ImageIcon,
   FileArchive, Link as LinkIcon, Calendar, User as UserIcon, Building2,
   Tag as TagIcon, History, Upload, Trash2, CheckCircle2, XCircle, Loader2, ExternalLink,
-  Globe2, BookOpen, BarChart3, Clock, Archive, ArchiveRestore,
+  Globe2, BookOpen, BarChart3, Clock, Archive, ArchiveRestore, RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { digitalResourcesApi, resourceTypeSettingsApi } from "@/lib/api";
@@ -56,6 +56,7 @@ export default function ResourceDetailsPage() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [versionDialogOpen, setVersionDialogOpen] = useState(false);
+  const [rollbackVersion, setRollbackVersion] = useState<any | null>(null);
   const [versionFile, setVersionFile] = useState<File | null>(null);
   const [versionNotes, setVersionNotes] = useState("");
   const [versionNumber, setVersionNumber] = useState("");
@@ -134,6 +135,16 @@ export default function ResourceDetailsPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const rollbackMutation = useMutation({
+    mutationFn: (versionId: number) => digitalResourcesApi.restoreVersion(id, versionId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["digital-resources", id] });
+      toast.success("Version restored successfully");
+      setRollbackVersion(null);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const downloadMutation = useMutation({
     mutationFn: () => digitalResourcesApi.recordDownload(id),
     onSuccess: (data) => {
@@ -187,7 +198,14 @@ export default function ResourceDetailsPage() {
 
   const Icon = typeIcon(resource.resourceType);
   const previewUrl = resource.fileUrl || resource.externalUrl;
-  const isPreviewable = resource.allowPreview && previewUrl && ["PDF", "IMAGE"].includes(resource.resourceType);
+  const isPreviewable = resource.allowPreview && !!previewUrl;
+  const isImageType = resource.resourceType === "IMAGE";
+  const isVideoType = resource.resourceType === "VIDEO";
+  const isAudioType = resource.resourceType === "AUDIO";
+  const isYouTubeType = resource.resourceType === "YOUTUBE";
+  const youTubeId = isYouTubeType && previewUrl
+    ? (previewUrl.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&?#\s]+)/)?.[1] ?? null)
+    : null;
 
   return (
     <MainLayout>
@@ -328,22 +346,40 @@ export default function ResourceDetailsPage() {
           <Card>
             <CardContent className="p-6">
               {isPreviewable ? (
-                resource.resourceType === "IMAGE" ? (
+                isImageType ? (
                   <img src={previewUrl!} alt={resource.title} className="w-full rounded-lg max-h-[480px] object-contain bg-muted" data-testid="img-preview" />
+                ) : isVideoType ? (
+                  <video
+                    src={previewUrl!}
+                    controls
+                    className="w-full rounded-lg max-h-[480px] bg-black"
+                    data-testid="video-preview"
+                  />
+                ) : isAudioType ? (
+                  <div className="flex flex-col items-center justify-center py-8 bg-muted/40 rounded-lg gap-4" data-testid="audio-preview-wrapper">
+                    <Music className="h-14 w-14 text-muted-foreground" />
+                    <p className="text-sm font-medium">{resource.fileName || resource.title}</p>
+                    <audio src={previewUrl!} controls className="w-full max-w-md" data-testid="audio-preview" />
+                  </div>
+                ) : isYouTubeType && youTubeId ? (
+                  <div className="relative w-full" style={{ paddingBottom: "56.25%" }} data-testid="youtube-preview">
+                    <iframe
+                      src={`https://www.youtube.com/embed/${youTubeId}`}
+                      title={resource.title}
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                      className="absolute inset-0 w-full h-full rounded-lg"
+                    />
+                  </div>
                 ) : (
-                  <div className="flex flex-col items-center justify-center py-12 bg-muted/40 rounded-lg" data-testid="preview-pdf-fallback">
+                  <div className="flex flex-col items-center justify-center py-12 bg-muted/40 rounded-lg" data-testid="preview-open-tab-fallback">
                     <Icon className="h-14 w-14 text-muted-foreground mb-3" />
                     <p className="text-sm text-muted-foreground mb-1 font-medium">{resource.fileName || resource.title}</p>
                     <p className="text-xs text-muted-foreground mb-3">
-                      PDF preview opens in a new tab (browsers block embedded PDF viewers inside this preview).
+                      This file type opens in a new tab for best viewing.
                     </p>
-                    <Button
-                      size="sm"
-                      className="gap-2"
-                      onClick={() => window.open(previewUrl!, "_blank", "noopener,noreferrer")}
-                      data-testid="button-open-pdf-preview"
-                    >
-                      <ExternalLink className="h-4 w-4" /> Open PDF in New Tab
+                    <Button size="sm" className="gap-2" onClick={() => window.open(previewUrl!, "_blank", "noopener,noreferrer")} data-testid="button-open-preview-tab">
+                      <ExternalLink className="h-4 w-4" /> Open in New Tab
                     </Button>
                   </div>
                 )
@@ -431,11 +467,18 @@ export default function ResourceDetailsPage() {
                                   {v.createdAt ? fmtDate(new Date(v.createdAt as any), "dd MMM yyyy, HH:mm") : ""}
                                 </p>
                               </div>
-                              {(v.fileUrl || v.externalUrl) && (
-                                <Button variant="ghost" size="sm" className="gap-1 shrink-0" onClick={() => window.open(v.fileUrl || v.externalUrl!, "_blank")} data-testid={`button-view-version-${v.id}`}>
-                                  <ExternalLink className="h-3.5 w-3.5" /> View
-                                </Button>
-                              )}
+                              <div className="flex gap-1 shrink-0">
+                                {(v.fileUrl || v.externalUrl) && (
+                                  <Button variant="ghost" size="sm" className="gap-1" onClick={() => window.open(v.fileUrl || v.externalUrl!, "_blank")} data-testid={`button-view-version-${v.id}`}>
+                                    <ExternalLink className="h-3.5 w-3.5" /> View
+                                  </Button>
+                                )}
+                                {canManage && idx !== 0 && (
+                                  <Button variant="ghost" size="sm" className="gap-1 text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-900/20" onClick={() => setRollbackVersion(v)} data-testid={`button-rollback-version-${v.id}`}>
+                                    <RotateCcw className="h-3.5 w-3.5" /> Rollback
+                                  </Button>
+                                )}
+                              </div>
                             </div>
                           </div>
                         ))}
@@ -517,6 +560,29 @@ export default function ResourceDetailsPage() {
           </Card>
         </div>
       </div>
+
+      <AlertDialog open={!!rollbackVersion} onOpenChange={open => !open && setRollbackVersion(null)}>
+        <AlertDialogContent data-testid="dialog-rollback-confirm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Restore version {rollbackVersion?.versionNumber}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The resource will revert to v{rollbackVersion?.versionNumber}. The current version will remain in history. This cannot be undone automatically.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-rollback-cancel">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => rollbackVersion && rollbackMutation.mutate(rollbackVersion.id)}
+              disabled={rollbackMutation.isPending}
+              className="bg-amber-600 hover:bg-amber-700"
+              data-testid="button-rollback-confirm"
+            >
+              {rollbackMutation.isPending && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
+              Restore v{rollbackVersion?.versionNumber}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={versionDialogOpen} onOpenChange={setVersionDialogOpen}>
         <DialogContent data-testid="dialog-add-version">

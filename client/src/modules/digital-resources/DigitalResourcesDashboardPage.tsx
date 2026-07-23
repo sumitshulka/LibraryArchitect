@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, PieChart, Pie, Cell,
+  ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area,
 } from "recharts";
 import { digitalResourcesApi } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -90,6 +90,29 @@ export default function DigitalResourcesDashboardPage() {
       .sort((a, b) => new Date(b.updatedAt as any).getTime() - new Date(a.updatedAt as any).getTime())
       .slice(0, 6);
   }, [resources]);
+
+  const byMonth = useMemo(() => {
+    const now = new Date();
+    return Array.from({ length: 6 }, (_, i) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
+      const label = d.toLocaleString("default", { month: "short", year: "2-digit" });
+      const monthStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      const count = resources.filter(r => {
+        const c = r.createdAt ? new Date(r.createdAt as any) : null;
+        if (!c) return false;
+        return `${c.getFullYear()}-${String(c.getMonth() + 1).padStart(2, "0")}` === monthStr;
+      }).length;
+      return { month: label, count };
+    });
+  }, [resources]);
+
+  const topDownloaded = useMemo(() =>
+    [...resources].sort((a, b) => (b.downloadCount || 0) - (a.downloadCount || 0)).slice(0, 5),
+    [resources]);
+
+  const topViewed = useMemo(() =>
+    [...resources].sort((a, b) => (b.viewCount || 0) - (a.viewCount || 0)).slice(0, 5),
+    [resources]);
 
   return (
     <MainLayout>
@@ -184,6 +207,61 @@ export default function DigitalResourcesDashboardPage() {
         </Card>
       </div>
 
+      <div className="grid gap-4 grid-cols-1 lg:grid-cols-7 mb-4">
+        <Card className="lg:col-span-4">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2"><TrendingUp className="h-4 w-4" /> Monthly Upload Trend</CardTitle>
+            <CardDescription>Resources added per month (last 6 months)</CardDescription>
+          </CardHeader>
+          <CardContent className="pl-1">
+            <div className="h-[200px]">
+              {byMonth.some(m => m.count > 0) ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={byMonth} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-muted" />
+                    <XAxis dataKey="month" stroke="#888" fontSize={11} tickLine={false} axisLine={false} />
+                    <YAxis stroke="#888" fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} width={28} />
+                    <Tooltip contentStyle={{ borderRadius: "8px", border: "none", boxShadow: "0 4px 16px rgba(0,0,0,0.12)", fontSize: 12 }} />
+                    <Area type="monotone" dataKey="count" name="Uploads" fill="#6366f120" stroke="#6366f1" strokeWidth={2} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
+                  {isLoading ? "Loading…" : "No upload data yet"}
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="lg:col-span-3">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2"><Download className="h-4 w-4" /> Top Downloads</CardTitle>
+            <CardDescription>Most downloaded resources all-time</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {topDownloaded.every(r => !r.downloadCount) ? (
+              <p className="text-sm text-muted-foreground text-center py-4">No downloads yet</p>
+            ) : (
+              <div className="space-y-1" data-testid="list-top-downloads">
+                {topDownloaded.filter(r => r.downloadCount).map((r, i) => (
+                  <Link key={r.id} href={`/digital-resources/${r.id}`} className="flex items-center gap-2 py-1.5 hover:bg-muted/40 rounded px-1 -mx-1" data-testid={`row-top-download-${r.id}`}>
+                    <span className="text-xs font-bold text-muted-foreground w-4 shrink-0">{i + 1}</span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium truncate">{r.title}</p>
+                      <p className="text-xs text-muted-foreground">{r.resourceType}</p>
+                    </div>
+                    <span className="text-xs font-semibold text-cyan-700 shrink-0 flex items-center gap-1">
+                      <Download className="h-3 w-3" />{r.downloadCount}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
       <div className="grid gap-4 grid-cols-1 lg:grid-cols-7">
         <Card className="lg:col-span-4">
           <CardHeader className="pb-2">
@@ -256,24 +334,28 @@ export default function DigitalResourcesDashboardPage() {
 
           <Card className="flex-1">
             <CardHeader className="pb-2">
-              <CardTitle className="text-base flex items-center gap-2"><TrendingUp className="h-4 w-4" /> Engagement Snapshot</CardTitle>
-              <CardDescription>Views vs downloads</CardDescription>
+              <CardTitle className="text-base flex items-center gap-2"><Eye className="h-4 w-4" /> Most Viewed</CardTitle>
+              <CardDescription>Top resources by total views</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-lg bg-violet-50 border border-violet-100 p-3">
-                  <p className="text-xs text-muted-foreground mb-1">Total Views</p>
-                  <p className="text-xl font-bold text-violet-700">{stats.totalViews}</p>
+              {topViewed.every(r => !r.viewCount) ? (
+                <p className="text-sm text-muted-foreground text-center py-4">No views yet</p>
+              ) : (
+                <div className="space-y-1" data-testid="list-top-viewed">
+                  {topViewed.filter(r => r.viewCount).map((r, i) => (
+                    <Link key={r.id} href={`/digital-resources/${r.id}`} className="flex items-center gap-2 py-1.5 hover:bg-muted/40 rounded px-1 -mx-1" data-testid={`row-top-viewed-${r.id}`}>
+                      <span className="text-xs font-bold text-muted-foreground w-4 shrink-0">{i + 1}</span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium truncate">{r.title}</p>
+                        <p className="text-xs text-muted-foreground">{r.resourceType}</p>
+                      </div>
+                      <span className="text-xs font-semibold text-violet-700 shrink-0 flex items-center gap-1">
+                        <Eye className="h-3 w-3" />{r.viewCount}
+                      </span>
+                    </Link>
+                  ))}
                 </div>
-                <div className="rounded-lg bg-cyan-50 border border-cyan-100 p-3">
-                  <p className="text-xs text-muted-foreground mb-1">Total Downloads</p>
-                  <p className="text-xl font-bold text-cyan-700">{stats.totalDownloads}</p>
-                </div>
-              </div>
-              <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-                <Archive className="h-3.5 w-3.5" />
-                {stats.total} resources tracked across all libraries
-              </div>
+              )}
             </CardContent>
           </Card>
         </div>
