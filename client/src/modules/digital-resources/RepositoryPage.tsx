@@ -153,6 +153,8 @@ export default function RepositoryPage() {
   const [visibilityFilter, setVisibilityFilter] = useState('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [uploaderMine, setUploaderMine] = useState(false);
+  const [extensionFilter, setExtensionFilter] = useState('');
 
   const { data: resources = [], isLoading } = useQuery<DigitalResource[]>({
     queryKey: ["digital-resources", "repository", search, resourceType, category, status, attributeValueIds],
@@ -185,8 +187,16 @@ export default function RepositoryPage() {
     if (visibilityFilter !== 'all') result = result.filter(r => r.visibility === visibilityFilter);
     if (dateFrom) result = result.filter(r => r.createdAt && new Date(r.createdAt as any) >= new Date(dateFrom));
     if (dateTo) result = result.filter(r => r.createdAt && new Date(r.createdAt as any) <= new Date(dateTo + 'T23:59:59'));
+    if (uploaderMine && currentUser) result = result.filter(r => r.uploadedBy === currentUser.id);
+    if (extensionFilter) {
+      const ext = extensionFilter.toLowerCase().replace(/^\./, '');
+      result = result.filter(r => {
+        const fn = r.fileName || '';
+        return fn.split('.').pop()?.toLowerCase() === ext;
+      });
+    }
     return result;
-  }, [resources, tagFilter, deptFilter, courseFilter, semesterFilter, facultyFilter, visibilityFilter, dateFrom, dateTo]);
+  }, [resources, tagFilter, deptFilter, courseFilter, semesterFilter, facultyFilter, visibilityFilter, dateFrom, dateTo, uploaderMine, extensionFilter, currentUser]);
 
   const clearFilters = () => {
     setSearch("");
@@ -202,10 +212,12 @@ export default function RepositoryPage() {
     setVisibilityFilter('all');
     setDateFrom('');
     setDateTo('');
+    setUploaderMine(false);
+    setExtensionFilter('');
     setLocation("/digital-resources/repository");
   };
 
-  const hasActiveFilters = search || resourceType !== "all" || category !== "all" || status !== "all" || tagFilter || attributeValueIds.length > 0 || deptFilter || courseFilter || semesterFilter || facultyFilter || visibilityFilter !== 'all' || dateFrom || dateTo;
+  const hasActiveFilters = search || resourceType !== "all" || category !== "all" || status !== "all" || tagFilter || attributeValueIds.length > 0 || deptFilter || courseFilter || semesterFilter || facultyFilter || visibilityFilter !== 'all' || dateFrom || dateTo || uploaderMine || extensionFilter;
 
   const totalViews = filtered.reduce((sum, r) => sum + (r.viewCount || 0), 0);
   const totalDownloads = filtered.reduce((sum, r) => sum + (r.downloadCount || 0), 0);
@@ -360,6 +372,22 @@ export default function RepositoryPage() {
               </Select>
               <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="w-[140px] h-8 text-sm" title="Uploaded from" data-testid="input-filter-date-from" />
               <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="w-[140px] h-8 text-sm" title="Uploaded until" data-testid="input-filter-date-to" />
+              <Input
+                placeholder="Extension (pdf, mp4…)"
+                value={extensionFilter}
+                onChange={e => setExtensionFilter(e.target.value)}
+                className="w-[155px] h-8 text-sm"
+                data-testid="input-filter-extension"
+              />
+              <label className="flex items-center gap-1.5 text-sm cursor-pointer select-none" data-testid="checkbox-uploader-mine">
+                <input
+                  type="checkbox"
+                  checked={uploaderMine}
+                  onChange={e => setUploaderMine(e.target.checked)}
+                  className="h-4 w-4 rounded border-border"
+                />
+                <span>My uploads only</span>
+              </label>
             </div>
           </div>
           {tagFilter && (
@@ -450,6 +478,7 @@ export default function RepositoryPage() {
                     <div className="flex flex-col gap-0.5 items-center">
                       <Badge variant={r.status === "PUBLISHED" ? "default" : "outline"} className="text-[10px] px-1.5 py-0">{r.status.replace(/_/g, " ")}</Badge>
                       <span className="text-[10px] text-muted-foreground">{r.resourceType}</span>
+                      {r.visibility && <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium">{r.visibility.replace(/_/g, " ")}</span>}
                     </div>
                   </CardContent>
                 </Card>
@@ -528,6 +557,11 @@ export default function RepositoryPage() {
                           )}
                           {r.program && (
                             <span className="flex items-center gap-1"><GraduationCap className="h-3.5 w-3.5" />{r.program}</span>
+                          )}
+                          {r.visibility && (
+                            <span className="flex items-center gap-1 font-medium text-indigo-600 dark:text-indigo-400">
+                              <Eye className="h-3.5 w-3.5" />{r.visibility.replace(/_/g, " ")}
+                            </span>
                           )}
                           <span className="flex items-center gap-1">
                             <Calendar className="h-3.5 w-3.5" />

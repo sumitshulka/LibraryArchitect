@@ -61,8 +61,19 @@ export default function DigitalResourcesDashboardPage() {
     const pending = resources.filter(r => r.status === "PENDING_APPROVAL").length;
     const totalViews = resources.reduce((s, r) => s + (r.viewCount || 0), 0);
     const totalDownloads = resources.reduce((s, r) => s + (r.downloadCount || 0), 0);
-    return { total, published, drafts, pending, totalViews, totalDownloads };
+    const totalStorageBytes = resources.reduce((s, r) => s + (r.fileSizeBytes || 0), 0);
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const recentlyUploaded = resources.filter(r => r.createdAt && new Date(r.createdAt as any) >= sevenDaysAgo).length;
+    return { total, published, drafts, pending, totalViews, totalDownloads, totalStorageBytes, recentlyUploaded };
   }, [resources]);
+
+  function formatStorage(bytes: number): string {
+    if (bytes === 0) return "0 B";
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+    return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+  }
 
   const byType = useMemo(() => {
     const map = new Map<string, number>();
@@ -142,9 +153,9 @@ export default function DigitalResourcesDashboardPage() {
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 items-stretch mb-6">
         <StatCard title="Total Resources" value={stats.total} sub={`${stats.published} published`} icon={FolderOpen}
           colorClass="text-blue-700" bgClass="bg-blue-50" borderClass="border-blue-100" href="/digital-resources/repository" />
-        <StatCard title="Published" value={stats.published} sub="Visible to audience" icon={CheckCircle2}
+        <StatCard title="Storage Used" value={formatStorage(stats.totalStorageBytes)} sub={`${stats.total} resources`} icon={Archive}
           colorClass="text-green-700" bgClass="bg-green-50" borderClass="border-green-100" />
-        <StatCard title="Drafts" value={stats.drafts} sub="Not yet published" icon={FileText}
+        <StatCard title="Recently Uploaded" value={stats.recentlyUploaded} sub="Last 7 days" icon={Upload}
           colorClass="text-slate-700" bgClass="bg-slate-50" borderClass="border-slate-200" />
         <StatCard title="Pending Approval" value={stats.pending} sub="Awaiting review" icon={Clock}
           colorClass="text-amber-700" bgClass="bg-amber-50" borderClass="border-amber-100" />

@@ -151,6 +151,7 @@ export default function UploadResourcePage() {
         fileSizeBytes,
         externalUrl: sourceMode === "url" ? externalUrl : undefined,
         versionNumber: form.versionNumber || "1.0",
+        releaseNotes: form.releaseNotes || undefined,
       };
 
       const created = await digitalResourcesApi.create(payload);
