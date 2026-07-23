@@ -187,7 +187,7 @@ export default function RepositoryPage() {
     if (visibilityFilter !== 'all') result = result.filter(r => r.visibility === visibilityFilter);
     if (dateFrom) result = result.filter(r => r.createdAt && new Date(r.createdAt as any) >= new Date(dateFrom));
     if (dateTo) result = result.filter(r => r.createdAt && new Date(r.createdAt as any) <= new Date(dateTo + 'T23:59:59'));
-    if (uploaderMine && currentUser) result = result.filter(r => r.uploadedBy === currentUser.id);
+    if (uploaderMine && user) result = result.filter(r => r.uploadedBy === user.id);
     if (extensionFilter) {
       const ext = extensionFilter.toLowerCase().replace(/^\./, '');
       result = result.filter(r => {
@@ -196,7 +196,7 @@ export default function RepositoryPage() {
       });
     }
     return result;
-  }, [resources, tagFilter, deptFilter, courseFilter, semesterFilter, facultyFilter, visibilityFilter, dateFrom, dateTo, uploaderMine, extensionFilter, currentUser]);
+  }, [resources, tagFilter, deptFilter, courseFilter, semesterFilter, facultyFilter, visibilityFilter, dateFrom, dateTo, uploaderMine, extensionFilter, user]);
 
   const clearFilters = () => {
     setSearch("");
