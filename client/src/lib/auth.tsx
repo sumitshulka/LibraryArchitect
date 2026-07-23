@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { useLocation } from "wouter";
+import { useQueryClient } from "@tanstack/react-query";
 
 interface User {
   id: number;
@@ -26,6 +27,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [, setLocation] = useLocation();
+  const queryClient = useQueryClient();
 
   const checkSession = async () => {
     try {
@@ -38,6 +40,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (response.ok) {
         const data = await response.json();
         setUser(data.user);
+        queryClient.invalidateQueries({ queryKey: ["system-config"] });
       } else {
         setUser(null);
       }
@@ -71,6 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           localStorage.setItem("session_id", data.sessionId);
         }
         setUser(data.user);
+        queryClient.invalidateQueries({ queryKey: ["system-config"] });
         return { success: true };
       } else {
         return { success: false, error: data.error || "Login failed" };

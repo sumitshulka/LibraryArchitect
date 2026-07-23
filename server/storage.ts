@@ -740,7 +740,9 @@ export class DBStorage implements IStorage {
   }
 
   async updateCirculation(id: number, updateData: Partial<InsertCirculation>): Promise<Circulation | undefined> {
-    const [circ] = await db.update(circulation).set(updateData).where(eq(circulation.id, id)).returning();
+    const [circ] = await returningViaCte<Circulation>(
+      db.update(circulation).set(updateData).where(eq(circulation.id, id)).returning()
+    );
     return circ;
   }
 
