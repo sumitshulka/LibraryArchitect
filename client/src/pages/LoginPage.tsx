@@ -173,53 +173,107 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex">
-      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-gradient-to-br from-blue-900 via-blue-800 to-indigo-900">
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-20 left-10 w-72 h-72 bg-white rounded-full blur-3xl" />
-          <div className="absolute bottom-20 right-10 w-96 h-96 bg-blue-400 rounded-full blur-3xl" />
-          <div className="absolute top-1/2 left-1/3 w-64 h-64 bg-indigo-400 rounded-full blur-3xl" />
-        </div>
+      <style>{`
+        @keyframes float1 { 0%,100%{transform:translateY(0) scale(1)} 50%{transform:translateY(-22px) scale(1.04)} }
+        @keyframes float2 { 0%,100%{transform:translateY(0) rotate(0deg)} 50%{transform:translateY(18px) rotate(8deg)} }
+        @keyframes float3 { 0%,100%{transform:translateY(0) scale(1)} 60%{transform:translateY(-14px) scale(1.07)} }
+        @keyframes pulseRing { 0%,100%{transform:scale(1);opacity:.35} 50%{transform:scale(1.12);opacity:.15} }
+        @keyframes pulseRing2 { 0%,100%{transform:scale(1);opacity:.2} 50%{transform:scale(1.18);opacity:.06} }
+        @keyframes drift { 0%{transform:translate(0,0)} 33%{transform:translate(12px,-16px)} 66%{transform:translate(-10px,10px)} 100%{transform:translate(0,0)} }
+        @keyframes shimmer { 0%,100%{opacity:.6} 50%{opacity:1} }
+        .orb1{animation:float1 7s ease-in-out infinite}
+        .orb2{animation:float2 9s ease-in-out infinite}
+        .orb3{animation:float3 6s ease-in-out infinite}
+        .ring1{animation:pulseRing 4s ease-in-out infinite}
+        .ring2{animation:pulseRing2 6s ease-in-out infinite 1s}
+        .drift1{animation:drift 12s ease-in-out infinite}
+        .drift2{animation:drift 15s ease-in-out infinite reverse}
+        .shimmer{animation:shimmer 3s ease-in-out infinite}
+      `}</style>
+
+      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden" style={{background:"linear-gradient(135deg,#0f1e5c 0%,#1a3a8f 30%,#0d2d7a 60%,#1e1060 100%)"}}>
+
+        {/* Dot grid */}
+        <div className="absolute inset-0" style={{backgroundImage:"radial-gradient(circle,rgba(255,255,255,0.12) 1px,transparent 1px)",backgroundSize:"28px 28px"}} />
+
+        {/* Large glowing orbs */}
+        <div className="orb1 absolute -top-20 -left-20 w-96 h-96 rounded-full" style={{background:"radial-gradient(circle,rgba(99,102,241,0.65) 0%,transparent 70%)",filter:"blur(40px)"}} />
+        <div className="orb2 absolute -bottom-24 -right-16 w-[28rem] h-[28rem] rounded-full" style={{background:"radial-gradient(circle,rgba(220,38,38,0.45) 0%,rgba(59,130,246,0.3) 50%,transparent 70%)",filter:"blur(50px)"}} />
+        <div className="orb3 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 h-80 rounded-full" style={{background:"radial-gradient(circle,rgba(139,92,246,0.4) 0%,transparent 65%)",filter:"blur(35px)"}} />
+
+        {/* Pulsing rings */}
+        <div className="ring1 absolute top-16 right-16 w-40 h-40 rounded-full border-2 border-indigo-400/40" />
+        <div className="ring2 absolute top-16 right-16 w-56 h-56 rounded-full border border-indigo-300/20" style={{margin:"-32px"}} />
+        <div className="ring1 absolute bottom-24 left-12 w-28 h-28 rounded-full border-2 border-red-400/35" style={{animationDelay:"2s"}} />
+        <div className="ring2 absolute bottom-24 left-12 w-44 h-44 rounded-full border border-red-300/15" style={{margin:"-24px",animationDelay:"2s"}} />
+
+        {/* Floating geometric accents */}
+        <div className="drift1 absolute top-28 right-28 w-14 h-14 rounded-xl border-2 border-white/20 backdrop-blur-sm" style={{transform:"rotate(18deg)"}} />
+        <div className="drift2 absolute bottom-40 right-20 w-8 h-8 rounded-lg border-2 border-indigo-300/40" style={{transform:"rotate(-12deg)"}} />
+        <div className="drift1 absolute top-1/3 left-8 w-6 h-6 rounded-full bg-red-400/50" style={{animationDelay:"3s"}} />
+        <div className="drift2 absolute top-2/3 right-12 w-4 h-4 rounded-full bg-indigo-300/60" style={{animationDelay:"1.5s"}} />
+        <div className="drift1 absolute bottom-32 left-1/3 w-5 h-5 rounded-full bg-blue-300/50" style={{animationDelay:"4s"}} />
+
+        {/* Glowing streak */}
+        <div className="absolute top-0 left-0 w-full h-1" style={{background:"linear-gradient(90deg,transparent,rgba(139,92,246,0.8),rgba(220,38,38,0.6),transparent)"}} />
 
         <div className="relative z-10 flex flex-col justify-between p-12 w-full">
           <div className="flex items-center">
-            <img src="/sc24lib-logo.png" alt="SC24Lib" className="h-10 w-auto" />
+            <img src="/sc24lib-logo.png" alt="SC24Lib" className="h-10 w-auto drop-shadow-lg" />
           </div>
 
           <div className="space-y-8">
             <div>
-              <h1 className="text-4xl font-bold text-white leading-tight">
+              <div className="shimmer inline-block mb-3 px-3 py-1 rounded-full text-xs font-semibold tracking-widest uppercase" style={{background:"rgba(139,92,246,0.25)",border:"1px solid rgba(139,92,246,0.4)",color:"#c4b5fd"}}>
+                Enterprise Platform
+              </div>
+              <h1 className="text-4xl font-bold text-white leading-tight drop-shadow-md">
                 Enterprise Library<br />Management System
               </h1>
-              <p className="mt-4 text-lg text-blue-200 max-w-md">
+              <p className="mt-4 text-base text-blue-200/90 max-w-md leading-relaxed">
                 Streamline your library operations with intelligent catalog management, circulation tracking, and analytics.
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 max-w-md">
+            <div className="grid grid-cols-2 gap-3 max-w-md">
               {[
-                { icon: "📚", title: "Smart Catalog", desc: "MARC21 & Z39.50 ready" },
-                { icon: "🔄", title: "Circulation", desc: "Automated workflows" },
-                { icon: "📊", title: "Analytics", desc: "Real-time insights" },
-                { icon: "🔗", title: "ERP Ready", desc: "SSO integration" },
+                { icon: "📚", title: "Smart Catalog", desc: "MARC21 & Z39.50 ready", accent: "rgba(99,102,241,0.3)" },
+                { icon: "🔄", title: "Circulation", desc: "Automated workflows", accent: "rgba(59,130,246,0.3)" },
+                { icon: "📊", title: "Analytics", desc: "Real-time insights", accent: "rgba(139,92,246,0.3)" },
+                { icon: "🔗", title: "ERP Ready", desc: "SSO integration", accent: "rgba(220,38,38,0.25)" },
               ].map((feature) => (
-                <div key={feature.title} className="flex items-start gap-3 p-3 rounded-xl bg-white/5 backdrop-blur-sm border border-white/10">
-                  <span className="text-xl">{feature.icon}</span>
+                <div key={feature.title} className="flex items-start gap-3 p-3.5 rounded-xl backdrop-blur-sm border border-white/15 hover:border-white/30 transition-colors" style={{background:`linear-gradient(135deg,${feature.accent},rgba(255,255,255,0.04))`}}>
+                  <span className="text-xl leading-none mt-0.5">{feature.icon}</span>
                   <div>
                     <p className="text-sm font-semibold text-white">{feature.title}</p>
-                    <p className="text-xs text-blue-300">{feature.desc}</p>
+                    <p className="text-xs text-blue-200/70 mt-0.5">{feature.desc}</p>
                   </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Live stats strip */}
+            <div className="flex items-center gap-6 pt-2">
+              {[
+                { value: "50K+", label: "Books" },
+                { value: "99.9%", label: "Uptime" },
+                { value: "24/7", label: "Support" },
+              ].map(stat => (
+                <div key={stat.label} className="text-center">
+                  <p className="text-xl font-bold text-white drop-shadow">{stat.value}</p>
+                  <p className="text-[11px] text-blue-300/70 uppercase tracking-wider">{stat.label}</p>
                 </div>
               ))}
             </div>
           </div>
 
-          <p className="text-sm text-blue-300/60">
-            SC24Lib &copy; {new Date().getFullYear()}
+          <p className="text-xs text-blue-300/50">
+            SC24Lib &copy; {new Date().getFullYear()} · Enterprise Library Platform
           </p>
         </div>
       </div>
 
-      <div className="flex-1 flex items-center justify-center p-6 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-950 dark:to-gray-900">
+      <div className="flex-1 flex items-center justify-center p-6" style={{background:"linear-gradient(135deg,#f0f4ff 0%,#e8eeff 50%,#f5f0ff 100%)"}}>
         <div className="w-full max-w-md">
           <div className="lg:hidden flex items-center justify-center mb-8">
             <div className="px-4 py-2 bg-blue-700 rounded-xl">

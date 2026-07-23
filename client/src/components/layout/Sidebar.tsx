@@ -3,7 +3,7 @@ import { navItems, navGroups } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
-import sc24Logo from "/sc24lib-logo.png";
+
 
 interface SidebarProps {
   mobileOpen?: boolean;
@@ -34,7 +34,7 @@ function SidebarContent({ onLinkClick }: { onLinkClick?: () => void }) {
     <div className="flex flex-col h-full bg-sidebar text-sidebar-foreground">
       <div className="h-16 flex items-center px-6 border-b border-sidebar-border flex-shrink-0">
         <div className="flex items-center gap-3">
-          <img src={sc24Logo} alt="SC24Lib" className="h-8 w-auto" />
+          <img src="/sc24lib-logo.png" alt="SC24Lib" className="h-8 w-auto" />
         </div>
       </div>
 
