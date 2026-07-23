@@ -35,6 +35,31 @@ const resolveSchema = z.object({
 });
 
 export function registerLostDamagedRoutes(app: Express) {
+  // Summary — must be registered before /:id to avoid route conflict
+  app.get("/api/lost-damaged/summary", async (req, res) => {
+    try {
+      const [lost, damaged] = await Promise.all([
+        storage.getLostDamagedReports({ type: "LOST", limit: 1000 }),
+        storage.getLostDamagedReports({ type: "DAMAGED", limit: 1000 }),
+      ]);
+      const allReports = [...lost.reports, ...damaged.reports];
+
+      res.json({
+        totalLost: lost.total,
+        totalDamaged: damaged.total,
+        pending: allReports.filter(r => ["REPORTED", "UNDER_REVIEW", "FINE_PENDING", "REPLACEMENT_PENDING"].includes(r.status)).length,
+        resolved: allReports.filter(r => r.status === "RESOLVED").length,
+        writtenOff: allReports.filter(r => r.resolution === "WRITTEN_OFF").length,
+        replacements: allReports.filter(r => r.resolution === "REPLACED").length,
+        totalFinesAssessed: allReports.reduce((s, r) => s + (r.fineAmount ?? 0), 0),
+        totalFinesCollected: allReports.reduce((s, r) => s + (r.finePaidAmount ?? 0), 0),
+      });
+    } catch (err) {
+      console.error("Error fetching summary:", err);
+      res.status(500).json({ error: "Failed to fetch summary" });
+    }
+  });
+
   // List reports
   app.get("/api/lost-damaged", async (req, res) => {
     try {
@@ -259,28 +284,4 @@ export function registerLostDamagedRoutes(app: Express) {
     }
   });
 
-  // Summary report
-  app.get("/api/lost-damaged/summary", async (req, res) => {
-    try {
-      const [lost, damaged] = await Promise.all([
-        storage.getLostDamagedReports({ type: "LOST", limit: 1000 }),
-        storage.getLostDamagedReports({ type: "DAMAGED", limit: 1000 }),
-      ]);
-      const allReports = [...lost.reports, ...damaged.reports];
-
-      res.json({
-        totalLost: lost.total,
-        totalDamaged: damaged.total,
-        pending: allReports.filter(r => ["REPORTED", "UNDER_REVIEW", "FINE_PENDING", "REPLACEMENT_PENDING"].includes(r.status)).length,
-        resolved: allReports.filter(r => r.status === "RESOLVED").length,
-        writtenOff: allReports.filter(r => r.resolution === "WRITTEN_OFF").length,
-        replacements: allReports.filter(r => r.resolution === "REPLACED").length,
-        totalFinesAssessed: allReports.reduce((s, r) => s + (r.fineAmount ?? 0), 0),
-        totalFinesCollected: allReports.reduce((s, r) => s + (r.finePaidAmount ?? 0), 0),
-      });
-    } catch (err) {
-      console.error("Error fetching summary:", err);
-      res.status(500).json({ error: "Failed to fetch summary" });
-    }
-  });
 }

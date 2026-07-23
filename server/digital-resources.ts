@@ -611,9 +611,18 @@ async function isResourceVisibleToUser(resource: any, user: any): Promise<boolea
     case "DEPARTMENT":
       return !!user.department && user.department === resource.department;
     case "COURSE":
-      return !!resource.course;
+      // User must be in the same department as the resource (if department is set),
+      // and the resource must actually have a course value.
+      // Users without a matching department are denied access.
+      if (!resource.course) return false;
+      if (resource.department) return !!user.department && user.department === resource.department;
+      // No department restriction on the resource — fall back to authenticated user of valid role
+      return user.role === "STUDENT" || user.role === "FACULTY";
     case "BATCH":
-      return !!resource.batch;
+      // Same logic as COURSE: verify department membership before granting access.
+      if (!resource.batch) return false;
+      if (resource.department) return !!user.department && user.department === resource.department;
+      return user.role === "STUDENT" || user.role === "FACULTY";
     case "ROLE_BASED":
       return Array.isArray(resource.visibleToRoles) && resource.visibleToRoles.includes(user.role);
     case "SELECTED_USERS":

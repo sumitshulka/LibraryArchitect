@@ -275,12 +275,12 @@ function CreateReportDialog({ open, onOpenChange }: { open: boolean; onOpenChang
             {selectedBook && copies.length > 0 && (
               <div className="space-y-1.5">
                 <Label>Book Copy (Accession)</Label>
-                <Select value={copyId} onValueChange={setCopyId}>
+                <Select value={copyId || "__none__"} onValueChange={v => setCopyId(v === "__none__" ? "" : v)}>
                   <SelectTrigger data-testid="select-copy">
                     <SelectValue placeholder="Select copy (optional)" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">— Not specified —</SelectItem>
+                    <SelectItem value="__none__">— Not specified —</SelectItem>
                     {copies.map((c: BookCopy) => (
                       <SelectItem key={c.id} value={String(c.id)}>
                         {c.barcode} {c.internalSSN ? `(${c.internalSSN})` : ""}
@@ -334,12 +334,12 @@ function CreateReportDialog({ open, onOpenChange }: { open: boolean; onOpenChang
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Library</Label>
-                <Select value={libraryId} onValueChange={setLibraryId}>
+                <Select value={libraryId || "__none__"} onValueChange={v => setLibraryId(v === "__none__" ? "" : v)}>
                   <SelectTrigger data-testid="select-library">
                     <SelectValue placeholder="Select library" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">— None —</SelectItem>
+                    <SelectItem value="__none__">— None —</SelectItem>
                     {libraries.map((l: Library) => (
                       <SelectItem key={l.id} value={String(l.id)}>{l.name}</SelectItem>
                     ))}
@@ -746,23 +746,23 @@ export default function LostDamagedPage() {
               />
             </div>
             <div className="flex gap-2 flex-wrap">
-              <Select value={typeFilter} onValueChange={setTypeFilter}>
+              <Select value={typeFilter || "__all__"} onValueChange={v => setTypeFilter(v === "__all__" ? "" : v)}>
                 <SelectTrigger className="w-36" data-testid="select-type-filter">
                   <Filter className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
                   <SelectValue placeholder="All Types" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All Types</SelectItem>
+                  <SelectItem value="__all__">All Types</SelectItem>
                   <SelectItem value="LOST">🔴 Lost</SelectItem>
                   <SelectItem value="DAMAGED">🟠 Damaged</SelectItem>
                 </SelectContent>
               </Select>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <Select value={statusFilter || "__all__"} onValueChange={v => setStatusFilter(v === "__all__" ? "" : v)}>
                 <SelectTrigger className="w-44" data-testid="select-status-filter">
                   <SelectValue placeholder="All Statuses" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All Statuses</SelectItem>
+                  <SelectItem value="__all__">All Statuses</SelectItem>
                   {(Object.entries(STATUS_CONFIG) as [ReportStatus, { label: string }][]).map(([k, v]) => (
                     <SelectItem key={k} value={k}>{v.label}</SelectItem>
                   ))}
