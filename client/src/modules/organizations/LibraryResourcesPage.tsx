@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -564,7 +565,17 @@ function CopyDetailsSheet({
   const [showCardSizeDialog, setShowCardSizeDialog] = useState(false);
   const [inlineEditCopyId, setInlineEditCopyId] = useState<number | null>(null);
   const [inlineSSNValue, setInlineSSNValue] = useState("");
-  const [pendingStatusChange, setPendingStatusChange] = useState<{ copyId: number; newStatus: 'DAMAGED' | 'LOST' } | null>(null);
+  const [pendingStatusChange, setPendingStatusChange] = useState<{
+    copyId: number;
+    newStatus: 'DAMAGED' | 'LOST';
+    bookId: number;
+    libraryId: number | null;
+    copyBarcode: string;
+  } | null>(null);
+  const [ldDescription, setLdDescription] = useState("");
+  const [ldFineAmount, setLdFineAmount] = useState("");
+  const [ldReplacementRequired, setLdReplacementRequired] = useState(false);
+  const [ldReplacementCost, setLdReplacementCost] = useState("");
   const { format: formatCurrency } = useCurrency();
 
   const updateCopyMutation = useMutation({
@@ -584,6 +595,36 @@ function CopyDetailsSheet({
     },
     onError: (error: Error) => {
       toast.error(error.message);
+    },
+  });
+
+  const createLostDamagedMutation = useMutation({
+    mutationFn: async (payload: {
+      type: 'DAMAGED' | 'LOST';
+      bookId: number;
+      bookCopyId: number;
+      libraryId: number | null;
+      description: string | null;
+      fineAmount: number;
+      replacementRequired: boolean;
+      replacementCost: number;
+    }) => {
+      const resp = await fetch('/api/lost-damaged', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ error: 'Request failed' }));
+        throw new Error(err.error || 'Failed to create Lost & Damaged report');
+      }
+      return resp.json();
+    },
+    onSuccess: () => {
+      toast.success('Lost & Damaged report created');
+    },
+    onError: (error: Error) => {
+      toast.error(`Report creation failed: ${error.message}`);
     },
   });
 
@@ -1244,7 +1285,17 @@ function CopyDetailsSheet({
                                 onValueChange={(newStatus: 'AVAILABLE' | 'RESERVED' | 'DAMAGED' | 'LOST' | 'IN_TRANSIT') => {
                                   if (newStatus !== copy.status) {
                                     if (newStatus === 'DAMAGED' || newStatus === 'LOST') {
-                                      setPendingStatusChange({ copyId: copy.id, newStatus });
+                                      setLdDescription("");
+                                      setLdFineAmount("");
+                                      setLdReplacementRequired(false);
+                                      setLdReplacementCost("");
+                                      setPendingStatusChange({
+                                        copyId: copy.id,
+                                        newStatus,
+                                        bookId: copy.bookId,
+                                        libraryId: copy.libraryId ?? null,
+                                        copyBarcode: copy.barcode,
+                                      });
                                     } else {
                                       updateCopyMutation.mutate({ id: copy.id, updates: { status: newStatus } });
                                     }
@@ -1324,22 +1375,84 @@ function CopyDetailsSheet({
 
       {/* Final Status Confirmation Dialog */}
       <Dialog open={!!pendingStatusChange} onOpenChange={(open) => !open && setPendingStatusChange(null)}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-destructive">
               <AlertTriangle className="h-5 w-5" />
-              Confirm Final Status Change
+              Mark Copy as {pendingStatusChange?.newStatus}
             </DialogTitle>
             <DialogDescription>
-              You are about to mark this book copy as <strong>{pendingStatusChange?.newStatus}</strong>.
-              <br /><br />
-              <span className="text-destructive font-medium">
-                This is a final status and cannot be changed later.
-              </span>
-              <br /><br />
-              Are you sure you want to proceed?
+              Copy barcode: <span className="font-mono font-medium">{pendingStatusChange?.copyBarcode}</span>.
+              {" "}<span className="text-destructive font-medium">This is a final status and cannot be changed later.</span>
+              {" "}A Lost &amp; Damaged report will be filed automatically.
             </DialogDescription>
           </DialogHeader>
+
+          <div className="space-y-4 py-1">
+            <div className="space-y-1.5">
+              <Label htmlFor="ld-description">Description / Notes <span className="text-muted-foreground text-xs">(optional)</span></Label>
+              <Textarea
+                id="ld-description"
+                placeholder={pendingStatusChange?.newStatus === 'LOST' ? "How was the book lost?" : "Describe the damage…"}
+                value={ldDescription}
+                onChange={(e) => setLdDescription(e.target.value)}
+                rows={2}
+                data-testid="input-ld-description"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="ld-fine">
+                  {pendingStatusChange?.newStatus === 'LOST' ? 'Replacement Fee' : 'Damage Fee'}{" "}
+                  <span className="text-muted-foreground text-xs">(optional)</span>
+                </Label>
+                <Input
+                  id="ld-fine"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={ldFineAmount}
+                  onChange={(e) => setLdFineAmount(e.target.value)}
+                  data-testid="input-ld-fine-amount"
+                />
+              </div>
+
+              {pendingStatusChange?.newStatus === 'LOST' && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="ld-replacement-cost">Replacement Cost <span className="text-muted-foreground text-xs">(optional)</span></Label>
+                  <Input
+                    id="ld-replacement-cost"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={ldReplacementCost}
+                    onChange={(e) => setLdReplacementCost(e.target.value)}
+                    data-testid="input-ld-replacement-cost"
+                  />
+                </div>
+              )}
+            </div>
+
+            {pendingStatusChange?.newStatus === 'LOST' && (
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="ld-replacement-required"
+                  checked={ldReplacementRequired}
+                  onChange={(e) => setLdReplacementRequired(e.target.checked)}
+                  className="h-4 w-4 rounded border-input"
+                  data-testid="checkbox-ld-replacement-required"
+                />
+                <Label htmlFor="ld-replacement-required" className="cursor-pointer font-normal">
+                  Replacement copy required
+                </Label>
+              </div>
+            )}
+          </div>
+
           <DialogFooter className="gap-2 sm:gap-0">
             <Button 
               variant="outline" 
@@ -1351,15 +1464,30 @@ function CopyDetailsSheet({
             <Button 
               variant="destructive"
               onClick={() => {
-                if (pendingStatusChange) {
-                  updateCopyMutation.mutate({ 
-                    id: pendingStatusChange.copyId, 
-                    updates: { status: pendingStatusChange.newStatus } 
-                  });
-                  setPendingStatusChange(null);
-                }
+                if (!pendingStatusChange) return;
+                const { copyId, newStatus, bookId, libraryId: copyLibraryId, copyBarcode: _barcode } = pendingStatusChange;
+                const fineAmountCents = ldFineAmount ? Math.round(parseFloat(ldFineAmount) * 100) : 0;
+                const replacementCostCents = ldReplacementCost ? Math.round(parseFloat(ldReplacementCost) * 100) : 0;
+                updateCopyMutation.mutate(
+                  { id: copyId, updates: { status: newStatus } },
+                  {
+                    onSuccess: () => {
+                      createLostDamagedMutation.mutate({
+                        type: newStatus,
+                        bookId,
+                        bookCopyId: copyId,
+                        libraryId: copyLibraryId,
+                        description: ldDescription.trim() || null,
+                        fineAmount: fineAmountCents,
+                        replacementRequired: ldReplacementRequired,
+                        replacementCost: replacementCostCents,
+                      });
+                    },
+                  }
+                );
+                setPendingStatusChange(null);
               }}
-              disabled={updateCopyMutation.isPending}
+              disabled={updateCopyMutation.isPending || createLostDamagedMutation.isPending}
               data-testid="button-confirm-status-change"
             >
               Yes, Mark as {pendingStatusChange?.newStatus}

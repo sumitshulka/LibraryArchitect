@@ -1012,6 +1012,63 @@ export async function registerRoutes(
         await storage.updateBookCopy(circ.bookCopyId, { status: damageCost > 0 ? 'DAMAGED' : 'AVAILABLE' });
       }
 
+      // Bridge 1: Auto-create a Lost & Damaged report whenever damage is recorded at return
+      if (damageCost > 0) {
+        try {
+          const ldReport = await storage.createLostDamagedReport({
+            type: 'DAMAGED',
+            status: 'REPORTED',
+            bookId: circ.bookId,
+            bookCopyId: circ.bookCopyId ?? null,
+            circulationId: id,
+            patronId: circ.userId ?? null,
+            libraryId: circ.libraryId ?? null,
+            reportDate: returnDate,
+            description: body.damageNotes || null,
+            fineAmount: damageCost,
+            finePaidAmount: damagePayTotal,
+            fineWaivedAmount: waiveDamage,
+            replacementRequired: false,
+            replacementCost: 0,
+            createdBy: currentUser.id,
+            createdByName: currentUser.name,
+          } as any);
+
+          await storage.addLostDamagedReportHistory({
+            reportId: ldReport.id,
+            action: 'REPORT_CREATED',
+            toStatus: 'REPORTED',
+            notes: `Auto-created from circulation return #${id}. Damage assessed: ${(damageCost / 100).toFixed(2)}.`,
+            performedBy: currentUser.id,
+            performedByName: currentUser.name,
+          });
+
+          // If damage is already fully settled at return time, auto-resolve
+          if (damageRemaining <= 0) {
+            const resolution = (waiveDamage > 0 && damagePayTotal === 0) ? 'FINE_WAIVED' : 'FINE_RECOVERED';
+            await storage.updateLostDamagedReport(ldReport.id, {
+              status: 'RESOLVED',
+              resolution,
+              resolvedAt: returnDate,
+              resolvedBy: currentUser.id,
+              resolvedNotes: `Auto-resolved at return. Paid: ${(damagePayTotal / 100).toFixed(2)}, Waived: ${(waiveDamage / 100).toFixed(2)}.`,
+            } as any);
+            await storage.addLostDamagedReportHistory({
+              reportId: ldReport.id,
+              action: 'REPORT_RESOLVED',
+              fromStatus: 'REPORTED',
+              toStatus: 'RESOLVED',
+              notes: `${resolution === 'FINE_WAIVED' ? 'Damage waived' : 'Damage collected'} in full at return.`,
+              performedBy: currentUser.id,
+              performedByName: currentUser.name,
+            });
+          }
+        } catch (ldErr) {
+          // Non-fatal: log but don't fail the return
+          console.error('[lost-damaged] Failed to auto-create report at return:', ldErr);
+        }
+      }
+
       logAudit(req, {
         category: 'CIRCULATION',
         action: 'RETURN',
