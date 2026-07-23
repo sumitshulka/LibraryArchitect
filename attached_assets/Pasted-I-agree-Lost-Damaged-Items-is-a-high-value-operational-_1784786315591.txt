@@ -1,0 +1,107 @@
+I agree. **Lost & Damaged Items** is a high-value operational feature that is often missing in smaller LMS products, yet it is simple to implement and solves a real librarian problem. It also integrates naturally with Inventory, Circulation, and Fines.
+
+Here's a concise but complete Replit prompt.
+
+---
+
+## Prompt: Build Lost & Damaged Items Module
+
+Build a new module called **Lost & Damaged Items** under **Library Operations** in the LibraTech Library Management System.
+
+### Objective
+
+Provide librarians with a workflow to manage books and other library assets that are reported as **Lost** or **Damaged**, including investigation, fine calculation, replacement, and inventory updates.
+
+### Features
+
+* Display all reported Lost and Damaged items in a searchable table.
+* Columns:
+
+  * Accession Number
+  * Resource Title
+  * Patron
+  * Issue Date
+  * Report Date
+  * Status
+  * Fine Amount
+  * Replacement Required
+  * Actions
+
+### Create Report
+
+Allow librarians to create a report by selecting:
+
+* Item
+* Patron (if applicable)
+* Report Type (Lost / Damaged)
+* Report Date
+* Description / Remarks
+* Supporting Images (optional)
+
+### Status Workflow
+
+Support the following statuses:
+
+* Reported
+* Under Review
+* Fine Pending
+* Replacement Pending
+* Resolved
+* Closed
+
+### Resolution
+
+Allow the librarian to:
+
+* Mark item as Found
+* Mark item as Repaired
+* Mark item as Replaced
+* Mark item as Written Off
+* Recover Fine
+* Waive Fine (subject to permissions)
+
+### Inventory Integration
+
+Automatically update inventory status:
+
+* Available
+* Issued
+* Lost
+* Damaged
+* Under Repair
+* Written Off
+* Replaced
+
+### Fine Integration
+
+Integrate with the existing Fine Management module.
+Allow librarians to apply or waive fines according to configured library policies.
+
+### Audit
+
+Maintain a complete history of:
+
+* Report creation
+* Status changes
+* Fine actions
+* Inventory updates
+* Resolution details
+
+### Reports
+
+Provide summary reports for:
+
+* Lost Items
+* Damaged Items
+* Pending Investigations
+* Written-Off Assets
+* Replacement History
+
+### UI
+
+Follow the existing LibraTech UI and design standards.
+Use role-based permissions and support pagination, filtering, and search.
+
+---
+
+This is intentionally compact while giving Replit enough information to generate a complete enterprise-ready feature that fits seamlessly into your existing library system.

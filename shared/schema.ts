@@ -921,3 +921,58 @@ export const insertResourceTypeSettingSchema = createInsertSchema(resourceTypeSe
 });
 export type InsertResourceTypeSetting = z.infer<typeof insertResourceTypeSettingSchema>;
 export type ResourceTypeSetting = typeof resourceTypeSettings.$inferSelect;
+
+// ─── Lost & Damaged Reports ───────────────────────────────────────────────────
+
+export const lostDamagedReportTypeEnum = pgEnum('lost_damaged_report_type', ['LOST', 'DAMAGED']);
+export const lostDamagedReportStatusEnum = pgEnum('lost_damaged_report_status', [
+  'REPORTED', 'UNDER_REVIEW', 'FINE_PENDING', 'REPLACEMENT_PENDING', 'RESOLVED', 'CLOSED',
+]);
+export const lostDamagedResolutionEnum = pgEnum('lost_damaged_resolution', [
+  'FOUND', 'REPAIRED', 'REPLACED', 'WRITTEN_OFF', 'FINE_RECOVERED', 'FINE_WAIVED',
+]);
+
+export const lostDamagedReports = pgTable("lost_damaged_reports", {
+  id: serial("id").primaryKey(),
+  type: lostDamagedReportTypeEnum("type").notNull(),
+  status: lostDamagedReportStatusEnum("status").notNull().default('REPORTED'),
+  bookId: integer("book_id").notNull().references(() => books.id),
+  bookCopyId: integer("book_copy_id").references(() => bookCopies.id),
+  circulationId: integer("circulation_id").references(() => circulation.id),
+  patronId: integer("patron_id").references(() => users.id),
+  libraryId: integer("library_id").references(() => libraries.id),
+  reportDate: timestamp("report_date").notNull().defaultNow(),
+  description: text("description"),
+  fineAmount: integer("fine_amount").default(0),
+  finePaidAmount: integer("fine_paid_amount").default(0),
+  fineWaivedAmount: integer("fine_waived_amount").default(0),
+  replacementRequired: boolean("replacement_required").default(false),
+  replacementCost: integer("replacement_cost").default(0),
+  resolution: lostDamagedResolutionEnum("resolution"),
+  resolvedAt: timestamp("resolved_at"),
+  resolvedBy: integer("resolved_by").references(() => users.id),
+  resolvedNotes: text("resolved_notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdBy: integer("created_by").references(() => users.id),
+  createdByName: text("created_by_name"),
+});
+
+export const lostDamagedReportHistory = pgTable("lost_damaged_report_history", {
+  id: serial("id").primaryKey(),
+  reportId: integer("report_id").notNull().references(() => lostDamagedReports.id, { onDelete: 'cascade' }),
+  action: text("action").notNull(),
+  fromStatus: lostDamagedReportStatusEnum("from_status"),
+  toStatus: lostDamagedReportStatusEnum("to_status"),
+  notes: text("notes"),
+  performedBy: integer("performed_by").references(() => users.id),
+  performedByName: text("performed_by_name"),
+  performedAt: timestamp("performed_at").notNull().defaultNow(),
+});
+
+export const insertLostDamagedReportSchema = createInsertSchema(lostDamagedReports).omit({
+  id: true, createdAt: true, resolvedAt: true, resolution: true, resolvedBy: true, resolvedNotes: true,
+  finePaidAmount: true, fineWaivedAmount: true,
+});
+export type InsertLostDamagedReport = z.infer<typeof insertLostDamagedReportSchema>;
+export type LostDamagedReport = typeof lostDamagedReports.$inferSelect;
+export type LostDamagedReportHistory = typeof lostDamagedReportHistory.$inferSelect;

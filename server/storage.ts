@@ -66,6 +66,11 @@ import {
   type InsertDigitalResourceVersion,
   type ResourceTypeSetting,
   type InsertResourceTypeSetting,
+  type LostDamagedReport,
+  type InsertLostDamagedReport,
+  type LostDamagedReportHistory,
+  lostDamagedReports,
+  lostDamagedReportHistory,
   digitalResources,
   digitalResourceVersions,
   resourceTypeSettings,
@@ -407,6 +412,14 @@ export interface IStorage {
   createDigitalResourceVersion(data: InsertDigitalResourceVersion): Promise<DigitalResourceVersion>;
   getDigitalResourceVersions(resourceId: number): Promise<DigitalResourceVersion[]>;
   getDigitalResourceVersion(id: number): Promise<DigitalResourceVersion | undefined>;
+
+  // Lost & Damaged Reports
+  getLostDamagedReports(filters: { type?: string; status?: string; libraryId?: number; patronId?: number; search?: string; limit?: number; offset?: number }): Promise<{ reports: (LostDamagedReport & { bookTitle: string; bookIsbn: string; bookCopyAccession: string | null; patronName: string | null; libraryName: string | null })[]; total: number }>;
+  getLostDamagedReport(id: number): Promise<(LostDamagedReport & { bookTitle: string; bookIsbn: string; bookCopyAccession: string | null; patronName: string | null; libraryName: string | null }) | undefined>;
+  createLostDamagedReport(data: InsertLostDamagedReport): Promise<LostDamagedReport>;
+  updateLostDamagedReport(id: number, data: Partial<LostDamagedReport>): Promise<LostDamagedReport | undefined>;
+  getLostDamagedReportHistory(reportId: number): Promise<LostDamagedReportHistory[]>;
+  addLostDamagedReportHistory(entry: { reportId: number; action: string; fromStatus?: string; toStatus?: string; notes?: string; performedBy?: number; performedByName?: string }): Promise<LostDamagedReportHistory>;
 }
 
 export interface DigitalResourceFilters {
@@ -2583,6 +2596,116 @@ export class DBStorage implements IStorage {
   async getDigitalResourceVersion(id: number): Promise<DigitalResourceVersion | undefined> {
     const [v] = await db.select().from(digitalResourceVersions).where(eq(digitalResourceVersions.id, id));
     return v;
+  }
+
+  // ===== Lost & Damaged Reports =====
+
+  async getLostDamagedReports(filters: { type?: string; status?: string; libraryId?: number; patronId?: number; search?: string; limit?: number; offset?: number }): Promise<{ reports: (LostDamagedReport & { bookTitle: string; bookIsbn: string; bookCopyAccession: string | null; patronName: string | null; libraryName: string | null })[]; total: number }> {
+    const { type, status, libraryId, patronId, search, limit = 50, offset = 0 } = filters;
+
+    let allReports = await db
+      .select({
+        report: lostDamagedReports,
+        bookTitle: books.title,
+        bookIsbn: books.isbn,
+        bookCopyAccession: bookCopies.barcode,
+        patronName: users.name,
+        libraryName: libraries.name,
+      })
+      .from(lostDamagedReports)
+      .leftJoin(books, eq(lostDamagedReports.bookId, books.id))
+      .leftJoin(bookCopies, eq(lostDamagedReports.bookCopyId, bookCopies.id))
+      .leftJoin(users, eq(lostDamagedReports.patronId, users.id))
+      .leftJoin(libraries, eq(lostDamagedReports.libraryId, libraries.id))
+      .orderBy(desc(lostDamagedReports.createdAt));
+
+    let filtered = allReports;
+    if (type) filtered = filtered.filter(r => r.report.type === type);
+    if (status) filtered = filtered.filter(r => r.report.status === status);
+    if (libraryId) filtered = filtered.filter(r => r.report.libraryId === libraryId);
+    if (patronId) filtered = filtered.filter(r => r.report.patronId === patronId);
+    if (search) {
+      const q = search.toLowerCase();
+      filtered = filtered.filter(r =>
+        r.bookTitle?.toLowerCase().includes(q) ||
+        r.bookIsbn?.toLowerCase().includes(q) ||
+        r.patronName?.toLowerCase().includes(q) ||
+        r.bookCopyAccession?.toLowerCase().includes(q)
+      );
+    }
+
+    const total = filtered.length;
+    const paginated = filtered.slice(offset, offset + limit);
+
+    return {
+      reports: paginated.map(r => ({
+        ...r.report,
+        bookTitle: r.bookTitle ?? '',
+        bookIsbn: r.bookIsbn ?? '',
+        bookCopyAccession: r.bookCopyAccession ?? null,
+        patronName: r.patronName ?? null,
+        libraryName: r.libraryName ?? null,
+      })),
+      total,
+    };
+  }
+
+  async getLostDamagedReport(id: number): Promise<(LostDamagedReport & { bookTitle: string; bookIsbn: string; bookCopyAccession: string | null; patronName: string | null; libraryName: string | null }) | undefined> {
+    const rows = await db
+      .select({
+        report: lostDamagedReports,
+        bookTitle: books.title,
+        bookIsbn: books.isbn,
+        bookCopyAccession: bookCopies.barcode,
+        patronName: users.name,
+        libraryName: libraries.name,
+      })
+      .from(lostDamagedReports)
+      .leftJoin(books, eq(lostDamagedReports.bookId, books.id))
+      .leftJoin(bookCopies, eq(lostDamagedReports.bookCopyId, bookCopies.id))
+      .leftJoin(users, eq(lostDamagedReports.patronId, users.id))
+      .leftJoin(libraries, eq(lostDamagedReports.libraryId, libraries.id))
+      .where(eq(lostDamagedReports.id, id));
+
+    if (!rows[0]) return undefined;
+    const r = rows[0];
+    return {
+      ...r.report,
+      bookTitle: r.bookTitle ?? '',
+      bookIsbn: r.bookIsbn ?? '',
+      bookCopyAccession: r.bookCopyAccession ?? null,
+      patronName: r.patronName ?? null,
+      libraryName: r.libraryName ?? null,
+    };
+  }
+
+  async createLostDamagedReport(data: InsertLostDamagedReport): Promise<LostDamagedReport> {
+    const [report] = await db.insert(lostDamagedReports).values(data as any).returning();
+    return report;
+  }
+
+  async updateLostDamagedReport(id: number, data: Partial<LostDamagedReport>): Promise<LostDamagedReport | undefined> {
+    const [report] = await db.update(lostDamagedReports).set(data as any).where(eq(lostDamagedReports.id, id)).returning();
+    return report;
+  }
+
+  async getLostDamagedReportHistory(reportId: number): Promise<LostDamagedReportHistory[]> {
+    return await db.select().from(lostDamagedReportHistory)
+      .where(eq(lostDamagedReportHistory.reportId, reportId))
+      .orderBy(asc(lostDamagedReportHistory.performedAt));
+  }
+
+  async addLostDamagedReportHistory(entry: { reportId: number; action: string; fromStatus?: string; toStatus?: string; notes?: string; performedBy?: number; performedByName?: string }): Promise<LostDamagedReportHistory> {
+    const [row] = await db.insert(lostDamagedReportHistory).values({
+      reportId: entry.reportId,
+      action: entry.action,
+      fromStatus: (entry.fromStatus as any) ?? null,
+      toStatus: (entry.toStatus as any) ?? null,
+      notes: entry.notes ?? null,
+      performedBy: entry.performedBy ?? null,
+      performedByName: entry.performedByName ?? null,
+    }).returning();
+    return row;
   }
 }
 

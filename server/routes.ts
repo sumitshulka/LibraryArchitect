@@ -37,6 +37,7 @@ import { logAudit, invalidateAuditConfigCache } from "./audit";
 import { registerReservationRoutes } from "./reservations";
 import { registerErpExtraRoutes } from "./erp-extra";
 import { registerDigitalResourceRoutes } from "./digital-resources";
+import { registerLostDamagedRoutes } from "./lost-damaged";
 
 const MAX_WHITELIST_ENTRIES = 5;
 
@@ -6866,6 +6867,7 @@ export async function registerRoutes(
   registerReservationRoutes(app);
   registerErpExtraRoutes(app);
   registerDigitalResourceRoutes(app);
+  registerLostDamagedRoutes(app);
 
   return httpServer;
 }
