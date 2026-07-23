@@ -303,7 +303,7 @@ export function registerDigitalResourceRoutes(app: Express) {
         fileName: resource.fileName,
         fileSizeBytes: resource.fileSizeBytes,
         externalUrl: resource.externalUrl,
-        releaseNotes: "Initial upload",
+        releaseNotes: (req.body as any).releaseNotes || "Initial upload",
         isCurrent: true,
         uploadedBy: user.id,
       });
@@ -374,6 +374,10 @@ export function registerDigitalResourceRoutes(app: Express) {
       const id = parseInt(req.params.id);
       const existing = await storage.getDigitalResource(id);
       if (!existing) return res.status(404).json({ error: "Digital resource not found" });
+
+      if (user.role === "FACULTY" && existing.uploadedBy !== user.id) {
+        return res.status(403).json({ error: "You can only publish resources you uploaded" });
+      }
 
       const { publish } = req.body as { publish?: boolean };
       const nextStatus = publish === false ? "DRAFT" : "PUBLISHED";
@@ -637,6 +641,8 @@ export function registerDigitalResourceRoutes(app: Express) {
 
 async function isResourceVisibleToUser(resource: any, user: any): Promise<boolean> {
   if (user.role === "ADMIN" || user.role === "LIBRARIAN") return true;
+  // Resource creators (faculty who uploaded) can always see their own resources
+  if (user.role === "FACULTY" && resource.uploadedBy === user.id) return true;
   if (resource.status !== "PUBLISHED") return false;
   if (resource.publishDate && new Date(resource.publishDate) > new Date()) return false;
 
