@@ -181,11 +181,8 @@ export default function LoginPage() {
         </div>
 
         <div className="relative z-10 flex flex-col justify-between p-12 w-full">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-white/15 backdrop-blur-sm rounded-xl">
-              <BookOpen className="h-7 w-7 text-white" />
-            </div>
-            <span className="text-2xl font-bold text-white tracking-tight">LibraTech</span>
+          <div className="flex items-center">
+            <img src="/sc24lib-logo.png" alt="SC24Lib" className="h-10 w-auto" />
           </div>
 
           <div className="space-y-8">
@@ -217,18 +214,17 @@ export default function LoginPage() {
           </div>
 
           <p className="text-sm text-blue-300/60">
-            LibraTech &copy; {new Date().getFullYear()}
+            SC24Lib &copy; {new Date().getFullYear()}
           </p>
         </div>
       </div>
 
       <div className="flex-1 flex items-center justify-center p-6 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-950 dark:to-gray-900">
         <div className="w-full max-w-md">
-          <div className="lg:hidden flex items-center gap-2 justify-center mb-8">
-            <div className="p-2 bg-blue-600 rounded-xl">
-              <BookOpen className="h-6 w-6 text-white" />
+          <div className="lg:hidden flex items-center justify-center mb-8">
+            <div className="px-4 py-2 bg-blue-700 rounded-xl">
+              <img src="/sc24lib-logo.png" alt="SC24Lib" className="h-8 w-auto" />
             </div>
-            <span className="text-xl font-bold tracking-tight">LibraTech</span>
           </div>
 
           {step === "login" && (
@@ -617,7 +613,7 @@ export default function LoginPage() {
           )}
 
           <p className="text-center text-xs text-muted-foreground mt-6 lg:hidden">
-            LibraTech &copy; {new Date().getFullYear()}
+            SC24Lib &copy; {new Date().getFullYear()}
           </p>
         </div>
       </div>

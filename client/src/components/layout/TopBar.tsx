@@ -135,7 +135,7 @@ export function TopBar({ onMenuClick }: { onMenuClick?: () => void }) {
           <Button variant="ghost" size="icon" onClick={onMenuClick} data-testid="button-mobile-menu">
             <Menu className="h-5 w-5" />
           </Button>
-          <span className="font-bold">LibraTech</span>
+          <img src="/sc24lib-logo.png" alt="SC24Lib" className="h-6 w-auto" style={{ filter: "invert(1) brightness(0)" }} />
         </div>
 
         <div className="hidden md:flex items-center w-1/3">

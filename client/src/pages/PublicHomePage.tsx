@@ -8,12 +8,8 @@ export default function PublicHomePage() {
       <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-primary flex items-center justify-center">
-              <BookOpen className="h-6 w-6 text-primary-foreground" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold">LibraTech</h1>
-              <p className="text-xs text-muted-foreground">Library Management System</p>
+            <div className="px-3 py-1.5 bg-blue-700 rounded-lg">
+              <img src="/sc24lib-logo.png" alt="SC24Lib" className="h-8 w-auto" />
             </div>
           </div>
         </div>
