@@ -6,12 +6,12 @@ const options: swaggerJsdoc.Options = {
   definition: {
     openapi: '3.0.0',
     info: {
-      title: 'LibraTech API',
+      title: 'SC24Lib Platform API',
       version: '1.0.0',
       description: `
-# LibraTech Enterprise Library Management System API
+# SC24Lib Platform - Enterprise Library Management System API
 
-This API documentation covers all endpoints for the LibraTech library management system, with focus on ERP integration and user provisioning.
+This API documentation covers all endpoints for the SC24Lib Platform library management system, with focus on ERP integration and user provisioning.
 
 ## Authentication Modes
 
@@ -44,7 +44,7 @@ The system supports three authentication modes:
 - No pre-provisioning required
       `,
       contact: {
-        name: 'LibraTech Support',
+        name: 'SC24Lib Support',
       },
     },
     servers: [
@@ -2503,7 +2503,7 @@ const swaggerSpec = swaggerJsdoc(options);
 export function setupSwagger(app: Express) {
   app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
     customCss: '.swagger-ui .topbar { display: none }',
-    customSiteTitle: 'LibraTech API Documentation',
+    customSiteTitle: 'SC24Lib Platform API Documentation',
     swaggerOptions: {
       persistAuthorization: true,
       displayRequestDuration: true,
