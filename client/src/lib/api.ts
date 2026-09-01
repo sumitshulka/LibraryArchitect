@@ -65,6 +65,28 @@ export const booksApi = {
     if (!res.ok) throw new Error("Failed to fetch book dashboard");
     return res.json();
   },
+
+  addCopies: async (
+    id: number,
+    purchase: {
+      quantity: number;
+      acquisitionDate?: string | null;
+      acquisitionSource?: string | null;
+      unitPrice?: number | null;
+      shelfLocation?: string | null;
+    },
+  ): Promise<{ book: Book; copiesCreated: number }> => {
+    const res = await fetch(`${API_BASE}/books/${id}/copies`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(purchase),
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Failed to add book copies");
+    }
+    return res.json();
+  },
 };
 
 // Book Dashboard types

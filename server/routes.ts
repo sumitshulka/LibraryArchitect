@@ -459,12 +459,12 @@ export async function registerRoutes(
       const acquisitionGroups = new Map<string, { date: Date | null; source: string | null; cost: number; quantity: number }>();
       
       for (const copy of copies) {
-        const price = copy.price || 0;
+        const price = copy.price ?? book.unitPrice ?? 0;
         totalAcquisitionCost += price;
         
         const acqDate = copy.acquisitionDate ? new Date(copy.acquisitionDate) : null;
         const acqDateKey = acqDate && !isNaN(acqDate.getTime()) ? acqDate.toISOString() : 'unknown';
-        const key = `${acqDateKey}_${copy.acquisitionSource || 'unknown'}`;
+        const key = `${acqDateKey}_${copy.acquisitionSource || 'unknown'}_${price}`;
         const existing = acquisitionGroups.get(key);
         if (existing) {
           existing.cost += price;
@@ -503,6 +503,72 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error fetching book dashboard:", error);
       res.status(500).json({ error: "Failed to fetch book dashboard" });
+    }
+  });
+
+  app.post("/api/books/:id/copies", async (req, res) => {
+    try {
+      const bookId = parseInt(req.params.id);
+      if (isNaN(bookId)) {
+        return res.status(400).json({ error: "Invalid book ID" });
+      }
+
+      const book = await storage.getBook(bookId);
+      if (!book) {
+        return res.status(404).json({ error: "Book not found" });
+      }
+
+      const purchaseSchema = z.object({
+        quantity: z.number().int().min(1).max(1000),
+        acquisitionDate: z.string().nullable().optional(),
+        acquisitionSource: z.string().trim().max(200).nullable().optional(),
+        unitPrice: z.number().finite().min(0).nullable().optional(),
+        shelfLocation: z.string().trim().max(200).nullable().optional(),
+      });
+      const purchase = purchaseSchema.parse(req.body);
+
+      let acquisitionDate: Date | undefined;
+      if (purchase.acquisitionDate) {
+        acquisitionDate = new Date(purchase.acquisitionDate);
+        if (isNaN(acquisitionDate.getTime())) {
+          return res.status(400).json({ error: "Invalid acquisition date" });
+        }
+      }
+
+      const priceInCents = purchase.unitPrice == null
+        ? undefined
+        : Math.round(purchase.unitPrice * 100);
+      const copies = await storage.createBookCopies(
+        bookId,
+        purchase.quantity,
+        purchase.shelfLocation || undefined,
+        acquisitionDate,
+        purchase.acquisitionSource || undefined,
+        priceInCents,
+      );
+
+      logAudit(req, {
+        category: "CATALOG",
+        action: "BOOK_COPIES_ADDED",
+        targetType: "book",
+        targetId: String(bookId),
+        details: {
+          title: book.title,
+          isbn: book.isbn,
+          copiesCreated: copies.length,
+          acquisitionDate: acquisitionDate?.toISOString() || null,
+          acquisitionSource: purchase.acquisitionSource || null,
+          unitPrice: priceInCents ?? null,
+        },
+      });
+
+      res.status(201).json({ book, copiesCreated: copies.length });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error adding book copies:", error);
+      res.status(500).json({ error: "Failed to add book copies" });
     }
   });
 

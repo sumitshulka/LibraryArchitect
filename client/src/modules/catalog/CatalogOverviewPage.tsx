@@ -1,11 +1,12 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { SearchAttributesFilter } from "@/components/SearchAttributesFilter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -27,12 +28,14 @@ import {
   Settings2,
   ShieldCheck,
   Sparkles,
+  ShoppingCart,
   Upload,
 } from "lucide-react";
 import { booksApi, statsApi, type BookWithSearchAttributes } from "@/lib/api";
 import type { Book } from "@shared/schema";
 import { formatIsbn } from "@/lib/isbn";
 import { toast } from "sonner";
+import { useCurrency } from "@/lib/useCurrency";
 import { BookDetailsSheet, CatalogAnalyticsDialog, EditBookDialog } from "./CatalogPage";
 import { MarcEditor } from "./MarcEditor";
 
@@ -89,6 +92,144 @@ function Cover({ book }: { book: Book }) {
   );
 }
 
+function AddCopiesDialog({
+  book,
+  open,
+  onOpenChange,
+}: {
+  book: Book | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const queryClient = useQueryClient();
+  const { currency } = useCurrency();
+  const [formData, setFormData] = useState({
+    quantity: "1",
+    acquisitionDate: new Date().toISOString().split("T")[0],
+    acquisitionSource: "",
+    unitPrice: "",
+    shelfLocation: "",
+  });
+
+  useEffect(() => {
+    if (book && open) {
+      setFormData({
+        quantity: "1",
+        acquisitionDate: new Date().toISOString().split("T")[0],
+        acquisitionSource: "",
+        unitPrice: book.unitPrice != null ? (book.unitPrice / 100).toFixed(2) : "",
+        shelfLocation: book.shelfLocation || "",
+      });
+    }
+  }, [book, open]);
+
+  const addCopiesMutation = useMutation({
+    mutationFn: () => {
+      if (!book) throw new Error("No book selected");
+      return booksApi.addCopies(book.id, {
+        quantity: Number(formData.quantity),
+        acquisitionDate: formData.acquisitionDate || null,
+        acquisitionSource: formData.acquisitionSource || null,
+        unitPrice: formData.unitPrice === "" ? null : Number(formData.unitPrice),
+        shelfLocation: formData.shelfLocation || null,
+      });
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["books"] });
+      queryClient.invalidateQueries({ queryKey: ["catalog-summary-books"] });
+      queryClient.invalidateQueries({ queryKey: ["book-dashboard", book?.id] });
+      toast.success(`${result.copiesCreated} ${result.copiesCreated === 1 ? "copy" : "copies"} added to the catalog`);
+      onOpenChange(false);
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Add purchase</DialogTitle>
+          <DialogDescription>
+            Add more copies of <span className="font-medium">{book?.title}</span> without creating another catalog record.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={(event) => { event.preventDefault(); addCopiesMutation.mutate(); }} className="space-y-4">
+          <div className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+            ISBN <span className="font-mono text-foreground">{book ? formatIsbn(book.isbn) : "—"}</span>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="add-copies-quantity">Copies to add</Label>
+              <Input
+                id="add-copies-quantity"
+                type="number"
+                min="1"
+                max="1000"
+                step="1"
+                required
+                value={formData.quantity}
+                onChange={(event) => setFormData({ ...formData, quantity: event.target.value })}
+                data-testid="input-add-copies-quantity"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="add-copies-date">Purchase date</Label>
+              <Input
+                id="add-copies-date"
+                type="date"
+                value={formData.acquisitionDate}
+                onChange={(event) => setFormData({ ...formData, acquisitionDate: event.target.value })}
+                data-testid="input-add-copies-date"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="add-copies-price">Unit price ({currency.symbol})</Label>
+              <Input
+                id="add-copies-price"
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="Enter new batch price"
+                value={formData.unitPrice}
+                onChange={(event) => setFormData({ ...formData, unitPrice: event.target.value })}
+                data-testid="input-add-copies-price"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="add-copies-source">Purchase source</Label>
+              <Input
+                id="add-copies-source"
+                placeholder="Publisher, vendor, donation..."
+                value={formData.acquisitionSource}
+                onChange={(event) => setFormData({ ...formData, acquisitionSource: event.target.value })}
+                data-testid="input-add-copies-source"
+              />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="add-copies-shelf">Shelf location</Label>
+            <Input
+              id="add-copies-shelf"
+              value={formData.shelfLocation}
+              onChange={(event) => setFormData({ ...formData, shelfLocation: event.target.value })}
+              data-testid="input-add-copies-shelf"
+            />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button type="submit" disabled={addCopiesMutation.isPending} data-testid="button-confirm-add-copies">
+              {addCopiesMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Add copies
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function CatalogOverviewPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
@@ -98,6 +239,8 @@ export default function CatalogOverviewPage() {
   const [editingBook, setEditingBook] = useState<Book | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [marcBook, setMarcBook] = useState<Book | null>(null);
+  const [addCopiesBook, setAddCopiesBook] = useState<Book | null>(null);
+  const [addCopiesDialogOpen, setAddCopiesDialogOpen] = useState(false);
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const queryClient = useQueryClient();
@@ -252,7 +395,8 @@ export default function CatalogOverviewPage() {
                             <DropdownMenuLabel>Record actions</DropdownMenuLabel>
                             <DropdownMenuItem onClick={() => { setEditingBook(book); setEditDialogOpen(true); }} data-testid={`button-edit-${book.id}`}><Pencil className="mr-2 h-3.5 w-3.5" />Edit details</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => setMarcBook(book)} data-testid={`button-marc-${book.id}`}><FileText className="mr-2 h-3.5 w-3.5" />View MARC record</DropdownMenuItem>
-                            <DropdownMenuItem><Sparkles className="mr-2 h-3.5 w-3.5" />View history</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleBookClick(book.id)} data-testid={`button-history-${book.id}`}><Sparkles className="mr-2 h-3.5 w-3.5" />View history</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => { setAddCopiesBook(book); setAddCopiesDialogOpen(true); }} data-testid={`button-add-copies-${book.id}`}><ShoppingCart className="mr-2 h-3.5 w-3.5" />Add purchase / copies</DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => handleDelete(book.id)} data-testid={`button-delete-${book.id}`}>Delete record</DropdownMenuItem>
                           </DropdownMenuContent>
@@ -283,6 +427,7 @@ export default function CatalogOverviewPage() {
       <CatalogAnalyticsDialog open={analyticsOpen} onOpenChange={setAnalyticsOpen} />
       <BookDetailsSheet open={sheetOpen} onOpenChange={setSheetOpen} bookId={selectedBookId} />
       <EditBookDialog book={editingBook} open={editDialogOpen} onOpenChange={setEditDialogOpen} />
+      <AddCopiesDialog book={addCopiesBook} open={addCopiesDialogOpen} onOpenChange={setAddCopiesDialogOpen} />
       <Dialog open={!!marcBook} onOpenChange={(open) => { if (!open) setMarcBook(null); }}>
         <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
           <DialogHeader>
