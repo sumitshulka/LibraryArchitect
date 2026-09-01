@@ -22,12 +22,22 @@ import {
 import { librariesApi, orgUnitsApi } from "@/lib/api";
 
 export default function LibrariesPage() {
-  const { data: libraries = [], isLoading: loadingLibraries, error } = useQuery({
+  const {
+    data: libraries = [],
+    isLoading: loadingLibraries,
+    error,
+    refetch: refetchLibraries,
+  } = useQuery({
     queryKey: ["libraries"],
     queryFn: librariesApi.getAll,
   });
 
-  const { data: orgUnits = [], isLoading: loadingOrgUnits } = useQuery({
+  const {
+    data: orgUnits = [],
+    isLoading: loadingOrgUnits,
+    error: orgUnitsError,
+    refetch: refetchOrgUnits,
+  } = useQuery({
     queryKey: ["org-units"],
     queryFn: orgUnitsApi.getAll,
     enabled: libraries.length > 1,
@@ -37,7 +47,7 @@ export default function LibrariesPage() {
     return <Redirect to={`/organizations/libraries/${libraries[0].id}`} />;
   }
 
-  const isLoading = loadingLibraries || loadingOrgUnits;
+  const isLoading = loadingLibraries || (libraries.length > 1 && loadingOrgUnits);
 
   return (
     <MainLayout>
@@ -68,69 +78,104 @@ export default function LibrariesPage() {
               </div>
             ) : error ? (
               <div className="text-center py-8 text-destructive" data-testid="error-libraries">
-                Failed to load libraries. Please try again.
+                <p>Failed to load libraries.</p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="mt-4"
+                  onClick={() => void refetchLibraries()}
+                  data-testid="button-retry-libraries"
+                >
+                  Try again
+                </Button>
               </div>
             ) : libraries.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground" data-testid="empty-libraries">
-                No libraries configured.
+                <p>No libraries configured.</p>
+                <Link href="/organizations">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="mt-4"
+                    data-testid="button-configure-libraries"
+                  >
+                    Configure libraries
+                  </Button>
+                </Link>
               </div>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Code</TableHead>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Organization</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {libraries.map((library) => {
-                    const orgUnit = orgUnits.find((unit) => unit.id === library.orgUnitId);
+              <>
+                {orgUnitsError && (
+                  <div className="mb-4 flex items-center justify-between gap-4 text-sm text-destructive" data-testid="error-org-units">
+                    <span>Organization details could not be loaded.</span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void refetchOrgUnits()}
+                      data-testid="button-retry-org-units"
+                    >
+                      Try again
+                    </Button>
+                  </div>
+                )}
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Code</TableHead>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Organization</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {libraries.map((library) => {
+                      const orgUnit = orgUnits.find((unit) => unit.id === library.orgUnitId);
 
-                    return (
-                      <TableRow key={library.id} data-testid={`row-library-${library.id}`}>
-                        <TableCell className="font-mono text-sm">{library.code}</TableCell>
-                        <TableCell className="font-medium">{library.name}</TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {orgUnit?.name || "-"}
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            variant={library.isActive ? "default" : "secondary"}
-                            className={library.isActive ? "bg-green-100 text-green-800" : ""}
-                          >
-                            {library.isActive ? "Active" : "Inactive"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Link href={`/organizations/libraries/${library.id}/resources`}>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              title="View Resources"
-                              data-testid={`button-library-resources-${library.id}`}
+                      return (
+                        <TableRow key={library.id} data-testid={`row-library-${library.id}`}>
+                          <TableCell className="font-mono text-sm">{library.code}</TableCell>
+                          <TableCell className="font-medium">{library.name}</TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {orgUnit?.name || "-"}
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant={library.isActive ? "default" : "secondary"}
+                              className={library.isActive ? "bg-green-100 text-green-800" : ""}
                             >
-                              <BookOpen className="h-4 w-4 text-green-600" />
-                            </Button>
-                          </Link>
-                          <Link href={`/organizations/libraries/${library.id}`}>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              title="View Dashboard"
-                              data-testid={`button-library-dashboard-${library.id}`}
-                            >
-                              <LayoutDashboard className="h-4 w-4 text-blue-500" />
-                            </Button>
-                          </Link>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+                              {library.isActive ? "Active" : "Inactive"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Link href={`/organizations/libraries/${library.id}/resources`}>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                title="View Resources"
+                                data-testid={`button-library-resources-${library.id}`}
+                              >
+                                <BookOpen className="h-4 w-4 text-green-600" />
+                              </Button>
+                            </Link>
+                            <Link href={`/organizations/libraries/${library.id}`}>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                title="View Dashboard"
+                                data-testid={`button-library-dashboard-${library.id}`}
+                              >
+                                <LayoutDashboard className="h-4 w-4 text-blue-500" />
+                              </Button>
+                            </Link>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </>
             )}
           </CardContent>
         </Card>
