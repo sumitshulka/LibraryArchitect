@@ -126,6 +126,16 @@ describe("ReportsPage fines and revenue export", () => {
     vi.restoreAllMocks();
   });
 
+  it("disables circulation and acquisitions exports when no records match", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => expect(screen.getByTestId("button-circ-export")).toBeDisabled());
+
+    await user.click(screen.getByRole("tab", { name: "Acquisitions" }));
+    await waitFor(() => expect(screen.getByTestId("button-acq-export")).toBeDisabled());
+  });
+
   it("exports fines and revenue rows with quoted values escaped for CSV", async () => {
     const user = userEvent.setup();
     const createObjectURL = vi.fn<(object: Blob | MediaSource) => string>(() => "blob:report");
@@ -224,6 +234,63 @@ describe("ReportsPage fines and revenue export", () => {
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:circulation");
   });
 
+  it("exports all circulation records when results exceed the visible table limit", async () => {
+    const records = Array.from({ length: 501 }, (_, index) => ({
+      id: index + 1,
+      checkoutDate: "2026-08-03T09:30:00.000Z",
+      dueDate: "2026-08-17T09:30:00.000Z",
+      returnDate: null,
+      status: "ACTIVE",
+      isOverdue: false,
+      loanDays: 14,
+      bookTitle: `Circulation title ${index + 1}`,
+      bookIsbn: `978000000${String(index + 1).padStart(4, "0")}`,
+      author: "Report author",
+      category: "Fiction",
+      borrowerName: "Report reader",
+      borrowerRole: "STUDENT",
+      libraryName: "Central Library",
+      renewalCount: 0,
+      fineAmount: 0,
+    }));
+    mockedCirculation.mockResolvedValue({
+      records,
+      totals: {
+        totalCheckouts: records.length,
+        activeCount: records.length,
+        returnedCount: 0,
+        overdueCount: 0,
+        avgLoanDays: 14,
+      },
+      monthlyTrends: [],
+      byLibrary: [],
+      byCategory: [],
+      topBooks: [],
+      topBorrowers: [],
+      byBook: [],
+      byUser: [],
+    });
+
+    const createObjectURL = vi.fn<(object: Blob | MediaSource) => string>(() => "blob:large-circulation");
+    const anchorClick = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => {});
+    vi.stubGlobal("URL", { ...URL, createObjectURL, revokeObjectURL: vi.fn() });
+
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByTestId("row-circ-1")).toBeInTheDocument());
+    expect(screen.queryByTestId("row-circ-501")).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId("button-circ-export"));
+
+    const csvBlob = createObjectURL.mock.calls[0][0] as Blob;
+    const csv = await csvBlob.text();
+    expect(csv.split("\n")).toHaveLength(records.length + 1);
+    expect(csv).toContain('"Circulation title 501"');
+    expect(anchorClick).toHaveBeenCalled();
+  });
+
   it("exports acquisition rows with converted prices, dates, and quoted values", async () => {
     mockedAcquisitions.mockResolvedValue({
       copies: [
@@ -290,5 +357,62 @@ describe("ReportsPage fines and revenue export", () => {
     );
     expect(anchorClick).toHaveBeenCalled();
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:acquisitions");
+  });
+
+  it("exports all acquisition copies when results exceed the visible table limit", async () => {
+    const copies = Array.from({ length: 501 }, (_, index) => ({
+      id: index + 1,
+      acquisitionDate: "2026-07-12T11:00:00.000Z",
+      barcode: `BC-${String(index + 1).padStart(3, "0")}`,
+      bookTitle: `Acquisition title ${index + 1}`,
+      bookIsbn: `978000000${String(index + 1).padStart(4, "0")}`,
+      author: "Acquisition author",
+      category: "History",
+      format: "HARDCOVER",
+      libraryName: "North Library",
+      acquisitionSource: "Vendor",
+      price: 1000,
+      priceSource: "INVOICE",
+      status: "AVAILABLE",
+      condition: "NEW",
+    }));
+    mockedAcquisitions.mockResolvedValue({
+      copies,
+      totals: {
+        totalSpend: copies.length * 1000,
+        pricedCopies: copies.length,
+        avgUnitPrice: 1000,
+        totalCopies: copies.length,
+        datedCopies: copies.length,
+        uniqueTitles: copies.length,
+      },
+      timeSeries: [],
+      byLibrary: [],
+      bySource: [],
+      byCategory: [],
+      byFormat: [],
+      byStatus: [],
+      byCondition: [],
+    });
+
+    const createObjectURL = vi.fn<(object: Blob | MediaSource) => string>(() => "blob:large-acquisitions");
+    const anchorClick = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => {});
+    vi.stubGlobal("URL", { ...URL, createObjectURL, revokeObjectURL: vi.fn() });
+
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole("tab", { name: "Acquisitions" }));
+    await waitFor(() => expect(screen.getByTestId("row-acq-copy-1")).toBeInTheDocument());
+    expect(screen.queryByTestId("row-acq-copy-501")).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId("button-acq-export"));
+
+    const csvBlob = createObjectURL.mock.calls[0][0] as Blob;
+    const csv = await csvBlob.text();
+    expect(csv.split("\n")).toHaveLength(copies.length + 1);
+    expect(csv).toContain('"Acquisition title 501"');
+    expect(anchorClick).toHaveBeenCalled();
   });
 });
