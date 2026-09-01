@@ -1158,13 +1158,13 @@ export class DBStorage implements IStorage {
   }
 
   async createLibrary(insertLibrary: InsertLibrary): Promise<Library> {
-    const [library] = await db.insert(libraries).values(insertLibrary).returning();
+    const [library] = await db.insert(libraries).values(insertLibrary as typeof libraries.$inferInsert).returning();
     return library;
   }
 
   async updateLibrary(id: number, updateData: Partial<InsertLibrary>): Promise<Library | undefined> {
     const [library] = await db.update(libraries)
-      .set({ ...updateData, updatedAt: new Date() })
+      .set({ ...updateData, updatedAt: new Date() } as Partial<typeof libraries.$inferInsert>)
       .where(eq(libraries.id, id))
       .returning();
     return library;
@@ -1318,7 +1318,8 @@ export class DBStorage implements IStorage {
         case 'PAID':
           paidFines += amount;
           break;
-        case 'PENDING':
+        case 'OUTSTANDING':
+        case 'PARTIALLY_PAID':
           outstandingFines += amount;
           break;
         case 'WAIVED':
@@ -1656,7 +1657,7 @@ export class DBStorage implements IStorage {
           name: user.name,
           email: user.email || '',
           role: user.role === 'ADMIN' ? 'Library Admin' : 'Librarian',
-          allocatedAt: m.createdAt,
+          allocatedAt: m.joinedAt,
         };
       });
   }
@@ -1825,7 +1826,7 @@ export class DBStorage implements IStorage {
     const booksList = await db.select().from(books)
       .where(sql`${books.id} IN (${sql.join(bookIds.map(id => sql`${id}`), sql`, `)})`);
     
-    const allCategories = [...new Set(booksList.map(b => b.category))].sort();
+    const allCategories = Array.from(new Set(booksList.map(b => b.category))).sort();
     
     let filteredBooks = booksList;
 

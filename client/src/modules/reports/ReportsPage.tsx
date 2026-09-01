@@ -122,7 +122,7 @@ function FinesAndRevenue() {
 
   const exportCsv = () => {
     if (!data?.payments?.length) return;
-    const rows = [
+    const rows: Array<Array<string | number>> = [
       ["Date","Type","Method","Book","Borrower","Library","Amount","Reference","Collected by"],
       ...data.payments.map((p: any) => [
         new Date(p.paidAt).toISOString(),

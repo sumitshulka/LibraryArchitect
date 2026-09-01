@@ -1642,7 +1642,10 @@ export async function registerRoutes(
           returnsByMonth.set(rm, (returnsByMonth.get(rm) || 0) + 1);
         }
       }
-      const allMonths = Array.from(new Set([...checkoutsByMonth.keys(), ...returnsByMonth.keys()])).sort();
+      const allMonths = Array.from(new Set([
+        ...Array.from(checkoutsByMonth.keys()),
+        ...Array.from(returnsByMonth.keys()),
+      ])).sort();
       const monthlyTrends = allMonths.map(m => ({
         month: m,
         checkouts: checkoutsByMonth.get(m) || 0,
@@ -2414,6 +2417,10 @@ export async function registerRoutes(
           scannedAt: new Date(),
           notes: notes || (locationMatch ? null : `Location mismatch: expected ${copy.shelfLocation}, found at ${scannedLoc}`)
         });
+      }
+
+      if (!item) {
+        return res.status(500).json({ error: "Failed to save scanned inventory item" });
       }
       
       logAudit(req, { category: 'INVENTORY', action: 'ITEM_SCANNED', targetType: 'inventory_item', targetId: String(item.id), details: { sessionId, ssn, bookTitle: book?.title, status: item.status } });
@@ -3506,14 +3513,13 @@ export async function registerRoutes(
 
       const maskedEmail = user.email.replace(/(.{2})(.*)(@.*)/, "$1***$3");
 
-      await logAudit({
+      await logAudit(req, {
         userId: user.id,
-        username: user.username,
+        userName: user.username,
         action: "Password reset OTP requested",
         category: "AUTHENTICATION",
         status: "SUCCESS",
-        ipAddress: req.ip || "unknown",
-        metadata: { email: maskedEmail },
+        details: { email: maskedEmail },
       });
 
       res.json({ success: true, email: maskedEmail, message: `OTP sent to ${maskedEmail}` });
@@ -3600,14 +3606,13 @@ export async function registerRoutes(
       const hashedPassword = hashPassword(newPassword);
       await storage.updateUser(user.id, { password: hashedPassword });
 
-      await logAudit({
+      await logAudit(req, {
         userId: user.id,
-        username: user.username,
+        userName: user.username,
         action: "Password reset completed via OTP",
         category: "AUTHENTICATION",
         status: "SUCCESS",
-        ipAddress: req.ip || "unknown",
-        metadata: {},
+        details: {},
       });
 
       res.json({ success: true, message: "Password reset successfully. You can now log in with your new password." });
@@ -6811,14 +6816,13 @@ export async function registerRoutes(
       }
       await storage.setSystemConfig({ key: "smtp_from", value: validated.smtpFrom || validated.smtpUser, category: "email", description: "From email address" });
 
-      await logAudit({
+      await logAudit(req, {
         userId: currentUser.id,
-        username: currentUser.username,
+        userName: currentUser.username,
         action: "Email configuration updated",
         category: "SYSTEM_CONFIG",
         status: "SUCCESS",
-        ipAddress: req.ip || "unknown",
-        metadata: { provider: validated.provider, smtpHost: validated.smtpHost },
+        details: { provider: validated.provider, smtpHost: validated.smtpHost },
       });
 
       res.json({ success: true, message: "Email configuration saved successfully" });
@@ -6890,14 +6894,13 @@ export async function registerRoutes(
         `,
       });
 
-      await logAudit({
+      await logAudit(req, {
         userId: currentUser.id,
-        username: currentUser.username,
+        userName: currentUser.username,
         action: "Test email sent successfully",
         category: "SYSTEM_CONFIG",
         status: "SUCCESS",
-        ipAddress: req.ip || "unknown",
-        metadata: { testEmail },
+        details: { testEmail },
       });
 
       res.json({ success: true, message: `Test email sent successfully to ${testEmail}` });

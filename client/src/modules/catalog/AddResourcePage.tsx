@@ -175,7 +175,10 @@ export default function AddResourcePage() {
       return;
     }
 
-    createMutation.mutate(formData);
+    createMutation.mutate({
+      ...formData,
+      unitPrice: formData.unitPrice === "" ? null : parseFloat(formData.unitPrice),
+    });
   };
 
   return (

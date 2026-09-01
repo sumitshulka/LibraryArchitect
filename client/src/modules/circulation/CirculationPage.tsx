@@ -903,7 +903,7 @@ export default function CirculationPage() {
                   </Button>
                   <Button
                     onClick={handleIssue}
-                    disabled={!selectedLibraryId || !resolvedUser || !resolvedBook || (hasCopiesWithSSN && !selectedCopy) || (resolvedBook && selectedLibraryId && availableCopies.length === 0)}
+                    disabled={Boolean(!selectedLibraryId || !resolvedUser || !resolvedBook || (hasCopiesWithSSN && !selectedCopy) || (resolvedBook && selectedLibraryId && availableCopies.length === 0))}
                     className="gap-1.5"
                     data-testid="button-issue"
                   >
