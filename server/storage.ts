@@ -721,11 +721,14 @@ export class DBStorage implements IStorage {
 
   async searchBooks(query: string): Promise<Book[]> {
     const searchPattern = `%${query}%`;
+    const normalizedIsbnQuery = query.replace(/[-\s]/g, "");
+    const isbnPattern = `%${normalizedIsbnQuery}%`;
     return await db.select().from(books).where(
       or(
         like(books.title, searchPattern),
         like(books.author, searchPattern),
-        like(books.isbn, searchPattern)
+        like(books.isbn, searchPattern),
+        sql`regexp_replace(${books.isbn}, '[-[:space:]]', '', 'g') ILIKE ${isbnPattern}`,
       )
     );
   }
