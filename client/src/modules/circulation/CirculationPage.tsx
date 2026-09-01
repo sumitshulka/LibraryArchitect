@@ -417,7 +417,9 @@ export default function CirculationPage() {
   });
   const [txSearch, setTxSearch] = useState("");
   const [returnIdentifier, setReturnIdentifier] = useState("");
-  const [returnInfo, setReturnInfo] = useState<ReturnInfo | null>(null);
+  const [returnItems, setReturnItems] = useState<ReturnInfo[]>([]);
+  const [returnErrors, setReturnErrors] = useState<Record<number, string>>({});
+  const [returnLookupError, setReturnLookupError] = useState("");
   const [isLookingUpReturn, setIsLookingUpReturn] = useState(false);
   const [bookLookupMode, setBookLookupMode] = useState<"isbn" | "browse">("isbn");
   const [checkoutItems, setCheckoutItems] = useState<CheckoutItem[]>([]);
@@ -606,14 +608,25 @@ export default function CirculationPage() {
   const { format: formatMoney } = useCurrency();
 
   const returnMutation = useMutation({
-    mutationFn: (id: number) => circulationApi.returnBook(id),
-    onSuccess: () => {
-      toast.success("Book returned successfully!");
+    mutationFn: (items: ReturnInfo[]) => circulationApi.returnMany(items.map(item => item.circulationId)),
+    onSuccess: (result) => {
+      const succeededIds = new Set(result.succeeded.map(item => item.circulationId));
+      const nextErrors = Object.fromEntries(result.failed.map(item => [item.circulationId, item.error]));
+      setReturnErrors(nextErrors);
+      setReturnItems(current => current.filter(item => !succeededIds.has(item.circulationId)));
+
+      if (result.failed.length === 0) {
+        toast.success(`${result.succeeded.length} ${result.succeeded.length === 1 ? "book" : "books"} returned successfully!`);
+        setReturnIdentifier("");
+        setReturnLookupError("");
+      } else if (result.succeeded.length > 0) {
+        toast.error(`${result.succeeded.length} returned, but ${result.failed.length} could not be returned. Review the failed items below.`);
+      } else {
+        toast.error("No books were returned. Review the errors below and try again.");
+      }
       queryClient.invalidateQueries({ queryKey: ["circulation"] });
       queryClient.invalidateQueries({ queryKey: ["books"] });
       queryClient.invalidateQueries({ queryKey: ["pending-fines"] });
-      setReturnInfo(null);
-      setReturnIdentifier("");
     },
     onError: (err: Error) => {
       toast.error(err.message);
@@ -650,27 +663,34 @@ export default function CirculationPage() {
     const identifier = returnIdentifier.trim();
     if (!identifier) return;
     setIsLookingUpReturn(true);
-    setReturnInfo(null);
+    setReturnLookupError("");
     try {
       const { book, copy } = await circulationApi.lookupBook(identifier);
       const activeCirculations = circulation.filter(c =>
         c.bookId === book.id && (c.status === "ACTIVE" || c.status === "OVERDUE")
       );
+      const queuedIds = new Set(returnItems.map(item => item.circulationId));
       const activeCirc = copy
         ? activeCirculations.find(c => c.bookCopyId === copy.id)
-        : activeCirculations[0];
+        : activeCirculations.find(c => !queuedIds.has(c.id));
       if (!activeCirc) {
-        toast.error(copy
+        const message = copy
           ? "This copy does not have an active checkout"
-          : "This book does not have an active checkout");
+          : activeCirculations.length > 0
+            ? "All active checkouts for this book are already in the return list"
+            : "This book does not have an active checkout";
+        setReturnLookupError(message);
+        toast.error(message);
         return;
       }
       const user = allUsers.find((u: any) => u.id === activeCirc.userId);
       if (!user) {
-        toast.error("Could not find the borrower");
+        const message = "Could not find the borrower";
+        setReturnLookupError(message);
+        toast.error(message);
         return;
       }
-      setReturnInfo({
+      const returnItem: ReturnInfo = {
         circulationId: activeCirc.id,
         book,
         copy,
@@ -681,12 +701,39 @@ export default function CirculationPage() {
         fineOutstanding: (activeCirc as any).fineOutstanding ?? 0,
         damageOutstanding: (activeCirc as any).damageOutstanding ?? 0,
         daysOverdue: (activeCirc as any).daysOverdue ?? 0,
-      });
+      };
+      if (returnItems.some(item => item.circulationId === returnItem.circulationId)) {
+        const message = "This checkout is already in the return list";
+        setReturnLookupError(message);
+        toast.error(message);
+        return;
+      }
+      setReturnItems(items => [...items, returnItem]);
+      setReturnIdentifier("");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not look up this book");
+      const message = error instanceof Error ? error.message : "Could not look up this book";
+      setReturnLookupError(message);
+      toast.error(message);
     } finally {
       setIsLookingUpReturn(false);
     }
+  };
+
+  const removeReturnItem = (circulationId: number) => {
+    setReturnItems(items => items.filter(item => item.circulationId !== circulationId));
+    setReturnErrors(errors => {
+      const next = { ...errors };
+      delete next[circulationId];
+      return next;
+    });
+  };
+
+  const processReturns = () => {
+    if (returnItems.length === 0) {
+      toast.error("Scan or look up at least one active checkout first");
+      return;
+    }
+    returnMutation.mutate(returnItems);
   };
 
   const filteredTransactions = activeTransactions.filter(record => {
@@ -1044,113 +1091,130 @@ export default function CirculationPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <RefreshCw className="h-5 w-5" />
-                Process a Return
+                Quick Return
               </CardTitle>
-              <CardDescription>Scan or enter the book ISBN to look up the active checkout and process the return</CardDescription>
+              <CardDescription>Scan or enter several ISBNs, SSNs, or copy barcodes, review each checkout, and return them together</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-6 lg:grid-cols-2">
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label className="flex items-center gap-1.5 text-sm font-medium">
-                      <Hash className="h-3.5 w-3.5" />
-                      Book Identifier
-                    </Label>
-                    <div className="flex gap-2">
-                      <Input
-                        placeholder="Enter or scan ISBN, SSN, or copy barcode..."
-                        value={returnIdentifier}
-                        onChange={(e) => { setReturnIdentifier(e.target.value); setReturnInfo(null); }}
-                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); lookupReturn(); } }}
-                        className="h-10 flex-1"
-                        data-testid="input-return-isbn"
-                      />
-                      <Button
-                        variant="secondary"
-                        onClick={lookupReturn}
-                        disabled={isLookingUpReturn || !returnIdentifier.trim()}
-                        className="h-10"
-                        data-testid="button-lookup-return"
-                      >
-                        {isLookingUpReturn ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Search className="h-4 w-4 mr-1.5" />Look Up</>}
-                      </Button>
-                    </div>
+              <div className="space-y-5">
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-1.5 text-sm font-medium">
+                    <Hash className="h-3.5 w-3.5" />
+                    Book Identifier
+                  </Label>
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Enter or scan ISBN, SSN, or copy barcode..."
+                      value={returnIdentifier}
+                      onChange={(e) => { setReturnIdentifier(e.target.value); setReturnLookupError(""); }}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); lookupReturn(); } }}
+                      className="h-10 flex-1"
+                      data-testid="input-return-isbn"
+                    />
+                    <Button
+                      variant="secondary"
+                      onClick={lookupReturn}
+                      disabled={isLookingUpReturn || !returnIdentifier.trim()}
+                      className="h-10"
+                      data-testid="button-lookup-return"
+                    >
+                      {isLookingUpReturn ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Search className="h-4 w-4 mr-1.5" />Add to List</>}
+                    </Button>
                   </div>
-                  {!returnInfo && (
-                    <div className="p-6 bg-muted/50 rounded-lg text-sm text-muted-foreground text-center border border-dashed flex flex-col items-center justify-center min-h-[140px]">
-                      <RefreshCw className="h-8 w-8 mb-2 opacity-40" />
-                      <p>Enter a book ISBN above to look up the active checkout</p>
-                    </div>
+                  {returnLookupError && (
+                    <p className="text-xs text-red-600 flex items-center gap-1" data-testid="text-return-lookup-error">
+                      <AlertCircle className="h-3 w-3" /> {returnLookupError}
+                    </p>
                   )}
                 </div>
 
-                {returnInfo && (
-                  <div className="space-y-4">
-                    <div className="p-4 bg-muted/50 rounded-lg border space-y-4">
-                      <div className="space-y-1">
-                        <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Book</p>
-                        <p className="text-sm font-semibold">{returnInfo.book.title}</p>
-                        <p className="text-xs text-muted-foreground">by {returnInfo.book.author} · ISBN: {formatIsbn(returnInfo.book.isbn)}</p>
-                        {returnInfo.copy && (
-                          <p className="text-xs text-muted-foreground">
-                            Copy: {returnInfo.copy.userDefinedSSN || returnInfo.copy.internalSSN || returnInfo.copy.barcode}
+                {returnItems.length === 0 ? (
+                  <div className="p-6 bg-muted/50 rounded-lg text-sm text-muted-foreground text-center border border-dashed flex flex-col items-center justify-center min-h-[140px]">
+                    <RefreshCw className="h-8 w-8 mb-2 opacity-40" />
+                    <p>Scan or enter a book identifier to add the first return</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold">Return list</p>
+                        <p className="text-xs text-muted-foreground">Review the borrower, due date, and fine information before confirming.</p>
+                      </div>
+                      <Badge variant="secondary">{returnItems.length}</Badge>
+                    </div>
+                    {returnItems.map((item) => (
+                      <div
+                        key={item.circulationId}
+                        className={`p-4 rounded-lg border space-y-3 ${returnErrors[item.circulationId] ? "border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950/30" : "bg-muted/50"}`}
+                        data-testid={`return-item-${item.circulationId}`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="space-y-1 min-w-0">
+                            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Book</p>
+                            <p className="text-sm font-semibold">{item.book.title}</p>
+                            <p className="text-xs text-muted-foreground">by {item.book.author} · ISBN: {formatIsbn(item.book.isbn)}</p>
+                            {item.copy && (
+                              <p className="text-xs text-muted-foreground">
+                                Copy: {item.copy.userDefinedSSN || item.copy.internalSSN || item.copy.barcode}
+                              </p>
+                            )}
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removeReturnItem(item.circulationId)}
+                            className="h-7 w-7 shrink-0 p-0"
+                            aria-label={`Remove ${item.book.title} from return list`}
+                            data-testid={`button-remove-return-${item.circulationId}`}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        <Separator />
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Borrower</p>
+                            <p className="text-sm font-medium mt-0.5">{item.user.name}</p>
+                            <p className="text-xs text-muted-foreground">{item.user.email}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Due Date</p>
+                            <p className={`text-sm font-medium mt-0.5 ${item.isOverdue ? "text-red-600" : ""}`}>{item.dueDate}</p>
+                            {item.isOverdue && <Badge variant="destructive" className="text-[10px] mt-1">Overdue</Badge>}
+                          </div>
+                        </div>
+                        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/40">
+                          <p className="text-xs font-medium uppercase tracking-wide text-amber-800 dark:text-amber-300">Fine information</p>
+                          <div className="mt-2 grid grid-cols-2 gap-3 text-sm">
+                            <div>
+                              <p className="text-xs text-muted-foreground">Accrued fine</p>
+                              <p className="font-semibold">{formatMoney(item.accruedFine)}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground">Outstanding fine</p>
+                              <p className={`font-semibold ${item.fineOutstanding > 0 ? "text-red-600" : ""}`}>{formatMoney(item.fineOutstanding)}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground">Outstanding damage</p>
+                              <p className={`font-semibold ${item.damageOutstanding > 0 ? "text-red-600" : ""}`}>{formatMoney(item.damageOutstanding)}</p>
+                            </div>
+                          </div>
+                        </div>
+                        {returnErrors[item.circulationId] && (
+                          <p className="text-xs text-red-700 dark:text-red-300 flex items-center gap-1" data-testid={`text-return-error-${item.circulationId}`}>
+                            <AlertCircle className="h-3 w-3 shrink-0" /> {returnErrors[item.circulationId]}
                           </p>
                         )}
                       </div>
-                      <Separator />
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Borrower</p>
-                          <p className="text-sm font-medium mt-0.5">{returnInfo.user.name}</p>
-                          <p className="text-xs text-muted-foreground">{returnInfo.user.email}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Due Date</p>
-                          <p className={`text-sm font-medium mt-0.5 ${returnInfo.isOverdue ? "text-red-600" : ""}`}>
-                            {returnInfo.dueDate}
-                          </p>
-                          {returnInfo.isOverdue && (
-                            <Badge variant="destructive" className="text-[10px] mt-1">Overdue</Badge>
-                          )}
-                        </div>
-                      </div>
-                      {(returnInfo.accruedFine > 0 || returnInfo.fineOutstanding > 0 || returnInfo.damageOutstanding > 0) && (
-                        <>
-                          <Separator />
-                          <div className="rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/40">
-                            <p className="text-xs font-medium uppercase tracking-wide text-amber-800 dark:text-amber-300">Fine information</p>
-                            <div className="mt-2 grid grid-cols-2 gap-3 text-sm">
-                              {returnInfo.accruedFine > 0 && (
-                                <div>
-                                  <p className="text-xs text-muted-foreground">Accrued fine</p>
-                                  <p className="font-semibold">{formatMoney(returnInfo.accruedFine)}</p>
-                                </div>
-                              )}
-                              {returnInfo.fineOutstanding > 0 && (
-                                <div>
-                                  <p className="text-xs text-muted-foreground">Outstanding fine</p>
-                                  <p className="font-semibold text-red-600">{formatMoney(returnInfo.fineOutstanding)}</p>
-                                </div>
-                              )}
-                              {returnInfo.damageOutstanding > 0 && (
-                                <div>
-                                  <p className="text-xs text-muted-foreground">Outstanding damage</p>
-                                  <p className="font-semibold text-red-600">{formatMoney(returnInfo.damageOutstanding)}</p>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </>
-                      )}
-                    </div>
+                    ))}
                     <Button
                       className="w-full gap-1.5"
-                      onClick={() => returnMutation.mutate(returnInfo.circulationId)}
+                      onClick={processReturns}
                       disabled={returnMutation.isPending}
                       data-testid="button-process-return"
                     >
                       {returnMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                      Process Return
+                      Confirm {returnItems.length} {returnItems.length === 1 ? "Return" : "Returns"}
                     </Button>
                   </div>
                 )}

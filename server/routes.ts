@@ -1324,6 +1324,83 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/circulation/return-batch", async (req, res) => {
+    try {
+      const currentUser = await requireStaff(req, res);
+      if (!currentUser) return;
+
+      const body = z.object({
+        circulationIds: z.array(z.number().int().positive()).min(1, "At least one circulation is required").max(50, "You can return at most 50 books at once"),
+      }).parse(req.body || {});
+      const uniqueIds = Array.from(new Set(body.circulationIds));
+      const succeeded: Array<{ circulationId: number; circulation: any }> = [];
+      const failed: Array<{ circulationId: number; error: string }> = [];
+
+      // Process each item independently so one stale scan cannot hide successful returns.
+      for (const id of uniqueIds) {
+        try {
+          const circ = await storage.getCirculation(id);
+          if (!circ) throw new Error("Circulation record not found");
+          if (circ.status === 'RETURNED') throw new Error("This book has already been returned");
+
+          const returnDate = new Date();
+          const calc = await computeAccruedFine({ ...circ, returnDate });
+          const updated = await storage.updateCirculation(id, {
+            returnDate,
+            status: 'RETURNED',
+            fineAmount: calc.fineCents,
+            fineStatus: calc.fineCents === 0 ? 'PAID' : 'OUTSTANDING',
+            finePaidAmount: 0,
+            fineWaivedAmount: 0,
+            damageCost: 0,
+            damageStatus: 'NONE',
+            damagePaidAmount: 0,
+            damageWaivedAmount: 0,
+          } as any);
+          if (!updated) throw new Error("The circulation could not be updated");
+
+          await storage.updateBook(circ.bookId, { status: 'AVAILABLE' });
+          if (circ.bookCopyId) {
+            await storage.updateBookCopy(circ.bookCopyId, { status: 'AVAILABLE' });
+          }
+
+          logAudit(req, {
+            category: 'CIRCULATION',
+            action: 'RETURN',
+            targetType: 'circulation',
+            targetId: String(id),
+            details: {
+              bookId: circ.bookId,
+              userId: circ.userId,
+              isOverdue: calc.isOverdue,
+              daysOverdue: calc.daysOverdue,
+              fineAmount: calc.fineCents,
+              finePayTotal: 0,
+              fineWaived: 0,
+              damageCost: 0,
+              damagePayTotal: 0,
+              damageWaived: 0,
+              libraryId: circ.libraryId,
+              batchReturn: true,
+            },
+          });
+          succeeded.push({ circulationId: id, circulation: updated });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Failed to return this book";
+          failed.push({ circulationId: id, error: message });
+        }
+      }
+
+      res.json({ succeeded, failed });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error returning books in batch:", error);
+      res.status(500).json({ error: "Failed to return books" });
+    }
+  });
+
   // Collect fine after the fact (for already returned circulations with outstanding fine/damage)
   app.post("/api/circulation/:id/collect-fine", async (req, res) => {
     try {

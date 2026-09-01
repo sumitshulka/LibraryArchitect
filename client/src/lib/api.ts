@@ -317,6 +317,11 @@ export interface ReturnPayload {
   waiveReason?: string;
 }
 
+export interface ReturnBatchResult {
+  succeeded: Array<{ circulationId: number; circulation: Circulation }>;
+  failed: Array<{ circulationId: number; error: string }>;
+}
+
 export interface FinePreview {
   assessedFineCents: number;
   finePaid: number;
@@ -449,6 +454,19 @@ export const circulationApi = {
     if (!res.ok) {
       const error = await res.json();
       throw new Error(error.error || "Failed to return book");
+    }
+    return res.json();
+  },
+
+  returnMany: async (circulationIds: number[]): Promise<ReturnBatchResult> => {
+    const res = await fetch(`${API_BASE}/circulation/return-batch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ circulationIds }),
+    });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || "Failed to return books");
     }
     return res.json();
   },

@@ -18,6 +18,7 @@ vi.mock("@/lib/api", () => ({
     lookupBook: vi.fn(),
     checkoutMany: vi.fn(),
     returnBook: vi.fn(),
+    returnMany: vi.fn(),
   },
   librariesApi: { getActive: vi.fn() },
   libraryMembershipsApi: { getByUser: vi.fn() },
@@ -70,6 +71,7 @@ const mockedLookupBook = vi.mocked(circulationApi.lookupBook);
 const mockedGetLibraries = vi.mocked(librariesApi.getActive);
 const mockedCheckoutMany = vi.mocked(circulationApi.checkoutMany);
 const mockedReturn = vi.mocked(circulationApi.returnBook);
+const mockedReturnMany = vi.mocked(circulationApi.returnMany);
 
 const member = {
   id: 2,
@@ -181,6 +183,7 @@ describe("CirculationPage checkout", () => {
     ] as never);
     mockedCheckoutMany.mockResolvedValue([{ id: 12 }] as never);
     mockedReturn.mockResolvedValue({ id: 42 } as never);
+    mockedReturnMany.mockResolvedValue({ succeeded: [{ circulationId: 42, circulation: { id: 42 } }], failed: [] } as never);
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
@@ -315,6 +318,63 @@ describe("CirculationPage checkout", () => {
 
     await user.click(screen.getByTestId("button-process-return"));
 
-    await waitFor(() => expect(mockedReturn).toHaveBeenCalledWith(42));
+    await waitFor(() => expect(mockedReturnMany).toHaveBeenCalledWith([42]));
+  });
+
+  it("adds multiple scanned checkouts to a review list and removes one before confirming", async () => {
+    const user = userEvent.setup();
+    const secondBook = { ...book, id: 8, isbn: "9780132350885", title: "Reliable Systems" };
+    mockedLookupBook
+      .mockResolvedValueOnce({ book, copy: null } as never)
+      .mockResolvedValueOnce({ book: secondBook, copy: null } as never);
+    mockedGetCirculation.mockResolvedValue([
+      { id: 42, bookId: book.id, userId: member.id, status: "ACTIVE", dueDate: "2099-09-15T00:00:00.000Z" },
+      { id: 43, bookId: secondBook.id, userId: member.id, status: "ACTIVE", dueDate: "2099-09-16T00:00:00.000Z" },
+    ] as never);
+    mockedReturnMany.mockResolvedValue({
+      succeeded: [
+        { circulationId: 42, circulation: { id: 42 } },
+        { circulationId: 43, circulation: { id: 43 } },
+      ],
+      failed: [],
+    } as never);
+
+    renderPage();
+    await user.click(screen.getByTestId("tab-return"));
+    const input = screen.getByTestId("input-return-isbn");
+    await user.type(input, book.isbn);
+    await user.keyboard("{Enter}");
+    await user.type(input, secondBook.isbn);
+    await user.keyboard("{Enter}");
+
+    expect(await screen.findByTestId("return-item-42")).toBeInTheDocument();
+    expect(await screen.findByTestId("return-item-43")).toBeInTheDocument();
+    expect(screen.getAllByText("Fine information")).toHaveLength(2);
+
+    await user.click(screen.getByTestId("button-remove-return-42"));
+    expect(screen.queryByTestId("return-item-42")).not.toBeInTheDocument();
+    await user.click(screen.getByTestId("button-process-return"));
+    await waitFor(() => expect(mockedReturnMany).toHaveBeenCalledWith([43]));
+  });
+
+  it("keeps failed returns visible with an item-specific error", async () => {
+    const user = userEvent.setup();
+    mockedLookupBook.mockResolvedValue({ book, copy: null } as never);
+    mockedGetCirculation.mockResolvedValue([
+      { id: 42, bookId: book.id, userId: member.id, status: "ACTIVE", dueDate: "2099-09-15T00:00:00.000Z" },
+    ] as never);
+    mockedReturnMany.mockResolvedValue({
+      succeeded: [],
+      failed: [{ circulationId: 42, error: "This book has already been returned" }],
+    } as never);
+
+    renderPage();
+    await user.click(screen.getByTestId("tab-return"));
+    await user.type(screen.getByTestId("input-return-isbn"), book.isbn);
+    await user.keyboard("{Enter}");
+    await user.click(await screen.findByTestId("button-process-return"));
+
+    expect(await screen.findByTestId("text-return-error-42")).toHaveTextContent("This book has already been returned");
+    expect(screen.getByTestId("return-item-42")).toBeInTheDocument();
   });
 });
