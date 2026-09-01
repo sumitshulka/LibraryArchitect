@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/lib/auth";
 import { useCurrency } from "@/lib/useCurrency";
-import { Settings as SettingsIcon } from "lucide-react";
+import { Pencil, Settings as SettingsIcon } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -108,10 +108,12 @@ function LibraryPoliciesCard({ libraryId }: { libraryId: number }) {
   });
 
   const [overrides, setOverrides] = useState<CirculationPolicy>({});
+  const [isEditing, setIsEditing] = useState(false);
 
   useEffect(() => {
     if (library) {
       setOverrides((library.policies || {}) as CirculationPolicy);
+      setIsEditing(false);
     }
   }, [library]);
 
@@ -133,6 +135,7 @@ function LibraryPoliciesCard({ libraryId }: { libraryId: number }) {
       refetchHistory();
       toast.success("Library policy version saved");
       setConfirmOpen(false);
+      setIsEditing(false);
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -179,15 +182,41 @@ function LibraryPoliciesCard({ libraryId }: { libraryId: number }) {
     });
   };
 
+  const cancelEditing = () => {
+    setOverrides((library?.policies || {}) as CirculationPolicy);
+    setIsEditing(false);
+  };
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <SettingsIcon className="h-5 w-5" />
-          Library Policy Overrides
+        <CardTitle className="flex items-center justify-between gap-2">
+          <span className="flex items-center gap-2">
+            <SettingsIcon className="h-5 w-5" />
+            Library Policy Overrides
+          </span>
+          {canEdit && !isEditing && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => {
+                setOverrides((library?.policies || {}) as CirculationPolicy);
+                setIsEditing(true);
+              }}
+              disabled={!library}
+              aria-label="Edit library policy overrides"
+              title="Edit library policy overrides"
+              data-testid="button-edit-library-policy"
+            >
+              <Pencil className="h-4 w-4" />
+            </Button>
+          )}
         </CardTitle>
         <CardDescription>
-          Leave a field blank to inherit the global default. Filled values override the system-wide policy for this library only.
+          {isEditing
+            ? "Leave a field blank to inherit the global default. Filled values override the system-wide policy for this library only."
+            : "Current policy values are shown in view mode. Library-specific values override the global default; otherwise the global value is inherited."}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -195,17 +224,32 @@ function LibraryPoliciesCard({ libraryId }: { libraryId: number }) {
           {fields.filter(f => f.type === "number").map((f) => (
             <div key={f.key} className="grid gap-2">
               <Label htmlFor={`lib-pol-${f.key}`}>{f.label}</Label>
-              <Input
-                id={`lib-pol-${f.key}`}
-                type="number"
-                min={0}
-                step={f.step}
-                placeholder={placeholderFor(f.key)}
-                value={overrides[f.key] === undefined || overrides[f.key] === null ? "" : String(overrides[f.key])}
-                onChange={(e) => setNum(f.key, e.target.value)}
-                disabled={!canEdit}
-                data-testid={`input-lib-policy-${f.key}`}
-              />
+              {isEditing ? (
+                <Input
+                  id={`lib-pol-${f.key}`}
+                  type="number"
+                  min={0}
+                  step={f.step}
+                  placeholder={placeholderFor(f.key)}
+                  value={overrides[f.key] === undefined || overrides[f.key] === null ? "" : String(overrides[f.key])}
+                  onChange={(e) => setNum(f.key, e.target.value)}
+                  data-testid={`input-lib-policy-${f.key}`}
+                />
+              ) : (
+                <div
+                  className="flex h-10 items-center justify-between rounded-md border bg-muted/30 px-3 text-sm"
+                  data-testid={`value-lib-policy-${f.key}`}
+                >
+                  <span>
+                    {overrides[f.key] !== undefined && overrides[f.key] !== null
+                      ? String(overrides[f.key])
+                      : String(globalDefaults?.[f.key] ?? "Not configured")}
+                  </span>
+                  <Badge variant={overrides[f.key] !== undefined && overrides[f.key] !== null ? "secondary" : "outline"}>
+                    {overrides[f.key] !== undefined && overrides[f.key] !== null ? "Override" : "Inherited"}
+                  </Badge>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -221,24 +265,32 @@ function LibraryPoliciesCard({ libraryId }: { libraryId: number }) {
                   {hasOverride ? "Overriding global default" : `Inheriting global default (${String(globalDefaults?.[f.key] ?? "off")})`}
                 </p>
               </div>
-              <div className="flex items-center gap-3">
-                <label className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <input
-                    type="checkbox"
-                    checked={hasOverride}
-                    onChange={(e) => setBoolOverride(f.key, e.target.checked, effective)}
-                    disabled={!canEdit}
-                    data-testid={`check-override-${f.key}`}
+              {isEditing ? (
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={hasOverride}
+                      onChange={(e) => setBoolOverride(f.key, e.target.checked, effective)}
+                      data-testid={`check-override-${f.key}`}
+                    />
+                    Override
+                  </label>
+                  <Switch
+                    checked={effective}
+                    onCheckedChange={(c) => setBoolOverride(f.key, true, c)}
+                    disabled={!hasOverride}
+                    data-testid={`switch-lib-policy-${f.key}`}
                   />
-                  Override
-                </label>
-                <Switch
-                  checked={effective}
-                  onCheckedChange={(c) => setBoolOverride(f.key, true, c)}
-                  disabled={!canEdit || !hasOverride}
-                  data-testid={`switch-lib-policy-${f.key}`}
-                />
-              </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3" data-testid={`value-lib-policy-${f.key}`}>
+                  <span className="text-sm font-medium">{effective ? "Enabled" : "Disabled"}</span>
+                  <Badge variant={hasOverride ? "secondary" : "outline"}>
+                    {hasOverride ? "Override" : "Inherited"}
+                  </Badge>
+                </div>
+              )}
             </div>
           );
         })}
@@ -252,7 +304,7 @@ function LibraryPoliciesCard({ libraryId }: { libraryId: number }) {
           >
             {showHistory ? "Hide" : "View"} policy history ({history?.length ?? 0})
           </Button>
-          {canEdit && (
+          {canEdit && isEditing && (
             <Button
               onClick={() => setConfirmOpen(true)}
               disabled={mutation.isPending}
@@ -261,15 +313,28 @@ function LibraryPoliciesCard({ libraryId }: { libraryId: number }) {
               Save Overrides…
             </Button>
           )}
+          {canEdit && isEditing && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={cancelEditing}
+              disabled={mutation.isPending}
+              data-testid="button-cancel-library-policy-edit"
+            >
+              Cancel
+            </Button>
+          )}
         </div>
         {showHistory && (
           <div className="pt-2">
             <PolicyHistoryList versions={(history || []) as any} currencySymbol={currency.symbol} />
           </div>
         )}
-        {!canEdit && (
-          <p className="text-xs text-muted-foreground">Only system admins can edit policy overrides.</p>
-        )}
+        {!canEdit ? (
+          <p className="text-xs text-muted-foreground">View only. Only system admins can edit policy overrides.</p>
+        ) : !isEditing ? (
+          <p className="text-xs text-muted-foreground">Click the edit icon to change policy overrides.</p>
+        ) : null}
       </CardContent>
       <PolicyChangeDialog
         open={confirmOpen}

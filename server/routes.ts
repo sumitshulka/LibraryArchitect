@@ -6090,6 +6090,14 @@ export async function registerRoutes(
   app.patch("/api/libraries/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
+      if (isNaN(id) || id <= 0) {
+        return res.status(400).json({ error: "Invalid library ID" });
+      }
+      const existingLibrary = await storage.getLibrary(id);
+      if (!existingLibrary) {
+        return res.status(404).json({ error: "Library not found" });
+      }
+
       // When the request changes `policies`, require an audit reason + effectiveFrom and create a version.
       const policiesIncluded = req.body && Object.prototype.hasOwnProperty.call(req.body, 'policies');
       const { policyReason, policyEffectiveFrom, ...rest } = req.body || {};
@@ -6099,8 +6107,11 @@ export async function registerRoutes(
       let reasonStr: string | null = null;
       let actor: { id: number; name: string } | null = null;
       if (policiesIncluded) {
-        const currentUser = await requireLocalAdmin(req, res);
+        const currentUser = await requireStaff(req, res);
         if (!currentUser) return;
+        if (currentUser.role !== "ADMIN") {
+          return res.status(403).json({ error: "Only admins can edit library policy overrides" });
+        }
         actor = { id: currentUser.id, name: currentUser.name };
         const metaSchema = z.object({
           policyReason: z.string().min(3, "A reason is required when changing library policies (min 3 chars)").max(500),
@@ -6110,6 +6121,11 @@ export async function registerRoutes(
         reasonStr = meta.policyReason;
         effDate = meta.policyEffectiveFrom ? new Date(meta.policyEffectiveFrom) : new Date();
       }
+
+      const previousPolicies = (existingLibrary.policies || {}) as Record<string, unknown>;
+      const nextPolicies = (validated.policies || {}) as Record<string, unknown>;
+      const policyKeys = Array.from(new Set([...Object.keys(previousPolicies), ...Object.keys(nextPolicies)]));
+      const changedPolicyFields = policyKeys.filter((key) => JSON.stringify(previousPolicies[key]) !== JSON.stringify(nextPolicies[key]));
 
       // Write the version row FIRST so the audit/version log is the source of truth even if the mirror write fails.
       if (policiesIncluded && effDate && reasonStr) {
@@ -6131,9 +6147,26 @@ export async function registerRoutes(
 
       if (policiesIncluded && effDate && reasonStr) {
         const isBackdated = effDate.getTime() < Date.now() - 60_000;
-        logAudit(req, { category: 'FINES', action: 'LIBRARY_POLICY_VERSION_CREATED', userId: actor?.id, userName: actor?.name, targetType: 'policy_version', targetId: `LIBRARY:${id}`, details: { libraryId: id, policy: validated.policies, reason: reasonStr, effectiveFrom: effDate.toISOString(), backdated: isBackdated } });
+        await logAudit(req, {
+          category: 'FINES',
+          action: 'LIBRARY_POLICY_VERSION_CREATED',
+          userId: actor?.id,
+          userName: actor?.name,
+          targetType: 'policy_version',
+          targetId: `LIBRARY:${id}`,
+          details: {
+            libraryId: id,
+            libraryName: existingLibrary.name,
+            changedFields: changedPolicyFields,
+            previousPolicy: previousPolicies,
+            policy: nextPolicies,
+            reason: reasonStr,
+            effectiveFrom: effDate.toISOString(),
+            backdated: isBackdated,
+          },
+        });
       } else {
-        logAudit(req, { category: 'SYSTEM_CONFIG', action: 'LIBRARY_UPDATED', targetType: 'library', targetId: String(id), details: { changedFields: Object.keys(validated) } });
+        await logAudit(req, { category: 'SYSTEM_CONFIG', action: 'LIBRARY_UPDATED', targetType: 'library', targetId: String(id), details: { changedFields: Object.keys(validated) } });
       }
       res.json(library);
     } catch (error) {

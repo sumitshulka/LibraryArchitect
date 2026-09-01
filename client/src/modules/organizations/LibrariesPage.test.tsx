@@ -112,6 +112,10 @@ describe("LibrariesPage landing behavior", () => {
     expect(await screen.findByTestId("row-library-1")).toBeInTheDocument();
     expect(screen.getByText("Central Library")).toBeInTheDocument();
     expect(screen.getByText("Science Library")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Central Library" })).toHaveAttribute(
+      "href",
+      "/organizations/libraries/1",
+    );
     expect(screen.getByText("Organization 1")).toBeInTheDocument();
     expect(screen.getByTestId("row-library-1")).toBeInTheDocument();
     expect(screen.getByTestId("row-library-2")).toBeInTheDocument();
