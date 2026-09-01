@@ -1,4 +1,4 @@
-import { LucideIcon, LayoutDashboard, Book, Users, Repeat, AlertCircle, Settings, PieChart, Layers, Bell, Search, Menu, Building2, Package, ClipboardList, Tags, Coins, BookmarkCheck, Banknote, FolderOpen, AlertTriangle } from "lucide-react";
+import { LucideIcon, LayoutDashboard, Book, Users, Repeat, AlertCircle, Settings, PieChart, Layers, Bell, Search, Menu, Building2, Package, ClipboardList, Tags, Coins, BookmarkCheck, Banknote, FolderOpen, AlertTriangle, Library } from "lucide-react";
 
 export type UserRole = 'ADMIN' | 'LIBRARIAN' | 'STUDENT';
 
@@ -74,6 +74,7 @@ export const dashboardStats = {
 
 export const navItems = [
   { label: 'Dashboard', icon: LayoutDashboard, href: '/', localAdminOnly: false },
+  { label: 'Libraries', icon: Library, href: '/libraries', localAdminOnly: false },
   { label: 'Catalog', icon: Book, href: '/catalog', localAdminOnly: false },
   { label: 'Digital Resources', icon: FolderOpen, href: '/digital-resources', localAdminOnly: false },
   { label: 'Inventory', icon: Layers, href: '/inventory', localAdminOnly: false },
@@ -92,7 +93,7 @@ export const navItems = [
 ];
 
 export const navGroups: { title: string | null; items: string[] }[] = [
-  { title: null, items: ['Dashboard'] },
+  { title: null, items: ['Dashboard', 'Libraries'] },
   { title: 'Collections', items: ['Catalog', 'Digital Resources', 'Inventory', 'Search Attributes'] },
   { title: 'Library Operations', items: ['Allocations', 'Circulation', 'Reservations', 'Lost & Damaged', 'Fines', 'Waiver Requests'] },
   { title: 'Members', items: ['Patrons', 'Organizations'] },

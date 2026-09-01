@@ -21,6 +21,7 @@ import LostDamagedPage from "@/modules/circulation/LostDamagedPage";
 import PendingFinesPage from "@/modules/circulation/PendingFinesPage";
 import InventoryPage from "@/modules/inventory/InventoryPage";
 import OrganizationsPage from "@/modules/organizations/OrganizationsPage";
+import LibrariesPage from "@/modules/organizations/LibrariesPage";
 import { LibraryDashboardPage } from "@/modules/organizations/LibraryDashboardPage";
 import { LibraryResourcesPage } from "@/modules/organizations/LibraryResourcesPage";
 import ReportsPage from "@/modules/reports/ReportsPage";
@@ -60,6 +61,7 @@ function AppRouter() {
       <Route path="/home" component={PublicHomePage} />
       <Route path="/">{() => <ProtectedRoute component={DashboardPage} />}</Route>
       <Route path="/dashboard">{() => <ProtectedRoute component={DashboardPage} />}</Route>
+      <Route path="/libraries">{() => <ProtectedRoute component={LibrariesPage} />}</Route>
       <Route path="/catalog">{() => <ProtectedRoute component={CatalogPage} />}</Route>
       <Route path="/catalog/new">{() => <ProtectedRoute component={AddResourcePage} />}</Route>
       <Route path="/catalog/bulk-upload">{() => <ProtectedRoute component={BulkUploadPage} />}</Route>

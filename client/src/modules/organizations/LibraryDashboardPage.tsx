@@ -305,7 +305,7 @@ export function LibraryDashboardPage() {
       <div className="flex-1 space-y-6 p-8 overflow-auto">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <Link href="/organizations">
+            <Link href="/libraries">
               <Button variant="ghost" size="icon" data-testid="button-back">
                 <ArrowLeft className="h-5 w-5" />
               </Button>
