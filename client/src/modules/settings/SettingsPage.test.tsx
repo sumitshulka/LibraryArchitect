@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -68,6 +68,21 @@ function renderSettings(path: string) {
   return { ...view, setLocation };
 }
 
+function renderSettingsWithBrowserHistory(path: string) {
+  window.history.replaceState(null, "", path);
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <Router>
+        <SettingsPage />
+      </Router>
+    </QueryClientProvider>,
+  );
+}
+
 describe("SettingsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -78,6 +93,7 @@ describe("SettingsPage", () => {
 
   afterEach(() => {
     cleanup();
+    window.history.replaceState(null, "", "/");
   });
 
   it("selects Catalog Settings when opened with the catalog section query", async () => {
@@ -127,5 +143,49 @@ describe("SettingsPage", () => {
       "active",
     );
     expect(screen.getByRole("tab", { name: "General" })).toHaveAttribute("data-state", "inactive");
+  });
+
+  it("restores settings tabs and content through browser back and forward navigation", async () => {
+    const user = userEvent.setup();
+    renderSettingsWithBrowserHistory("/settings");
+
+    expect(await screen.findByText("Library Information", { exact: true })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "General" })).toHaveAttribute(
+      "data-state",
+      "active",
+    );
+
+    await user.click(screen.getByRole("tab", { name: "Catalog Settings" }));
+
+    expect(window.location.pathname + window.location.search).toBe(
+      "/settings?section=catalog",
+    );
+    expect(screen.getByRole("tab", { name: "Catalog Settings" })).toHaveAttribute(
+      "data-state",
+      "active",
+    );
+    expect(screen.getByText("Resource Types", { exact: true })).toBeInTheDocument();
+
+    window.history.back();
+    await waitFor(() => {
+      expect(window.location.pathname + window.location.search).toBe("/settings");
+      expect(screen.getByRole("tab", { name: "General" })).toHaveAttribute(
+        "data-state",
+        "active",
+      );
+      expect(screen.getByText("Library Information", { exact: true })).toBeInTheDocument();
+    });
+
+    window.history.forward();
+    await waitFor(() => {
+      expect(window.location.pathname + window.location.search).toBe(
+        "/settings?section=catalog",
+      );
+      expect(screen.getByRole("tab", { name: "Catalog Settings" })).toHaveAttribute(
+        "data-state",
+        "active",
+      );
+      expect(screen.getByText("Resource Types", { exact: true })).toBeInTheDocument();
+    });
   });
 });
