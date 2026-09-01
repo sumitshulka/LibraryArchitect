@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Bell, Search, Menu, LogOut, User, Key, Building2, Loader2 } from "lucide-react";
+import { Bell, Menu, LogOut, User, Key, Building2, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -24,6 +24,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
+import { GlobalSearch } from "./GlobalSearch";
 
 export function TopBar({ onMenuClick }: { onMenuClick?: () => void }) {
   const { user, logout } = useAuth();
@@ -139,14 +140,7 @@ export function TopBar({ onMenuClick }: { onMenuClick?: () => void }) {
         </div>
 
         <div className="hidden md:flex items-center w-1/3">
-          <div className="relative w-full max-w-md">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input 
-              placeholder="Search books, patrons, or ISBN..." 
-              className="pl-9 bg-muted/40 border-muted-foreground/20 focus-visible:ring-sidebar-primary"
-              data-testid="input-search"
-            />
-          </div>
+          <GlobalSearch />
         </div>
 
         <div className="flex items-center gap-4">

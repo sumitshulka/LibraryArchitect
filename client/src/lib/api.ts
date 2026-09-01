@@ -104,6 +104,24 @@ export interface BookDashboard {
   acquisitionHistory: AcquisitionHistoryEntry[];
 }
 
+export interface CopyReviewerHistoryEntry extends Circulation {
+  userName: string;
+  userEmail: string;
+  libraryName: string | null;
+  accruedFine: number;
+  fineOutstanding: number;
+  damageOutstanding: number;
+  daysOverdue: number;
+  isOverdue: boolean;
+}
+
+export interface BookCopyReviewerDetails {
+  book: Book;
+  copy: BookCopy;
+  library: Library | null;
+  history: CopyReviewerHistoryEntry[];
+}
+
 // Users API
 export const usersApi = {
   getAll: async (): Promise<User[]> => {
@@ -1444,6 +1462,12 @@ export const bookCopiesApi = {
   getCirculationHistory: async (copyId: number): Promise<Circulation[]> => {
     const res = await fetch(`${API_BASE}/book-copies/${copyId}/circulation-history`);
     if (!res.ok) throw new Error("Failed to fetch circulation history");
+    return res.json();
+  },
+
+  getReviewerDetails: async (copyId: number): Promise<BookCopyReviewerDetails> => {
+    const res = await fetch(`${API_BASE}/book-copies/${copyId}/reviewer-details`);
+    if (!res.ok) throw new Error("Failed to fetch book copy reviewer details");
     return res.json();
   },
 

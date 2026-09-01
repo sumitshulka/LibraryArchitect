@@ -6087,6 +6087,71 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/book-copies/:id/reviewer-details", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const copy = await storage.getBookCopy(id);
+
+      if (!copy) {
+        return res.status(404).json({ error: "Book copy not found" });
+      }
+
+      const book = await storage.getBook(copy.bookId);
+      if (!book) {
+        return res.status(404).json({ error: "Book copy is not linked to a book" });
+      }
+
+      const [history, libraries] = await Promise.all([
+        storage.getCirculationHistoryByCopy(id),
+        storage.getAllLibraries(),
+      ]);
+      const libraryMap = new Map(libraries.map(library => [library.id, library]));
+
+      const enrichedHistory = await Promise.all(history.map(async (record) => {
+        const [user, fine] = await Promise.all([
+          storage.getUser(record.userId),
+          record.status === "RETURNED"
+            ? Promise.resolve({
+                fineCents: record.fineAmount ?? 0,
+                daysOverdue: 0,
+                isOverdue: false,
+              })
+            : computeAccruedFine(record),
+        ]);
+        const fineOutstanding = Math.max(
+          0,
+          fine.fineCents - (record.finePaidAmount ?? 0) - (record.fineWaivedAmount ?? 0),
+        );
+        const damageOutstanding = Math.max(
+          0,
+          (record.damageCost ?? 0) - (record.damagePaidAmount ?? 0) - (record.damageWaivedAmount ?? 0),
+        );
+
+        return {
+          ...record,
+          userName: user?.name || "Unknown",
+          userEmail: user?.email || "",
+          libraryName: record.libraryId ? libraryMap.get(record.libraryId)?.name || null : null,
+          accruedFine: fine.fineCents,
+          fineOutstanding,
+          damageOutstanding,
+          daysOverdue: fine.daysOverdue,
+          isOverdue: fine.isOverdue,
+        };
+      }));
+
+      res.json({
+        book,
+        copy,
+        library: copy.libraryId ? libraryMap.get(copy.libraryId) || null : null,
+        history: enrichedHistory,
+      });
+    } catch (error) {
+      console.error("Error fetching book copy reviewer details:", error);
+      res.status(500).json({ error: "Failed to fetch book copy reviewer details" });
+    }
+  });
+
   app.get("/api/book-copies/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
