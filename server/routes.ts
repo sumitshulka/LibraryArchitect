@@ -40,6 +40,42 @@ import { registerDigitalResourceRoutes } from "./digital-resources";
 import { registerLostDamagedRoutes } from "./lost-damaged";
 
 const MAX_WHITELIST_ENTRIES = 5;
+const Z3950_RATE_LIMIT_WINDOW_MS = 60_000;
+const Z3950_RATE_LIMIT_MAX_REQUESTS = 30;
+const z3950RateLimits = new Map<number, { count: number; resetAt: number }>();
+
+const z3950SearchSchema = z.object({
+  query: z.string().trim().min(1).max(200).optional(),
+  isbn: z.string().trim().min(1).max(200).optional(),
+  server: z.enum([
+    "auto",
+    "open-library",
+    "google-books",
+    "loc",
+    "ox",
+    "bl",
+    "worldcat",
+  ]).optional(),
+}).refine((value) => value.query || value.isbn, {
+  message: "A search query is required",
+});
+
+function checkZ3950RateLimit(userId: number): { allowed: boolean; retryAfterSeconds?: number } {
+  const now = Date.now();
+  const current = z3950RateLimits.get(userId);
+  if (!current || current.resetAt <= now) {
+    z3950RateLimits.set(userId, { count: 1, resetAt: now + Z3950_RATE_LIMIT_WINDOW_MS });
+    return { allowed: true };
+  }
+  if (current.count >= Z3950_RATE_LIMIT_MAX_REQUESTS) {
+    return {
+      allowed: false,
+      retryAfterSeconds: Math.max(1, Math.ceil((current.resetAt - now) / 1000)),
+    };
+  }
+  current.count += 1;
+  return { allowed: true };
+}
 
 function getSessionId(req: any): string | undefined {
   const cookieId = req.cookies && req.cookies.session_id;
@@ -3062,83 +3098,128 @@ export async function registerRoutes(
   // ===== Z39.50 / ISBN Search API =====
   app.post("/api/z3950/search", async (req, res) => {
     try {
-      const { isbn } = req.body;
-      
-      if (!isbn) {
-        return res.status(400).json({ error: "ISBN is required" });
+      const staff = await requireStaff(req, res);
+      if (!staff) return;
+
+      const rateLimit = checkZ3950RateLimit(staff.id);
+      if (!rateLimit.allowed) {
+        res.setHeader("Retry-After", String(rateLimit.retryAfterSeconds));
+        return res.status(429).json({ error: "Too many catalog searches. Please wait before trying again." });
       }
-      
-      // Clean ISBN - remove hyphens and spaces
-      const cleanIsbn = isbn.replace(/[-\s]/g, '');
-      
+
+      const parsedBody = z3950SearchSchema.safeParse(req.body);
+      if (!parsedBody.success) {
+        return res.status(400).json({ error: fromZodError(parsedBody.error).message });
+      }
+
+      const { isbn, query, server } = parsedBody.data;
+      const searchQuery = String(query ?? isbn ?? "").trim();
+
+      const cleanIsbn = searchQuery.replace(/[-\s]/g, "");
+      const isIsbnQuery = /^(?:\d{9}[\dX]|\d{13})$/i.test(cleanIsbn);
+      const selectedSource = server === "open-library" || server === "google-books" ? server : "auto";
       const results: any[] = [];
-      
-      // Try Open Library API first (free, no API key required)
-      try {
-        const openLibUrl = `https://openlibrary.org/api/books?bibkeys=ISBN:${cleanIsbn}&format=json&jscmd=data`;
-        const openLibResponse = await fetch(openLibUrl);
-        
-        if (openLibResponse.ok) {
-          const openLibData = await openLibResponse.json();
-          const bookKey = `ISBN:${cleanIsbn}`;
-          
-          if (openLibData[bookKey]) {
-            const book = openLibData[bookKey];
-            results.push({
-              id: `ol-${cleanIsbn}`,
-              title: book.title || 'Unknown Title',
-              author: book.authors?.map((a: any) => a.name).join(', ') || 'Unknown Author',
-              isbn: isbn,
-              publisher: book.publishers?.map((p: any) => p.name).join(', ') || 'Unknown Publisher',
-              year: book.publish_date ? book.publish_date.match(/\d{4}/)?.[0] || '' : '',
-              source: 'Open Library',
-              category: book.subjects?.slice(0, 3).map((s: any) => s.name).join(', ') || 'General',
-              cover: book.cover?.medium || book.cover?.small || null,
-              numberOfPages: book.number_of_pages || null,
-            });
-          }
-        }
-      } catch (openLibError) {
-        console.error("Open Library API error:", openLibError);
-      }
-      
-      // Try Google Books API as fallback (also free for basic usage)
-      if (results.length === 0) {
+      let attemptedProviders = 0;
+      let failedProviders = 0;
+
+      // This endpoint uses live public catalog metadata sources. The server names
+      // accepted by older Add Resource flows are treated as the automatic source.
+      if (selectedSource !== "google-books") {
+        attemptedProviders += 1;
         try {
+          const openLibUrl = isIsbnQuery
+            ? `https://openlibrary.org/api/books?bibkeys=ISBN:${cleanIsbn}&format=json&jscmd=data`
+            : `https://openlibrary.org/search.json?q=${encodeURIComponent(searchQuery)}&limit=10`;
+          const openLibResponse = await fetch(openLibUrl, { signal: AbortSignal.timeout(8_000) });
+
+          if (openLibResponse.ok) {
+            const openLibData = await openLibResponse.json();
+            if (isIsbnQuery) {
+              const book = openLibData[`ISBN:${cleanIsbn}`];
+              if (book) {
+                results.push({
+                  id: `ol-${cleanIsbn}`,
+                  title: book.title || "Unknown Title",
+                  author: book.authors?.map((author: any) => author.name).join(", ") || "Unknown Author",
+                  isbn: searchQuery,
+                  publisher: book.publishers?.map((publisher: any) => publisher.name).join(", ") || "Unknown Publisher",
+                  year: typeof book.publish_date === "string" ? book.publish_date.match(/\d{4}/)?.[0] || "" : "",
+                  source: "Open Library",
+                  category: book.subjects?.slice(0, 3).map((subject: any) => subject.name).join(", ") || "General",
+                  cover: book.cover?.medium || book.cover?.small || null,
+                  numberOfPages: book.number_of_pages || null,
+                });
+              }
+            } else {
+              for (const [index, book] of (openLibData.docs || []).slice(0, 10).entries()) {
+                results.push({
+                  id: `ol-${book.key || index}`,
+                  title: book.title || "Unknown Title",
+                  author: book.author_name?.join(", ") || "Unknown Author",
+                  isbn: book.isbn?.[0] || "",
+                  publisher: book.publisher?.[0] || "Unknown Publisher",
+                  year: book.first_publish_year ? String(book.first_publish_year) : "",
+                  source: "Open Library",
+                  category: book.subject?.slice(0, 3).join(", ") || "General",
+                  cover: book.cover_i ? `https://covers.openlibrary.org/b/id/${book.cover_i}-M.jpg` : null,
+                  numberOfPages: book.number_of_pages_median || null,
+                });
+              }
+            }
+          } else {
+            failedProviders += 1;
+          }
+        } catch (openLibError) {
+          failedProviders += 1;
+          console.error("Open Library API error:", openLibError);
+        }
+      }
+
+      // Google Books is used as a fallback for automatic searches, or directly
+      // when selected in Settings.
+      if (selectedSource === "google-books" || (selectedSource === "auto" && results.length === 0)) {
+        attemptedProviders += 1;
+        try {
+          const googleQuery = isIsbnQuery ? `isbn:${cleanIsbn}` : searchQuery;
           const googleResponse = await fetch(
-            `https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`
+            `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(googleQuery)}&maxResults=10`,
+            { signal: AbortSignal.timeout(8_000) },
           );
-          
+
           if (googleResponse.ok) {
             const googleData = await googleResponse.json();
-            
-            if (googleData.items && googleData.items.length > 0) {
-              const book = googleData.items[0].volumeInfo;
+            for (const bookResult of (googleData.items || []).slice(0, 10)) {
+              const book = bookResult.volumeInfo || {};
+              const identifiers = book.industryIdentifiers || [];
               results.push({
-                id: `gb-${googleData.items[0].id}`,
-                title: book.title || 'Unknown Title',
-                author: book.authors?.join(', ') || 'Unknown Author',
-                isbn: isbn,
-                publisher: book.publisher || 'Unknown Publisher',
-                year: book.publishedDate ? book.publishedDate.substring(0, 4) : '',
-                source: 'Google Books',
-                category: book.categories?.join(', ') || 'General',
+                id: `gb-${bookResult.id}`,
+                title: book.title || "Unknown Title",
+                author: book.authors?.join(", ") || "Unknown Author",
+                isbn: identifiers.find((identifier: any) => identifier.type === "ISBN_13")?.identifier
+                  || identifiers[0]?.identifier
+                  || (isIsbnQuery ? searchQuery : ""),
+                publisher: book.publisher || "Unknown Publisher",
+                year: typeof book.publishedDate === "string" ? book.publishedDate.substring(0, 4) : "",
+                source: "Google Books",
+                category: book.categories?.join(", ") || "General",
                 cover: book.imageLinks?.thumbnail || null,
                 numberOfPages: book.pageCount || null,
                 description: book.description || null,
               });
             }
+          } else {
+            failedProviders += 1;
           }
         } catch (googleError) {
+          failedProviders += 1;
           console.error("Google Books API error:", googleError);
         }
       }
-      
-      // If no results found from either API
-      if (results.length === 0) {
-        return res.json([]);
+
+      if (attemptedProviders > 0 && failedProviders === attemptedProviders) {
+        return res.status(502).json({ error: "Live catalog providers are temporarily unavailable. Please try again." });
       }
-      
+
       res.json(results);
     } catch (error) {
       console.error("Error performing ISBN search:", error);

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -24,34 +25,53 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Search, Globe, Download, Loader2 } from "lucide-react";
+import { Search, Globe, Download, Loader2, AlertCircle } from "lucide-react";
 import { formatIsbn } from "@/lib/isbn";
-
-interface SearchResult {
-  id: string;
-  title: string;
-  author: string;
-  isbn: string;
-  publisher: string;
-  year: string;
-  source: string;
-}
+import { z3950Api, type Z3950SearchResult } from "@/lib/api";
 
 export function Z3950Search() {
+  const [, setLocation] = useLocation();
+  const [query, setQuery] = useState("");
+  const [selectedServer, setSelectedServer] = useState("auto");
   const [isSearching, setIsSearching] = useState(false);
-  const [results, setResults] = useState<SearchResult[]>([]);
+  const [results, setResults] = useState<Z3950SearchResult[]>([]);
+  const [searchPerformed, setSearchPerformed] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSearch = () => {
+  const handleSearch = async () => {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
+      setError("Enter an ISBN, title, or author to search.");
+      return;
+    }
+
     setIsSearching(true);
-    // Simulate API call
-    setTimeout(() => {
-      setResults([
-        { id: '1', title: 'The Design of Everyday Things', author: 'Norman, Donald A.', isbn: '978-0465050659', publisher: 'Basic Books', year: '2013', source: 'Library of Congress' },
-        { id: '2', title: 'The Design of Everyday Things', author: 'Norman, Don', isbn: '978-0262525671', publisher: 'MIT Press', year: '1988', source: 'Oxford University' },
-        { id: '3', title: 'Design of Everyday Things: Revised and Expanded', author: 'Norman, Donald A.', isbn: '978-0465050659', publisher: 'Basic Books', year: '2013', source: 'British Library' },
-      ]);
+    setSearchPerformed(false);
+    setError(null);
+    setResults([]);
+    try {
+      const liveResults = await z3950Api.search(trimmedQuery, selectedServer);
+      setResults(liveResults);
+      setSearchPerformed(true);
+    } catch (searchError) {
+      setError(searchError instanceof Error ? searchError.message : "Failed to search external catalogs.");
+      setSearchPerformed(true);
+    } finally {
       setIsSearching(false);
-    }, 1500);
+    }
+  };
+
+  const handleImportRecord = (record: Z3950SearchResult) => {
+    const params = new URLSearchParams({
+      source: "z3950",
+      isbn: record.isbn,
+      title: record.title,
+      author: record.author,
+      publisher: record.publisher,
+      year: record.year,
+      category: record.category,
+    });
+    setLocation(`/catalog/new?${params.toString()}`);
   };
 
   return (
@@ -67,25 +87,36 @@ export function Z3950Search() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 md:grid-cols-[200px_1fr_auto]">
-            <Select defaultValue="loc">
-              <SelectTrigger>
+            <div className="grid gap-4 md:grid-cols-[220px_1fr_auto]">
+              <Select value={selectedServer} onValueChange={setSelectedServer}>
+                <SelectTrigger data-testid="select-z3950-server">
                 <SelectValue placeholder="Select Server" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="loc">Library of Congress</SelectItem>
-                <SelectItem value="ox">Oxford University</SelectItem>
-                <SelectItem value="bl">British Library</SelectItem>
-                <SelectItem value="worldcat">WorldCat (OCLC)</SelectItem>
+                  <SelectItem value="auto">All live sources</SelectItem>
+                  <SelectItem value="open-library">Open Library</SelectItem>
+                  <SelectItem value="google-books">Google Books</SelectItem>
               </SelectContent>
             </Select>
             
             <div className="relative">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input placeholder="Search by ISBN, Title, or Author..." className="pl-9" />
+                <Input
+                  value={query}
+                  onChange={(event) => {
+                    setQuery(event.target.value);
+                    if (error) setError(null);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") handleSearch();
+                  }}
+                  placeholder="Search by ISBN, title, or author..."
+                  className="pl-9"
+                  data-testid="input-z3950-query"
+                />
             </div>
 
-            <Button onClick={handleSearch} disabled={isSearching} className="w-[120px]">
+              <Button onClick={handleSearch} disabled={isSearching || !query.trim()} className="w-[120px]" data-testid="button-search-z3950">
               {isSearching ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -96,8 +127,24 @@ export function Z3950Search() {
               )}
             </Button>
           </div>
+            {error && (
+              <div className="mt-4 flex items-center gap-2 text-sm text-destructive" role="alert">
+                <AlertCircle className="h-4 w-4" />
+                {error}
+              </div>
+            )}
         </CardContent>
       </Card>
+
+      {searchPerformed && !isSearching && results.length === 0 && !error && (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center gap-2 py-10 text-center text-muted-foreground">
+            <Search className="h-8 w-8 opacity-50" />
+            <p className="font-medium text-foreground">No live results found</p>
+            <p className="text-sm">Try a different ISBN, title, or author.</p>
+          </CardContent>
+        </Card>
+      )}
 
       {results.length > 0 && (
         <Card>
@@ -129,14 +176,24 @@ export function Z3950Search() {
                         <span className="text-xs text-muted-foreground">{result.author}</span>
                       </div>
                     </TableCell>
-                    <TableCell className="font-mono text-xs">{formatIsbn(result.isbn)}</TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {result.isbn ? formatIsbn(result.isbn) : <span className="font-sans text-muted-foreground">Not available</span>}
+                    </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {result.publisher}, {result.year}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button size="sm" variant="secondary" className="gap-2">
+                                 <Button
+                                   size="sm"
+                                   variant="secondary"
+                                   className="gap-2"
+                                   onClick={() => handleImportRecord(result)}
+                                   disabled={!result.isbn}
+                                   title={result.isbn ? "Review this record in Add Resource" : "An ISBN is required before this record can be imported"}
+                                   data-testid={`button-import-z3950-${result.id}`}
+                                 >
                         <Download className="h-4 w-4" />
-                        Import
+                                   {result.isbn ? "Import" : "ISBN required"}
                       </Button>
                     </TableCell>
                   </TableRow>

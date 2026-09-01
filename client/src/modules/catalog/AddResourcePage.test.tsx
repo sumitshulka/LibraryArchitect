@@ -71,6 +71,7 @@ async function fillRequiredFields() {
 describe("AddResourcePage catalog creation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.history.replaceState(null, "", "/catalog/new");
     mockedGetResourceTypes.mockResolvedValue([
       { id: 1, name: "Book", description: null, isActive: true, createdAt: new Date() },
     ]);
@@ -130,5 +131,24 @@ describe("AddResourcePage catalog creation", () => {
 
     expect(mockedCreate).not.toHaveBeenCalled();
     expect(toast.error).toHaveBeenCalledWith("Please select a resource type");
+  });
+
+  it("prefills a live catalog record imported from Settings", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/catalog/new?source=z3950&isbn=9780132350884&title=A+Live+Catalog+Result&author=A.+Real+Author&publisher=A+Real+Publisher&year=2024&category=Technology",
+    );
+
+    renderPage();
+
+    expect(await screen.findByTestId("input-isbn")).toHaveValue("9780132350884");
+    expect(screen.getByTestId("input-title")).toHaveValue("A Live Catalog Result");
+    expect(screen.getByTestId("input-author")).toHaveValue("A. Real Author");
+    expect(screen.getByTestId("input-publisher")).toHaveValue("A Real Publisher");
+    expect(screen.getByTestId("input-year")).toHaveValue(2024);
+    expect(toast.success).toHaveBeenCalledWith(
+      "Live catalog record loaded. Review the details before saving.",
+    );
   });
 });

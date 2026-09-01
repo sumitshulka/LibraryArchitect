@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Input } from "@/components/ui/input";
@@ -81,6 +81,27 @@ export default function AddResourcePage() {
     acquisitionSource: "",
     unitPrice: "" as string,
   });
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("source") !== "z3950") return;
+
+    const importedIsbn = params.get("isbn") || "";
+    const importedTitle = params.get("title") || "";
+    if (!importedIsbn && !importedTitle) return;
+
+    setIsbn(importedIsbn);
+    setFormData((current) => ({
+      ...current,
+      isbn: importedIsbn || current.isbn,
+      title: importedTitle || current.title,
+      author: params.get("author") || current.author,
+      publisher: params.get("publisher") || current.publisher,
+      publishedYear: parseInt(params.get("year") || "", 10) || current.publishedYear,
+      category: params.get("category") || current.category,
+    }));
+    toast.success("Live catalog record loaded. Review the details before saving.");
+  }, []);
 
   const { data: resourceTypes = [], isLoading: loadingTypes } = useQuery({
     queryKey: ["resource-types", "active"],

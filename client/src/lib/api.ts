@@ -288,13 +288,16 @@ export interface Z3950SearchResult {
 }
 
 export const z3950Api = {
-  search: async (isbn: string, server?: string): Promise<Z3950SearchResult[]> => {
+  search: async (query: string, server?: string): Promise<Z3950SearchResult[]> => {
     const res = await fetch(`${API_BASE}/z3950/search`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ isbn, server }),
+      body: JSON.stringify({ query, server }),
     });
-    if (!res.ok) throw new Error("Failed to perform Z39.50 search");
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new Error(body?.error || "Failed to perform live catalog search");
+    }
     return res.json();
   },
 };
