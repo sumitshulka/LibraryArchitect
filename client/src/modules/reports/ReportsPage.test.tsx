@@ -69,6 +69,11 @@ describe("ReportsPage fines and revenue export", () => {
       },
       timeSeries: [],
       byLibrary: [],
+      bySource: [],
+      byCategory: [],
+      byFormat: [],
+      byStatus: [],
+      byCondition: [],
     });
     mockedCirculation.mockResolvedValue({
       records: [],
@@ -149,5 +154,141 @@ describe("ReportsPage fines and revenue export", () => {
     );
     expect(anchorClick).toHaveBeenCalled();
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:report");
+  });
+
+  it("exports circulation rows with dates, amounts, and quoted values", async () => {
+    mockedCirculation.mockResolvedValue({
+      records: [
+        {
+          id: 7,
+          checkoutDate: "2026-08-03T09:30:00.000Z",
+          dueDate: "2026-08-17T09:30:00.000Z",
+          returnDate: "2026-08-20T16:45:00.000Z",
+          status: "RETURNED",
+          isOverdue: true,
+          loanDays: 17,
+          bookTitle: 'The "quoted" book',
+          bookIsbn: "9780000000001",
+          author: 'Author, "A"',
+          category: "Fiction",
+          borrowerName: 'Reader "One"',
+          borrowerRole: "STUDENT",
+          libraryName: "Central Library",
+          renewalCount: 2,
+          fineAmount: 875,
+        },
+      ],
+      totals: {
+        totalCheckouts: 1,
+        activeCount: 0,
+        returnedCount: 1,
+        overdueCount: 1,
+        avgLoanDays: 17,
+      },
+      monthlyTrends: [],
+      byLibrary: [],
+      byCategory: [],
+      topBooks: [],
+      topBorrowers: [],
+      byBook: [],
+      byUser: [],
+    });
+
+    const createObjectURL = vi.fn<(object: Blob | MediaSource) => string>(() => "blob:circulation");
+    const revokeObjectURL = vi.fn<(url: string) => void>();
+    const anchorClick = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => {});
+    vi.stubGlobal("URL", {
+      ...URL,
+      createObjectURL,
+      revokeObjectURL,
+    });
+
+    const user = userEvent.setup();
+    renderPage();
+    await waitFor(() => expect(screen.getByTestId("row-circ-7")).toBeInTheDocument());
+
+    await user.click(screen.getByTestId("button-circ-export"));
+
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    const csvBlob = createObjectURL.mock.calls[0][0] as Blob;
+    const csv = await csvBlob.text();
+    expect(csv).toContain(
+      '"Checkout Date","Due Date","Return Date","Status","Overdue","Loan Days","Title","ISBN","Author","Category","Borrower","Role","Library","Renewals","Fine Amount"',
+    );
+    expect(csv).toContain(
+      '"2026-08-03","2026-08-17","2026-08-20","RETURNED","Yes","17","The ""quoted"" book","9780000000001","Author, ""A""","Fiction","Reader ""One""","STUDENT","Central Library","2","8.75"',
+    );
+    expect(anchorClick).toHaveBeenCalled();
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:circulation");
+  });
+
+  it("exports acquisition rows with converted prices, dates, and quoted values", async () => {
+    mockedAcquisitions.mockResolvedValue({
+      copies: [
+        {
+          id: 11,
+          acquisitionDate: "2026-07-12T11:00:00.000Z",
+          barcode: "BC-001",
+          bookTitle: 'A "quoted" title',
+          bookIsbn: "9780000000002",
+          author: 'Writer, "W"',
+          category: "History",
+          format: "HARDCOVER",
+          libraryName: "North, Library",
+          acquisitionSource: 'Vendor "One"',
+          price: 12345,
+          priceSource: "INVOICE",
+          status: "AVAILABLE",
+          condition: "NEW",
+        },
+      ],
+      totals: {
+        totalSpend: 12345,
+        pricedCopies: 1,
+        avgUnitPrice: 12345,
+        totalCopies: 1,
+        datedCopies: 1,
+        uniqueTitles: 1,
+      },
+      timeSeries: [],
+      byLibrary: [],
+      bySource: [],
+      byCategory: [],
+      byFormat: [],
+      byStatus: [],
+      byCondition: [],
+    });
+
+    const createObjectURL = vi.fn<(object: Blob | MediaSource) => string>(() => "blob:acquisitions");
+    const revokeObjectURL = vi.fn<(url: string) => void>();
+    const anchorClick = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => {});
+    vi.stubGlobal("URL", {
+      ...URL,
+      createObjectURL,
+      revokeObjectURL,
+    });
+
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole("tab", { name: "Acquisitions" }));
+    await waitFor(() => expect(screen.getByTestId("row-acq-copy-11")).toBeInTheDocument());
+
+    await user.click(screen.getByTestId("button-acq-export"));
+
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    const csvBlob = createObjectURL.mock.calls[0][0] as Blob;
+    const csv = await csvBlob.text();
+    expect(csv).toContain(
+      '"Acquisition Date","Barcode","Title","ISBN","Author","Category","Format","Library","Source","Price","Price Source","Status","Condition"',
+    );
+    expect(csv).toContain(
+      '"2026-07-12","BC-001","A ""quoted"" title","9780000000002","Writer, ""W""","History","HARDCOVER","North, Library","Vendor ""One""","123.45","INVOICE","AVAILABLE","NEW"',
+    );
+    expect(anchorClick).toHaveBeenCalled();
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:acquisitions");
   });
 });
