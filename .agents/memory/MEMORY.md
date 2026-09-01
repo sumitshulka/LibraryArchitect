@@ -3,3 +3,4 @@
 - [PDF preview blocked by Chrome in nested iframes](pdf-preview-nested-iframe.md) — embedding a PDF in an <iframe> fails when the app itself runs in a nested iframe (e.g. canvas/webview preview); use "open in new tab" instead.
 - [ERP digital-resources search API](erp-digital-resources-search-api.md) — the /api/digital-resources endpoint is session-only; external ERP search needs the separate /api/erp/digital-resources/* pair.
 - [Radix Select in jsdom](jsdom-radix-select.md) — shared tests need pointer-capture and scrollIntoView compatibility methods for real Select interactions.
+- [Wouter search strings in jsdom](wouter-jsdom-search.md) — custom test routers need an explicit searchHook; ssrPath search is not used by client-side jsdom snapshots.
