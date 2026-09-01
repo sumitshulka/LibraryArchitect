@@ -706,7 +706,9 @@ export class DBStorage implements IStorage {
   }
 
   async createBook(insertBook: InsertBook): Promise<Book> {
-    const [book] = await db.insert(books).values(insertBook).returning();
+    const [book] = await returningViaCte<Book>(
+      db.insert(books).values(nullifyForInsert(insertBook as any)).returning()
+    );
     return book;
   }
 
