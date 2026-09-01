@@ -1230,17 +1230,19 @@ export class DBStorage implements IStorage {
     
     for (let i = 0; i < quantity; i++) {
       const barcode = `BC-${bookId}-${timestamp}-${String(i + 1).padStart(4, '0')}`;
-      const [bookCopy] = await db.insert(bookCopies).values({
-        bookId,
-        libraryId: null,
-        barcode,
-        shelfLocation: shelfLocation || null,
-        status: 'AVAILABLE',
-        condition: 'GOOD',
-        acquisitionDate: acquisitionDate || null,
-        acquisitionSource: acquisitionSource || null,
-        price: price || null,
-      }).returning();
+      const [bookCopy] = await returningViaCte<BookCopy>(
+        db.insert(bookCopies).values(nullifyForInsert({
+          bookId,
+          libraryId: null,
+          barcode,
+          shelfLocation: shelfLocation || null,
+          status: 'AVAILABLE',
+          condition: 'GOOD',
+          acquisitionDate: acquisitionDate || null,
+          acquisitionSource: acquisitionSource || null,
+          price: price || null,
+        } as any)).returning()
+      );
       copies.push(bookCopy);
     }
     

@@ -520,17 +520,36 @@ export async function registerRoutes(
         ...bookData,
         acquisitionDate: parsedAcquisitionDate,
       });
-      
+      const copyCount = Math.min(Math.max(1, parseInt(quantity) || 1), 1000);
+
       // Check for duplicate ISBN
       const existing = await storage.getBookByIsbn(validated.isbn);
       if (existing) {
+        const existingCopies = await storage.getBookCopiesByBook(existing.id);
+        if (existingCopies.length === 0) {
+          await storage.createBookCopies(
+            existing.id,
+            copyCount,
+            validated.shelfLocation || undefined,
+            parsedAcquisitionDate || undefined,
+            acquisitionSource || undefined,
+            priceInCents || undefined
+          );
+          logAudit(req, {
+            category: 'CATALOG',
+            action: 'BOOK_COPIES_RECOVERED',
+            targetType: 'book',
+            targetId: String(existing.id),
+            details: { title: existing.title, isbn: existing.isbn, copiesCreated: copyCount },
+          });
+          return res.status(200).json({ ...existing, copiesCreated: copyCount, recovered: true });
+        }
         return res.status(400).json({ error: "Book with this ISBN already exists" });
       }
       
       const book = await storage.createBook(validated);
       
       // Create unallocated copies if quantity is specified
-      const copyCount = Math.min(Math.max(1, parseInt(quantity) || 1), 1000);
       if (copyCount > 0) {
         await storage.createBookCopies(
           book.id, 
