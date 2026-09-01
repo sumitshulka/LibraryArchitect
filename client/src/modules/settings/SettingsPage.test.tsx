@@ -145,6 +145,23 @@ describe("SettingsPage", () => {
     expect(screen.getByRole("tab", { name: "General" })).toHaveAttribute("data-state", "inactive");
   });
 
+  it("falls back to General settings for an unsupported section query", async () => {
+    renderSettingsWithBrowserHistory("/settings?section=unknown");
+
+    expect(await screen.findByText("Library Information", { exact: true })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "General" })).toHaveAttribute(
+      "data-state",
+      "active",
+    );
+    expect(screen.getByRole("tab", { name: "Catalog Settings" })).toHaveAttribute(
+      "data-state",
+      "inactive",
+    );
+    expect(window.location.pathname + window.location.search).toBe(
+      "/settings?section=unknown",
+    );
+  });
+
   it("restores settings tabs and content through browser back and forward navigation", async () => {
     const user = userEvent.setup();
     renderSettingsWithBrowserHistory("/settings");
