@@ -709,28 +709,82 @@ export async function registerRoutes(
   // ===== Circulation API =====
   app.get("/api/circulation", async (req, res) => {
     try {
+      const currentUser = await requireStaff(req, res);
+      if (!currentUser) return;
+
       const { userId, enrich } = req.query;
 
-      const circulations = (userId && typeof userId === 'string')
+      let circulations = (userId && typeof userId === 'string')
         ? await storage.getCirculationByUser(parseInt(userId))
         : await storage.getAllCirculation();
+
+      if (currentUser.role !== 'ADMIN') {
+        const memberships = await storage.getMembershipsByUser(currentUser.id);
+        const assignedLibraryIds = new Set(
+          memberships.filter(m => m.isActive).map(m => m.libraryId),
+        );
+        circulations = circulations.filter(c =>
+          c.libraryId !== null && assignedLibraryIds.has(c.libraryId),
+        );
+      }
 
       if (enrich !== 'true') {
         return res.json(circulations);
       }
 
+      const [allBooks, allCopies, allLibraries] = await Promise.all([
+        storage.getAllBooks(),
+        storage.getAllBookCopies(),
+        storage.getAllLibraries(),
+      ]);
+      const bookMap = new Map(allBooks.map(book => [book.id, book]));
+      const copyMap = new Map(allCopies.map(copy => [copy.id, copy]));
+      const libraryMap = new Map(allLibraries.map(library => [library.id, library]));
+
       // Enrich active rows with accrued fine info using date-aware policy resolution
       const enriched = await Promise.all(circulations.map(async (c) => {
+        const book = bookMap.get(c.bookId);
+        const copy = c.bookCopyId ? copyMap.get(c.bookCopyId) : undefined;
         if (c.status === 'RETURNED') {
           const finePaid = c.finePaidAmount ?? 0;
           const fineWaived = c.fineWaivedAmount ?? 0;
           const fineOutstanding = Math.max(0, (c.fineAmount ?? 0) - finePaid - fineWaived);
           const damageOutstanding = Math.max(0, (c.damageCost ?? 0) - (c.damagePaidAmount ?? 0) - (c.damageWaivedAmount ?? 0));
-          return { ...c, accruedFine: c.fineAmount ?? 0, daysOverdue: 0, isOverdue: false, fineOutstanding, damageOutstanding };
+          return {
+            ...c,
+            bookTitle: book?.title || null,
+            bookAuthor: book?.author || null,
+            bookIsbn: book?.isbn || null,
+            copySSN: copy?.userDefinedSSN || copy?.internalSSN || null,
+            copyInternalSSN: copy?.internalSSN || null,
+            copyUserDefinedSSN: copy?.userDefinedSSN || null,
+            copyBarcode: copy?.barcode || null,
+            libraryName: c.libraryId ? libraryMap.get(c.libraryId)?.name || null : "Unallocated",
+            accruedFine: c.fineAmount ?? 0,
+            daysOverdue: 0,
+            isOverdue: false,
+            fineOutstanding,
+            damageOutstanding,
+          };
         }
         const calc = await computeAccruedFine(c);
         const fineOutstanding = Math.max(0, calc.fineCents - (c.finePaidAmount ?? 0) - (c.fineWaivedAmount ?? 0));
-        return { ...c, accruedFine: calc.fineCents, daysOverdue: calc.daysOverdue, isOverdue: calc.isOverdue, fineOutstanding, damageOutstanding: 0 };
+        return {
+          ...c,
+          bookTitle: book?.title || null,
+          bookAuthor: book?.author || null,
+          bookIsbn: book?.isbn || null,
+          copySSN: copy?.userDefinedSSN || copy?.internalSSN || null,
+          copyInternalSSN: copy?.internalSSN || null,
+          copyUserDefinedSSN: copy?.userDefinedSSN || null,
+          copyBarcode: copy?.barcode || null,
+          libraryName: c.libraryId ? libraryMap.get(c.libraryId)?.name || null : "Unallocated",
+          accruedFine: calc.fineCents,
+          daysOverdue: calc.daysOverdue,
+          isOverdue: calc.isOverdue,
+          fineOutstanding,
+          damageOutstanding: 0,
+        };
       }));
       res.json(enriched);
     } catch (error) {
@@ -6089,11 +6143,24 @@ export async function registerRoutes(
 
   app.get("/api/book-copies/:id/reviewer-details", async (req, res) => {
     try {
+      const currentUser = await requireStaff(req, res);
+      if (!currentUser) return;
+
       const id = parseInt(req.params.id);
       const copy = await storage.getBookCopy(id);
 
       if (!copy) {
         return res.status(404).json({ error: "Book copy not found" });
+      }
+
+      if (currentUser.role !== 'ADMIN') {
+        const memberships = await storage.getMembershipsByUser(currentUser.id);
+        const canViewCopy = memberships.some(
+          membership => membership.isActive && membership.libraryId === copy.libraryId,
+        );
+        if (!canViewCopy) {
+          return res.status(403).json({ error: "You can only view copies from your assigned libraries" });
+        }
       }
 
       const book = await storage.getBook(copy.bookId);

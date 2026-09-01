@@ -366,6 +366,22 @@ export interface PendingFineUser {
   circulations: PendingFineCirculation[];
 }
 
+export interface CirculationListRecord extends Circulation {
+  bookTitle: string | null;
+  bookAuthor: string | null;
+  bookIsbn: string | null;
+  copySSN: string | null;
+  copyInternalSSN: string | null;
+  copyUserDefinedSSN: string | null;
+  copyBarcode: string | null;
+  libraryName: string | null;
+  accruedFine?: number;
+  daysOverdue?: number;
+  isOverdue?: boolean;
+  fineOutstanding?: number;
+  damageOutstanding?: number;
+}
+
 export const pendingFinesApi = {
   getAll: async (filters?: { libraryId?: number; search?: string }): Promise<{ users: PendingFineUser[]; total: number; grandTotalCents: number }> => {
     const params = new URLSearchParams();
@@ -379,7 +395,7 @@ export const pendingFinesApi = {
 };
 
 export const circulationApi = {
-  getAll: async (userId?: number, enrich = false): Promise<any[]> => {
+  getAll: async (userId?: number, enrich = false): Promise<CirculationListRecord[]> => {
     const params = new URLSearchParams();
     if (userId) params.set("userId", String(userId));
     if (enrich) params.set("enrich", "true");

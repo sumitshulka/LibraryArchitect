@@ -9,6 +9,7 @@ import { circulationApi, booksApi, bookCopiesApi, librariesApi, libraryMembershi
 import { Link } from "wouter";
 import { useCurrency } from "@/lib/useCurrency";
 import { ReturnBookDialog } from "./ReturnBookDialog";
+import { ReviewerDetailsDialog } from "@/components/layout/GlobalSearch";
 import { useAuth } from "@/lib/auth";
 import {
   Table,
@@ -420,6 +421,7 @@ export default function CirculationPage() {
   const [isLookingUpReturn, setIsLookingUpReturn] = useState(false);
   const [bookLookupMode, setBookLookupMode] = useState<"isbn" | "browse">("isbn");
   const [checkoutItems, setCheckoutItems] = useState<CheckoutItem[]>([]);
+  const [reviewCopyId, setReviewCopyId] = useState<number | null>(null);
 
   const isAdmin = currentUser?.role === 'ADMIN';
 
@@ -465,7 +467,13 @@ export default function CirculationPage() {
     },
   });
 
-  const activeTransactions = circulation.filter(c => c.status === "ACTIVE" || c.status === "OVERDUE");
+  const accessibleLibraryIds = new Set(
+    userMemberships.filter(membership => membership.isActive).map(membership => membership.libraryId),
+  );
+  const activeTransactions = circulation.filter(c =>
+    (c.status === "ACTIVE" || c.status === "OVERDUE") &&
+    (isAdmin || (c.libraryId !== null && accessibleLibraryIds.has(c.libraryId))),
+  );
 
   const clearBook = useCallback(() => {
     setIsbnInput("");
@@ -686,13 +694,19 @@ export default function CirculationPage() {
     const search = txSearch.toLowerCase();
     const book = books.find(b => b.id === record.bookId);
     const user = allUsers.find((u: any) => u.id === record.userId);
-    return (
+    const matchesBookOrMember = (
       book?.title.toLowerCase().includes(search) ||
       book?.isbn.toLowerCase().includes(search) ||
       user?.name?.toLowerCase().includes(search) ||
       user?.email?.toLowerCase().includes(search) ||
       String(record.id).includes(search)
     );
+    return matchesBookOrMember ||
+      record.bookTitle?.toLowerCase().includes(search) ||
+      record.bookIsbn?.toLowerCase().includes(search) ||
+      record.copySSN?.toLowerCase().includes(search) ||
+      record.copyBarcode?.toLowerCase().includes(search) ||
+      record.libraryName?.toLowerCase().includes(search);
   });
 
   return (
@@ -1151,6 +1165,9 @@ export default function CirculationPage() {
           <div className="flex items-center gap-2">
             <h3 className="font-semibold" data-testid="text-active-transactions">Active Transactions</h3>
             <Badge variant="secondary" className="text-xs">{activeTransactions.length}</Badge>
+            <span className="hidden text-xs text-muted-foreground lg:inline">
+              {isAdmin ? "All libraries" : "Your assigned libraries"}
+            </span>
           </div>
           <div className="relative w-full sm:w-64">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -1173,11 +1190,14 @@ export default function CirculationPage() {
             <p className="text-sm">{txSearch ? "No matching transactions" : "No active transactions"}</p>
           </div>
         ) : (
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Txn ID</TableHead>
                 <TableHead>Book Details</TableHead>
+                <TableHead>Copy / SSN</TableHead>
+                <TableHead>Issued From</TableHead>
                 <TableHead>Member</TableHead>
                 <TableHead>Issue Date</TableHead>
                 <TableHead>Due Date</TableHead>
@@ -1198,8 +1218,24 @@ export default function CirculationPage() {
                       <div className="flex flex-col">
                         <span className="font-medium text-sm">{book?.title || "Unknown"}</span>
                         <span className="text-xs text-muted-foreground">
-                          ISBN: {book?.isbn ? formatIsbn(book.isbn) : "-"} · {book?.author}
+                          ISBN: {record.bookIsbn ? formatIsbn(record.bookIsbn) : book?.isbn ? formatIsbn(book.isbn) : "-"} · {record.bookAuthor || book?.author}
                         </span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-col text-xs">
+                        <span className="font-mono font-medium">
+                          SSN: {record.copySSN || "—"}
+                        </span>
+                        <span className="text-muted-foreground">
+                          Barcode: {record.copyBarcode || "—"}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      <div className="flex items-center gap-1.5">
+                        <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span>{record.libraryName || "Unallocated"}</span>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -1241,23 +1277,36 @@ export default function CirculationPage() {
                       )}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setReturnDialogId(record.id);
-                          setReturnDialogMeta({ title: book?.title, borrower: user?.name });
-                        }}
-                        data-testid={`button-return-${record.id}`}
-                      >
-                        Return
-                      </Button>
+                      <div className="flex justify-end gap-2">
+                        {record.bookCopyId && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setReviewCopyId(record.bookCopyId!)}
+                            data-testid={`button-view-transaction-${record.id}`}
+                          >
+                            Details
+                          </Button>
+                        )}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setReturnDialogId(record.id);
+                            setReturnDialogMeta({ title: book?.title || record.bookTitle || undefined, borrower: user?.name });
+                          }}
+                          data-testid={`button-return-${record.id}`}
+                        >
+                          Return
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 );
               })}
             </TableBody>
           </Table>
+          </div>
         )}
       </div>
 
@@ -1372,6 +1421,12 @@ export default function CirculationPage() {
         bookTitle={returnDialogMeta.title}
         borrowerName={returnDialogMeta.borrower}
         onClose={() => setReturnDialogId(null)}
+      />
+      <ReviewerDetailsDialog
+        open={reviewCopyId !== null}
+        onOpenChange={(open) => !open && setReviewCopyId(null)}
+        bookId={null}
+        copyId={reviewCopyId}
       />
     </MainLayout>
   );

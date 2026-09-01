@@ -279,7 +279,7 @@ function CopyReviewerView({ details }: { details: BookCopyReviewerDetails }) {
   );
 }
 
-function ReviewerDetailsDialog({
+export function ReviewerDetailsDialog({
   open,
   onOpenChange,
   bookId,
