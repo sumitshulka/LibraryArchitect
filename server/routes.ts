@@ -739,6 +739,40 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/circulation/book-lookup", async (req, res) => {
+    try {
+      const identifier = String(req.query.identifier || "").trim();
+      if (!identifier) {
+        return res.status(400).json({ error: "ISBN, SSN, or barcode is required" });
+      }
+
+      const normalizedIdentifier = identifier.replace(/[-\s]/g, "").toLowerCase();
+      const allBooks = await storage.getAllBooks();
+      const book = allBooks.find((candidate) =>
+        candidate.isbn.replace(/[-\s]/g, "").toLowerCase() === normalizedIdentifier
+      );
+
+      if (book) {
+        return res.json({ book, copy: null });
+      }
+
+      const copy = await storage.getBookCopyByIdentifier(identifier);
+      if (!copy) {
+        return res.status(404).json({ error: "No book found with that ISBN, SSN, or barcode" });
+      }
+
+      const copyBook = await storage.getBook(copy.bookId);
+      if (!copyBook) {
+        return res.status(404).json({ error: "The scanned copy is not linked to a book" });
+      }
+
+      res.json({ book: copyBook, copy });
+    } catch (error) {
+      console.error("Error looking up circulation book:", error);
+      res.status(500).json({ error: "Failed to look up book" });
+    }
+  });
+
   app.post("/api/circulation/checkout", async (req, res) => {
     try {
       const sessionId = getSessionId(req);
@@ -852,6 +886,149 @@ export async function registerRoutes(
       }
       console.error("Error checking out book:", error);
       res.status(500).json({ error: "Failed to checkout book" });
+    }
+  });
+
+  app.post("/api/circulation/checkout-batch", async (req, res) => {
+    try {
+      const sessionId = getSessionId(req);
+      if (!sessionId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+      const sessionData = await storage.getSession(sessionId);
+      if (!sessionData) {
+        return res.status(401).json({ error: "Invalid session" });
+      }
+      const issuingUser = await storage.getUser(sessionData.userId);
+      if (!issuingUser) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      if (!Array.isArray(req.body?.items) || req.body.items.length === 0) {
+        return res.status(400).json({ error: "At least one book is required for checkout" });
+      }
+      if (req.body.items.length > 50) {
+        return res.status(400).json({ error: "You can issue at most 50 books at once" });
+      }
+
+      const validatedItems = req.body.items.map((item: any) => insertCirculationSchema.parse({
+        ...item,
+        dueDate: item.dueDate ? new Date(item.dueDate) : undefined,
+        returnDate: item.returnDate ? new Date(item.returnDate) : undefined,
+      }));
+
+      const firstItem = validatedItems[0];
+      if (!firstItem.libraryId) {
+        return res.status(400).json({ error: "Library selection is required for checkout" });
+      }
+      if (validatedItems.some((item: any) => item.userId !== firstItem.userId || item.libraryId !== firstItem.libraryId)) {
+        return res.status(400).json({ error: "All books in a batch must use the same member and library" });
+      }
+
+      const duplicateBookIds = new Set<number>();
+      const duplicateCopyIds = new Set<number>();
+      for (const item of validatedItems) {
+        if (duplicateBookIds.has(item.bookId)) {
+          return res.status(400).json({ error: "The same book cannot be added more than once to one checkout" });
+        }
+        duplicateBookIds.add(item.bookId);
+        if (item.bookCopyId) {
+          if (duplicateCopyIds.has(item.bookCopyId)) {
+            return res.status(400).json({ error: "The same book copy cannot be added more than once to one checkout" });
+          }
+          duplicateCopyIds.add(item.bookCopyId);
+        }
+      }
+
+      const library = await storage.getLibrary(firstItem.libraryId);
+      if (!library) {
+        return res.status(404).json({ error: "Selected library not found" });
+      }
+
+      if (issuingUser.role !== 'ADMIN') {
+        const memberships = await storage.getMembershipsByUser(issuingUser.id);
+        const assignedLibraryIds = memberships.filter(m => m.isActive).map(m => m.libraryId);
+        if (!assignedLibraryIds.includes(firstItem.libraryId)) {
+          return res.status(403).json({ error: "You can only issue books from your assigned library" });
+        }
+      }
+
+      const checkoutUser = await storage.getUser(firstItem.userId);
+      if (!checkoutUser) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      if (checkoutUser.status === 'INACTIVE') {
+        return res.status(403).json({ error: "This member is inactive and cannot checkout books" });
+      }
+
+      const booksForCheckout = [];
+      for (const item of validatedItems) {
+        const book = await storage.getBook(item.bookId);
+        if (!book) {
+          return res.status(404).json({ error: `Book #${item.bookId} not found` });
+        }
+        if (book.status !== 'AVAILABLE') {
+          return res.status(400).json({ error: `"${book.title}" is not available for checkout` });
+        }
+
+        if (item.bookCopyId) {
+          const copy = await storage.getBookCopy(item.bookCopyId);
+          if (!copy) {
+            return res.status(404).json({ error: `Book copy for "${book.title}" not found` });
+          }
+          if (copy.bookId !== item.bookId) {
+            return res.status(400).json({ error: `The selected copy does not belong to "${book.title}"` });
+          }
+          if (copy.libraryId !== item.libraryId) {
+            return res.status(400).json({ error: `The selected copy for "${book.title}" does not belong to the selected library` });
+          }
+          const nonIssuableStatuses = ['RESERVED', 'DAMAGED', 'LOST', 'IN_TRANSIT', 'CHECKED_OUT'];
+          if (nonIssuableStatuses.includes(copy.status)) {
+            return res.status(400).json({ error: `The selected copy for "${book.title}" cannot be issued because it is ${copy.status.toLowerCase().replace("_", " ")}` });
+          }
+        }
+
+        const activeCirc = await storage.getActiveCirculationByBook(item.bookId);
+        if (activeCirc) {
+          return res.status(400).json({ error: `"${book.title}" is already checked out` });
+        }
+        booksForCheckout.push(book);
+      }
+
+      const created = [];
+      for (let index = 0; index < validatedItems.length; index++) {
+        const item = validatedItems[index];
+        const book = booksForCheckout[index];
+        const record = await storage.createCirculation(item);
+        await storage.updateBook(item.bookId, { status: 'CHECKED_OUT' });
+        if (item.bookCopyId) {
+          await storage.updateBookCopy(item.bookCopyId, { status: 'CHECKED_OUT' });
+        }
+        logAudit(req, {
+          category: 'CIRCULATION',
+          action: 'CHECKOUT',
+          targetType: 'circulation',
+          targetId: String(record.id),
+          details: {
+            bookId: item.bookId,
+            bookTitle: book.title,
+            userId: item.userId,
+            bookCopyId: item.bookCopyId,
+            libraryId: item.libraryId,
+            libraryName: library.name,
+            batchCheckout: true,
+          },
+        });
+        created.push(record);
+      }
+
+      res.status(201).json(created);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error checking out books in batch:", error);
+      res.status(500).json({ error: "Failed to checkout books" });
     }
   });
 

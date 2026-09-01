@@ -314,6 +314,7 @@ export interface IStorage {
   // Book Copies
   getBookCopy(id: number): Promise<BookCopy | undefined>;
   getBookCopyByBarcode(barcode: string): Promise<BookCopy | undefined>;
+  getBookCopyByIdentifier(identifier: string): Promise<BookCopy | undefined>;
   createBookCopy(bookCopy: InsertBookCopy): Promise<BookCopy>;
   createBookCopies(bookId: number, quantity: number, shelfLocation?: string, acquisitionDate?: Date, acquisitionSource?: string, price?: number): Promise<BookCopy[]>;
   updateBookCopy(id: number, bookCopy: Partial<InsertBookCopy>): Promise<BookCopy | undefined>;
@@ -1199,6 +1200,17 @@ export class DBStorage implements IStorage {
 
   async getBookCopyByBarcode(barcode: string): Promise<BookCopy | undefined> {
     const [bookCopy] = await db.select().from(bookCopies).where(eq(bookCopies.barcode, barcode));
+    return bookCopy;
+  }
+
+  async getBookCopyByIdentifier(identifier: string): Promise<BookCopy | undefined> {
+    const [bookCopy] = await db.select().from(bookCopies).where(
+      or(
+        eq(bookCopies.barcode, identifier),
+        eq(bookCopies.internalSSN, identifier),
+        eq(bookCopies.userDefinedSSN, identifier),
+      )
+    );
     return bookCopy;
   }
 

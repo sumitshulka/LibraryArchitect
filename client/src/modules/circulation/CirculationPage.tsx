@@ -57,6 +57,10 @@ import { toast } from "sonner";
 import type { Book, User as UserType, BookCopy as BookCopyType, Library, LibraryMembership } from "@shared/schema";
 
 type SafeUser = Omit<UserType, "password">;
+type CheckoutItem = {
+  book: Book;
+  copy: BookCopyType;
+};
 
 function MemberSearchBox({
   selectedUser,
@@ -402,6 +406,7 @@ export default function CirculationPage() {
   const [returnInfo, setReturnInfo] = useState<{ circulationId: number; book: Book; user: SafeUser; dueDate: string; isOverdue: boolean } | null>(null);
   const [isLookingUpReturn, setIsLookingUpReturn] = useState(false);
   const [bookLookupMode, setBookLookupMode] = useState<"isbn" | "browse">("isbn");
+  const [checkoutItems, setCheckoutItems] = useState<CheckoutItem[]>([]);
 
   const isAdmin = currentUser?.role === 'ADMIN';
 
@@ -458,7 +463,7 @@ export default function CirculationPage() {
     setHasCopiesWithSSN(false);
   }, []);
 
-  const handleBookSelect = useCallback(async (book: Book) => {
+  const handleBookSelect = useCallback(async (book: Book, preferredCopyId?: number) => {
     setBookError("");
     setResolvedBook(null);
     setAvailableCopies([]);
@@ -476,7 +481,16 @@ export default function CirculationPage() {
       const issuableCopies = copies.filter(c => c.status === "AVAILABLE");
       setAvailableCopies(issuableCopies);
       setHasCopiesWithSSN(issuableCopies.length > 0);
-      if (issuableCopies.length === 1) setSelectedCopy(issuableCopies[0]);
+      const preferredCopy = preferredCopyId
+        ? issuableCopies.find(copy => copy.id === preferredCopyId)
+        : undefined;
+      if (preferredCopy) {
+        setSelectedCopy(preferredCopy);
+      } else if (issuableCopies.length === 1) {
+        setSelectedCopy(issuableCopies[0]);
+      } else if (preferredCopyId) {
+        setBookError("The scanned copy is not available at the selected library");
+      }
     } catch {}
   }, [selectedLibraryId]);
 
@@ -484,19 +498,40 @@ export default function CirculationPage() {
     if (!isbnInput.trim()) return;
     setIsLookingUpBook(true);
     try {
-      const cleanIsbn = isbnInput.replace(/[-\s]/g, "");
-      const book = books.find(
-        b => b.isbn.replace(/[-\s]/g, "") === cleanIsbn || b.isbn === isbnInput.trim()
-      );
-      if (!book) {
-        setBookError("No book found with this ISBN");
-        setResolvedBook(null);
-        return;
-      }
-      await handleBookSelect(book);
+      const result = await circulationApi.lookupBook(isbnInput.trim());
+      await handleBookSelect(result.book, result.copy?.id);
+    } catch (error) {
+      setBookError(error instanceof Error ? error.message : "No book found with that ISBN, SSN, or barcode");
+      setResolvedBook(null);
     } finally {
       setIsLookingUpBook(false);
     }
+  };
+
+  const pendingCheckoutItems = useMemo(() => {
+    if (!resolvedBook || !selectedCopy) return checkoutItems;
+    if (checkoutItems.some(item => item.copy.id === selectedCopy.id || item.book.id === resolvedBook.id)) {
+      return checkoutItems;
+    }
+    return [...checkoutItems, { book: resolvedBook, copy: selectedCopy }];
+  }, [checkoutItems, resolvedBook, selectedCopy]);
+
+  const addCurrentBookToIssueList = () => {
+    if (!resolvedBook || !selectedCopy) {
+      toast.error("Look up a book and select an available copy first");
+      return;
+    }
+    if (checkoutItems.some(item => item.copy.id === selectedCopy.id || item.book.id === resolvedBook.id)) {
+      toast.error("This book is already in the issue list");
+      return;
+    }
+    setCheckoutItems(items => [...items, { book: resolvedBook, copy: selectedCopy }]);
+    clearBook();
+    toast.success("Book added to issue list");
+  };
+
+  const removeCheckoutItem = (bookId: number) => {
+    setCheckoutItems(items => items.filter(item => item.book.id !== bookId));
   };
 
   const handleIssue = () => {
@@ -504,32 +539,37 @@ export default function CirculationPage() {
       toast.error("Please select a library before issuing");
       return;
     }
-    if (!resolvedUser || !resolvedBook) {
-      toast.error("Please select a member and look up a valid book");
+    if (!resolvedUser) {
+      toast.error("Please select a member before issuing");
       return;
     }
-    if (availableCopies.length === 0 && selectedLibraryId) {
-      toast.error("No available copies at the selected library");
-      return;
-    }
-    if (hasCopiesWithSSN && !selectedCopy) {
+    if (resolvedBook && hasCopiesWithSSN && !selectedCopy) {
       toast.error("Please select a copy before issuing");
+      return;
+    }
+    if (pendingCheckoutItems.length === 0) {
+      toast.error("Look up a valid book before issuing");
+      return;
+    }
+    if (resolvedBook && availableCopies.length === 0 && selectedLibraryId) {
+      toast.error("No available copies at the selected library");
       return;
     }
     setShowConfirmation(true);
   };
 
   const checkoutMutation = useMutation({
-    mutationFn: () =>
-      circulationApi.checkout({
-        bookId: resolvedBook!.id,
+    mutationFn: () => circulationApi.checkoutMany(
+      pendingCheckoutItems.map(({ book, copy }) => ({
+        bookId: book.id,
         userId: resolvedUser!.id,
         dueDate: new Date(dueDate),
         libraryId: selectedLibraryId!,
-        ...(selectedCopy ? { bookCopyId: selectedCopy.id } : {}),
-      }),
+        bookCopyId: copy.id,
+      }))
+    ),
     onSuccess: () => {
-      toast.success("Book issued successfully!");
+      toast.success(`${pendingCheckoutItems.length} ${pendingCheckoutItems.length === 1 ? "book" : "books"} issued successfully!`);
       queryClient.invalidateQueries({ queryKey: ["circulation"] });
       queryClient.invalidateQueries({ queryKey: ["books"] });
       setShowConfirmation(false);
@@ -567,6 +607,7 @@ export default function CirculationPage() {
     setAvailableCopies([]);
     setSelectedCopy(null);
     setHasCopiesWithSSN(false);
+    setCheckoutItems([]);
     const d = new Date();
     d.setDate(d.getDate() + 14);
     setDueDate(d.toISOString().split("T")[0]);
@@ -581,6 +622,7 @@ export default function CirculationPage() {
     setAvailableCopies([]);
     setSelectedCopy(null);
     setHasCopiesWithSSN(false);
+    setCheckoutItems([]);
   };
 
   const lookupReturn = () => {
@@ -664,7 +706,7 @@ export default function CirculationPage() {
                 <BookOpen className="h-5 w-5" />
                 Issue a Book
               </CardTitle>
-              <CardDescription>Search for a library member, look up a book by ISBN, and confirm checkout</CardDescription>
+              <CardDescription>Search for a library member, scan an ISBN, SSN, or copy barcode, and issue one or more books</CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
               <div className="space-y-2">
@@ -733,7 +775,7 @@ export default function CirculationPage() {
                         className={`px-2.5 py-1 transition-colors ${bookLookupMode === "isbn" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
                         data-testid="button-mode-isbn"
                       >
-                        ISBN / Barcode
+                         ISBN / SSN / Barcode
                       </button>
                       <button
                         type="button"
@@ -750,7 +792,7 @@ export default function CirculationPage() {
                     <>
                       <div className="flex gap-2">
                         <Input
-                          placeholder="Enter or scan ISBN..."
+                           placeholder="Enter or scan ISBN, SSN, or copy barcode..."
                           value={isbnInput}
                           onChange={(e) => { setIsbnInput(e.target.value); setBookError(""); setResolvedBook(null); setAvailableCopies([]); setSelectedCopy(null); setHasCopiesWithSSN(false); }}
                           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); lookupBook(); } }}
@@ -779,7 +821,12 @@ export default function CirculationPage() {
                           </div>
                           <p className="font-medium text-foreground">{resolvedBook.title}</p>
                           <p className="text-muted-foreground">by {resolvedBook.author}</p>
-                          <p className="text-muted-foreground">ISBN: {formatIsbn(resolvedBook.isbn)}</p>
+                           <p className="text-muted-foreground">ISBN: {formatIsbn(resolvedBook.isbn)}</p>
+                           {selectedCopy && (
+                             <p className="text-muted-foreground">
+                               Copy: {selectedCopy.userDefinedSSN || selectedCopy.internalSSN || selectedCopy.barcode}
+                             </p>
+                           )}
                         </div>
                       )}
                     </>
@@ -876,6 +923,37 @@ export default function CirculationPage() {
                 </div>
               )}
 
+              {checkoutItems.length > 0 && (
+                <div className="space-y-2 rounded-lg border bg-muted/30 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <Label className="text-sm font-medium">Books ready to issue</Label>
+                    <Badge variant="secondary">{checkoutItems.length}</Badge>
+                  </div>
+                  <div className="space-y-2">
+                    {checkoutItems.map(({ book, copy }) => (
+                      <div key={book.id} className="flex items-center gap-3 rounded-md border bg-background px-3 py-2">
+                        <BookOpen className="h-4 w-4 text-primary shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">{book.title}</p>
+                          <p className="truncate text-xs text-muted-foreground">
+                            {formatIsbn(book.isbn)} · {copy.userDefinedSSN || copy.internalSSN || copy.barcode}
+                          </p>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeCheckoutItem(book.id)}
+                          className="h-7 w-7 shrink-0 p-0"
+                          data-testid={`button-remove-checkout-book-${book.id}`}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="flex items-end gap-4">
                 <div className="space-y-2 w-48">
                   <Label className="flex items-center gap-1.5">
@@ -894,6 +972,16 @@ export default function CirculationPage() {
                 <div className="flex gap-2 ml-auto">
                   <Button
                     variant="outline"
+                    onClick={addCurrentBookToIssueList}
+                    disabled={!resolvedBook || !selectedCopy || checkoutItems.some(item => item.book.id === resolvedBook?.id)}
+                    className="gap-1.5"
+                    data-testid="button-add-book-to-issue-list"
+                  >
+                    <BookOpen className="h-4 w-4" />
+                    Add Book
+                  </Button>
+                  <Button
+                    variant="outline"
                     onClick={resetForm}
                     className="gap-1.5"
                     data-testid="button-reset-checkout"
@@ -903,12 +991,12 @@ export default function CirculationPage() {
                   </Button>
                   <Button
                     onClick={handleIssue}
-                    disabled={Boolean(!selectedLibraryId || !resolvedUser || !resolvedBook || (hasCopiesWithSSN && !selectedCopy) || (resolvedBook && selectedLibraryId && availableCopies.length === 0))}
+                    disabled={Boolean(!selectedLibraryId || !resolvedUser || pendingCheckoutItems.length === 0 || (resolvedBook && hasCopiesWithSSN && !selectedCopy) || (resolvedBook && selectedLibraryId && availableCopies.length === 0))}
                     className="gap-1.5"
                     data-testid="button-issue"
                   >
                     <ArrowRight className="h-4 w-4" />
-                    Issue Book
+                    Issue {pendingCheckoutItems.length || 1} {pendingCheckoutItems.length === 1 ? "Book" : "Books"}
                   </Button>
                 </div>
               </div>
@@ -1120,12 +1208,14 @@ export default function CirculationPage() {
       </div>
 
       <Dialog open={showConfirmation} onOpenChange={setShowConfirmation}>
-        <DialogContent className="sm:max-w-lg">
+         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Confirm Book Issue</DialogTitle>
-            <DialogDescription>Review the details below before issuing the book.</DialogDescription>
+             <DialogTitle>Confirm Book Issue{pendingCheckoutItems.length === 1 ? "" : "s"}</DialogTitle>
+             <DialogDescription>
+               Review the {pendingCheckoutItems.length} {pendingCheckoutItems.length === 1 ? "book" : "books"} below before issuing.
+             </DialogDescription>
           </DialogHeader>
-          {resolvedUser && resolvedBook && (
+           {resolvedUser && pendingCheckoutItems.length > 0 && (
             <div className="space-y-4 py-2">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-3 p-4 bg-muted/50 rounded-lg border">
@@ -1154,42 +1244,24 @@ export default function CirculationPage() {
                 <div className="space-y-3 p-4 bg-muted/50 rounded-lg border">
                   <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
                     <BookOpen className="h-4 w-4" />
-                    Book Details
+                    Book Details ({pendingCheckoutItems.length})
                   </div>
-                  <div className="space-y-1.5">
-                    <div>
-                      <p className="text-xs text-muted-foreground">ISBN</p>
-                      <p className="text-sm font-medium font-mono" data-testid="text-confirm-isbn">{formatIsbn(resolvedBook.isbn)}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Title</p>
-                      <p className="text-sm font-medium" data-testid="text-confirm-title">{resolvedBook.title}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Author</p>
-                      <p className="text-sm">{resolvedBook.author}</p>
-                    </div>
-                    {selectedCopy && (
-                      <>
-                        <Separator className="my-1" />
-                        <div>
-                          <p className="text-xs text-muted-foreground">SSN</p>
-                          <p className="text-sm font-semibold font-mono" data-testid="text-confirm-ssn">
-                            {selectedCopy.userDefinedSSN || selectedCopy.internalSSN}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground">Barcode</p>
-                          <p className="text-sm font-mono">{selectedCopy.barcode}</p>
-                        </div>
-                        {selectedCopy.shelfLocation && (
-                          <div>
-                            <p className="text-xs text-muted-foreground">Shelf</p>
-                            <p className="text-sm">{selectedCopy.shelfLocation}</p>
+                  <div className="max-h-72 space-y-2 overflow-y-auto">
+                    {pendingCheckoutItems.map(({ book, copy }, index) => (
+                      <div key={book.id} className="rounded-md border bg-background p-3" data-testid={`row-confirm-book-${book.id}`}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-xs text-muted-foreground">Book {index + 1}</p>
+                            <p className="truncate text-sm font-medium" data-testid={index === 0 ? "text-confirm-title" : undefined}>{book.title}</p>
+                            <p className="text-xs text-muted-foreground">by {book.author}</p>
                           </div>
-                        )}
-                      </>
-                    )}
+                          <div className="shrink-0 text-right text-xs">
+                            <p className="font-mono">{formatIsbn(book.isbn)}</p>
+                            <p className="text-muted-foreground">{copy.userDefinedSSN || copy.internalSSN || copy.barcode}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>

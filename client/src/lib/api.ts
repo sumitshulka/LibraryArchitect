@@ -371,6 +371,15 @@ export const circulationApi = {
     return res.json();
   },
 
+  lookupBook: async (identifier: string): Promise<{ book: Book; copy: BookCopy | null }> => {
+    const res = await fetch(`${API_BASE}/circulation/book-lookup?identifier=${encodeURIComponent(identifier)}`);
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || "No book found with that ISBN, SSN, or barcode");
+    }
+    return res.json();
+  },
+
   checkout: async (data: { bookId: number; userId: number; dueDate: Date; bookCopyId?: number; libraryId?: number }): Promise<Circulation> => {
     const res = await fetch(`${API_BASE}/circulation/checkout`, {
       method: "POST",
@@ -380,6 +389,19 @@ export const circulationApi = {
     if (!res.ok) {
       const error = await res.json();
       throw new Error(error.error || "Failed to checkout book");
+    }
+    return res.json();
+  },
+
+  checkoutMany: async (items: { bookId: number; userId: number; dueDate: Date; bookCopyId?: number; libraryId?: number }[]): Promise<Circulation[]> => {
+    const res = await fetch(`${API_BASE}/circulation/checkout-batch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items }),
+    });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || "Failed to checkout books");
     }
     return res.json();
   },
