@@ -88,13 +88,13 @@ function decodeHtmlEntities(value: string): string {
     .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCodePoint(parseInt(code, 16)));
 }
 
-function extractGoogleBooksWebRecord(html: string, isbn: string): any | null {
+export function extractGoogleBooksWebRecord(html: string, isbn: string): any | null {
   const stripMarkup = (value: string) =>
     decodeHtmlEntities(value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
   const metadata = new Map<string, string>();
 
-  for (const rowMatch of html.matchAll(/<tr[^>]*class=["']metadata_row["'][^>]*>([\s\S]*?)<\/tr>/gi)) {
-    const cells = [...rowMatch[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map((match) => stripMarkup(match[1]));
+  for (const rowMatch of Array.from(html.matchAll(/<tr[^>]*class=["']metadata_row["'][^>]*>([\s\S]*?)<\/tr>/gi))) {
+    const cells = Array.from(rowMatch[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)).map((match) => stripMarkup(match[1]));
     if (cells.length >= 2 && cells[0]) {
       metadata.set(cells[0], cells[1]);
     }
