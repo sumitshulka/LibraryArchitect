@@ -9,7 +9,7 @@ import { AuthProvider, useAuth } from "@/lib/auth";
 import NotFound from "@/pages/not-found";
 import LoginPage from "@/pages/LoginPage";
 import DashboardPage from "@/modules/dashboard/DashboardPage";
-import CatalogPage from "@/modules/catalog/CatalogPage";
+import CatalogPage from "@/modules/catalog/CatalogOverviewPage";
 import AddResourcePage from "@/modules/catalog/AddResourcePage";
 import BulkUploadPage from "@/modules/catalog/BulkUploadPage";
 import AllocationsPage from "@/modules/allocations/AllocationsPage";

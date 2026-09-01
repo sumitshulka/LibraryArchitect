@@ -5,9 +5,9 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
-import { MarcEditor } from "@/modules/catalog/MarcEditor";
 import { Z3950Search } from "@/modules/catalog/Z3950Search";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { MarcEditor } from "@/modules/catalog/MarcEditor";
 import {
   Table,
   TableBody,
@@ -53,10 +53,11 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { 
   Search, MoreHorizontal, Filter, Download, Database, FileText, Plus, Upload, Camera, Loader2,
   Book as BookIcon, Library, CheckCircle2, Clock, AlertTriangle, Truck, XCircle, History,
-  DollarSign, ShoppingCart, Receipt, ImageIcon, Globe, Tags, Save, Pencil
+  DollarSign, ShoppingCart, Receipt, ImageIcon, Globe, Tags, Save, Pencil, BarChart3,
+  Gauge, ShieldCheck, Sparkles, Settings2, X
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { booksApi, searchAttributesApi, resourceTypesApi, categoriesApi, reservationsApi, type BookDashboard, type BookLibraryAllocation, type ResourceSearchAttribute } from "@/lib/api";
+import { booksApi, searchAttributesApi, resourceTypesApi, categoriesApi, reservationsApi, statsApi, circulationReportApi, type BookDashboard, type BookLibraryAllocation, type ResourceSearchAttribute } from "@/lib/api";
 import { SearchAttributesFilter } from "@/components/SearchAttributesFilter";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
@@ -225,7 +226,7 @@ function BookSearchAttributes({ bookId }: { bookId: number }) {
   );
 }
 
-function BookDetailsSheet({
+export function BookDetailsSheet({
   open,
   onOpenChange,
   bookId,
@@ -651,7 +652,7 @@ function BookDetailsSheet({
   );
 }
 
-function EditBookDialog({ book, open, onOpenChange }: { book: Book | null; open: boolean; onOpenChange: (open: boolean) => void }) {
+export function EditBookDialog({ book, open, onOpenChange }: { book: Book | null; open: boolean; onOpenChange: (open: boolean) => void }) {
   const queryClient = useQueryClient();
   const { currency } = useCurrency();
   const currencySymbol = currency?.symbol || "$";
@@ -916,6 +917,146 @@ function EditBookDialog({ book, open, onOpenChange }: { book: Book | null; open:
             </Button>
           </DialogFooter>
         </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export function CatalogAnalyticsDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["catalog-analytics"],
+    queryFn: () => circulationReportApi.get(),
+    enabled: open,
+  });
+
+  const totals = data?.totals ?? {};
+  const monthlyTrends = data?.monthlyTrends ?? [];
+  const byCategory = data?.byCategory ?? [];
+  const topBooks = data?.topBooks ?? [];
+  const maxMonthlyCheckouts = Math.max(...monthlyTrends.map((item: any) => item.checkouts || 0), 1);
+  const maxCategoryCount = Math.max(...byCategory.map((item: any) => item.count || 0), 1);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <BarChart3 className="h-5 w-5 text-primary" />
+            Catalog analytics
+          </DialogTitle>
+          <DialogDescription>
+            Collection activity and circulation signals from the current catalog.
+          </DialogDescription>
+        </DialogHeader>
+
+        {isLoading ? (
+          <div className="flex min-h-48 items-center justify-center text-muted-foreground">
+            <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+            Loading catalog analytics...
+          </div>
+        ) : isError ? (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-6 text-center">
+            <p className="font-medium text-destructive">Analytics could not be loaded.</p>
+            <p className="mt-1 text-sm text-muted-foreground">Try again after the circulation service is available.</p>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <div className="grid gap-3 sm:grid-cols-4">
+              {[
+                ["Total checkouts", totals.totalCheckouts ?? 0],
+                ["Active loans", totals.activeCount ?? 0],
+                ["Returned", totals.returnedCount ?? 0],
+                ["Overdue", totals.overdueCount ?? 0],
+              ].map(([label, value]) => (
+                <div key={String(label)} className="rounded-lg border bg-muted/20 p-4">
+                  <div className="text-xs text-muted-foreground">{label}</div>
+                  <div className="mt-2 text-2xl font-semibold text-foreground">{value}</div>
+                </div>
+              ))}
+            </div>
+
+            {monthlyTrends.length === 0 && byCategory.length === 0 && topBooks.length === 0 ? (
+              <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+                There is not enough circulation activity to show analytics yet.
+              </div>
+            ) : (
+              <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Circulation over time</CardTitle>
+                    <p className="text-sm text-muted-foreground">Checkouts by month</p>
+                  </CardHeader>
+                  <CardContent>
+                    {monthlyTrends.length > 0 ? (
+                      <div className="flex h-52 items-end gap-3 border-b border-l px-4 pb-0 pt-4">
+                        {monthlyTrends.map((item: any) => (
+                          <div key={item.month} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-2">
+                            <div
+                              className="w-full max-w-10 rounded-t bg-primary/75 transition-colors hover:bg-primary"
+                              style={{ height: `${Math.max((item.checkouts / maxMonthlyCheckouts) * 100, item.checkouts ? 8 : 2)}%` }}
+                              title={`${item.checkouts} checkouts`}
+                            />
+                            <span className="max-w-14 truncate text-[10px] text-muted-foreground">{item.month}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex h-52 items-center justify-center text-sm text-muted-foreground">No monthly activity yet.</div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Collection mix</CardTitle>
+                    <p className="text-sm text-muted-foreground">Checkouts by category</p>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {byCategory.length > 0 ? byCategory.slice(0, 6).map((item: any) => (
+                      <div key={item.category}>
+                        <div className="mb-1 flex justify-between text-sm">
+                          <span className="truncate">{item.category || "Uncategorized"}</span>
+                          <span className="text-muted-foreground">{item.count}</span>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-muted">
+                          <div className="h-full rounded-full bg-primary/70" style={{ width: `${(item.count / maxCategoryCount) * 100}%` }} />
+                        </div>
+                      </div>
+                    )) : (
+                      <div className="py-8 text-center text-sm text-muted-foreground">No category activity yet.</div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {topBooks.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Most circulated titles</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {topBooks.slice(0, 5).map((book: any, index: number) => (
+                    <div key={book.bookId ?? book.title} className="flex items-center gap-3 border-b pb-3 last:border-0 last:pb-0">
+                      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-primary/10 text-xs font-semibold text-primary">{index + 1}</span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{book.title}</p>
+                        <p className="truncate text-xs text-muted-foreground">{book.author || "Unknown author"}</p>
+                      </div>
+                      <span className="text-sm font-semibold">{book.checkouts} checkouts</span>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );

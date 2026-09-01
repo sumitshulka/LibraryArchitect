@@ -59,6 +59,7 @@ import { useCurrency } from "@/lib/useCurrency";
 
 import { circulationPolicyApi, fineCalculationModeApi, type CirculationPolicy, type FineCalculationMode } from "@/lib/api";
 import { PolicyChangeDialog, PolicyHistoryList } from "@/components/PolicyChangeDialog";
+import { Z3950Search } from "@/modules/catalog/Z3950Search";
 
 function CirculationRulesForm() {
   const { currency } = useCurrency();
@@ -3565,6 +3566,18 @@ export default function SettingsPage() {
                   <p className="text-xs text-muted-foreground mt-2">
                     Current limit: {erpCatalogLimitConfig?.value || "50"} books. Students searching via ERP will need to use search attributes to narrow results below this threshold.
                   </p>
+                </CardContent>
+              </Card>
+
+              <Card data-testid="card-z3950-search">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">Z39.50 Search</CardTitle>
+                  <CardDescription>
+                    Search remote library catalogs and import bibliographic records into your collection.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Z3950Search />
                 </CardContent>
               </Card>
             </TabsContent>
