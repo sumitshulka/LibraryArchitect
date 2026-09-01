@@ -120,7 +120,15 @@ function ResourceCard({
       <CardContent className="pt-6">
         <div className="flex gap-4">
           <div className="flex-shrink-0 w-16 h-20 bg-muted rounded-md flex items-center justify-center">
-            <FormatIcon className="h-8 w-8 text-muted-foreground" />
+            {resource.coverUrl ? (
+              <img
+                src={resource.coverUrl}
+                alt={resource.title}
+                className="h-20 w-16 object-cover rounded-md border"
+              />
+            ) : (
+              <FormatIcon className="h-8 w-8 text-muted-foreground" />
+            )}
           </div>
           <div className="flex-1 min-w-0">
             <h3 className="font-semibold text-lg truncate" data-testid={`resource-title-${resource.bookId}`}>
