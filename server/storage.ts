@@ -415,7 +415,7 @@ export interface IStorage {
   getDigitalResourceVersion(id: number): Promise<DigitalResourceVersion | undefined>;
 
   // Lost & Damaged Reports
-  getLostDamagedReports(filters: { type?: string; status?: string; libraryId?: number; patronId?: number; search?: string; limit?: number; offset?: number }): Promise<{ reports: (LostDamagedReport & { bookTitle: string; bookIsbn: string; bookCopyAccession: string | null; patronName: string | null; libraryName: string | null })[]; total: number }>;
+  getLostDamagedReports(filters: { type?: string; status?: string; bookId?: number; libraryId?: number; patronId?: number; search?: string; limit?: number; offset?: number }): Promise<{ reports: (LostDamagedReport & { bookTitle: string; bookIsbn: string; bookCopyAccession: string | null; patronName: string | null; libraryName: string | null })[]; total: number }>;
   getLostDamagedReport(id: number): Promise<(LostDamagedReport & { bookTitle: string; bookIsbn: string; bookCopyAccession: string | null; patronName: string | null; libraryName: string | null }) | undefined>;
   createLostDamagedReport(data: InsertLostDamagedReport): Promise<LostDamagedReport>;
   updateLostDamagedReport(id: number, data: Partial<LostDamagedReport>): Promise<LostDamagedReport | undefined>;
@@ -2632,8 +2632,8 @@ export class DBStorage implements IStorage {
 
   // ===== Lost & Damaged Reports =====
 
-  async getLostDamagedReports(filters: { type?: string; status?: string; libraryId?: number; patronId?: number; search?: string; limit?: number; offset?: number }): Promise<{ reports: (LostDamagedReport & { bookTitle: string; bookIsbn: string; bookCopyAccession: string | null; patronName: string | null; libraryName: string | null })[]; total: number }> {
-    const { type, status, libraryId, patronId, search, limit = 50, offset = 0 } = filters;
+  async getLostDamagedReports(filters: { type?: string; status?: string; bookId?: number; libraryId?: number; patronId?: number; search?: string; limit?: number; offset?: number }): Promise<{ reports: (LostDamagedReport & { bookTitle: string; bookIsbn: string; bookCopyAccession: string | null; patronName: string | null; libraryName: string | null })[]; total: number }> {
+    const { type, status, bookId, libraryId, patronId, search, limit = 50, offset = 0 } = filters;
 
     let allReports = await db
       .select({
@@ -2654,6 +2654,7 @@ export class DBStorage implements IStorage {
     let filtered = allReports;
     if (type) filtered = filtered.filter(r => r.report.type === type);
     if (status) filtered = filtered.filter(r => r.report.status === status);
+    if (bookId) filtered = filtered.filter(r => r.report.bookId === bookId);
     if (libraryId) filtered = filtered.filter(r => r.report.libraryId === libraryId);
     if (patronId) filtered = filtered.filter(r => r.report.patronId === patronId);
     if (search) {

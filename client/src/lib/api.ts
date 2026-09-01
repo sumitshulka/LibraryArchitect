@@ -87,6 +87,12 @@ export const booksApi = {
     }
     return res.json();
   },
+
+  getHistory: async (id: number): Promise<BookHistory> => {
+    const res = await fetch(`${API_BASE}/books/${id}/history`);
+    if (!res.ok) throw new Error("Failed to fetch book history");
+    return res.json();
+  },
 };
 
 // Book Dashboard types
@@ -124,6 +130,48 @@ export interface BookDashboard {
   recentCirculation: Circulation[];
   financials: BookFinancials;
   acquisitionHistory: AcquisitionHistoryEntry[];
+}
+
+export interface BookHistoryPurchase {
+  date: string | null;
+  source: string | null;
+  quantity: number;
+  cost: number;
+  unitPrice: number;
+}
+
+export interface BookHistoryConditionRecord {
+  id: number;
+  type: "LOST" | "DAMAGED";
+  date: string | null;
+  status: string;
+  copyId: number | null;
+  copyBarcode: string | null;
+  libraryName: string | null;
+  description: string | null;
+  resolution: string | null;
+}
+
+export interface BookHistoryLibraryCount {
+  libraryId: number;
+  libraryName: string;
+  totalCopies: number;
+  presentCopies: number;
+  availableCopies: number;
+  checkedOutCopies: number;
+  damagedCopies: number;
+  lostCopies: number;
+}
+
+export interface BookHistory {
+  book: Book;
+  purchases: BookHistoryPurchase[];
+  conditionRecords: BookHistoryConditionRecord[];
+  inventory: {
+    totalCopies: number;
+    presentCopies: number;
+    byLibrary: BookHistoryLibraryCount[];
+  };
 }
 
 export interface CopyReviewerHistoryEntry extends Circulation {

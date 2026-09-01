@@ -12,6 +12,7 @@ vi.mock("@/lib/api", () => ({
     getAll: vi.fn(),
     delete: vi.fn(),
     addCopies: vi.fn(),
+    getHistory: vi.fn(),
   },
   statsApi: {
     getDashboard: vi.fn(),
@@ -32,6 +33,9 @@ vi.mock("@/components/SearchAttributesFilter", () => ({
 vi.mock("./CatalogPage", () => ({
   BookDetailsSheet: ({ open, bookId }: { open: boolean; bookId: number | null }) => (
     open ? <div data-testid="catalog-book-details">Book {bookId}</div> : null
+  ),
+  BookHistoryDialog: ({ open, bookId }: { open: boolean; bookId: number | null }) => (
+    open ? <div data-testid="catalog-book-history">History {bookId}</div> : null
   ),
   EditBookDialog: () => null,
   CatalogAnalyticsDialog: ({ open }: { open: boolean }) => open ? <div data-testid="catalog-analytics-dialog">Analytics</div> : null,
@@ -109,14 +113,14 @@ describe("CatalogOverviewPage", () => {
     expect(screen.getByTestId("button-marc-1")).toHaveTextContent("View MARC record");
   });
 
-  it("opens the book details from the history action", async () => {
+  it("opens the focused history view from the history action", async () => {
     const user = userEvent.setup();
     renderPage();
 
     await user.click(await screen.findByTestId("button-actions-1"));
     await user.click(screen.getByTestId("button-history-1"));
 
-    expect(screen.getByTestId("catalog-book-details")).toHaveTextContent("Book 1");
+    expect(screen.getByTestId("catalog-book-history")).toHaveTextContent("History 1");
   });
 
   it("opens the add purchase dialog from the record actions", async () => {

@@ -36,7 +36,7 @@ import type { Book } from "@shared/schema";
 import { formatIsbn } from "@/lib/isbn";
 import { toast } from "sonner";
 import { useCurrency } from "@/lib/useCurrency";
-import { BookDetailsSheet, CatalogAnalyticsDialog, EditBookDialog } from "./CatalogPage";
+import { BookDetailsSheet, BookHistoryDialog, CatalogAnalyticsDialog, EditBookDialog } from "./CatalogPage";
 import { MarcEditor } from "./MarcEditor";
 
 const statusMeta: Record<string, { label: string; className: string; dotClassName: string }> = {
@@ -239,6 +239,8 @@ export default function CatalogOverviewPage() {
   const [editingBook, setEditingBook] = useState<Book | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [marcBook, setMarcBook] = useState<Book | null>(null);
+  const [historyBookId, setHistoryBookId] = useState<number | null>(null);
+  const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
   const [addCopiesBook, setAddCopiesBook] = useState<Book | null>(null);
   const [addCopiesDialogOpen, setAddCopiesDialogOpen] = useState(false);
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
@@ -276,6 +278,11 @@ export default function CatalogOverviewPage() {
   const handleBookClick = (bookId: number) => {
     setSelectedBookId(bookId);
     setSheetOpen(true);
+  };
+
+  const handleHistoryClick = (bookId: number) => {
+    setHistoryBookId(bookId);
+    setHistoryDialogOpen(true);
   };
 
   const deleteMutation = useMutation({
@@ -395,7 +402,7 @@ export default function CatalogOverviewPage() {
                             <DropdownMenuLabel>Record actions</DropdownMenuLabel>
                             <DropdownMenuItem onClick={() => { setEditingBook(book); setEditDialogOpen(true); }} data-testid={`button-edit-${book.id}`}><Pencil className="mr-2 h-3.5 w-3.5" />Edit details</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => setMarcBook(book)} data-testid={`button-marc-${book.id}`}><FileText className="mr-2 h-3.5 w-3.5" />View MARC record</DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleBookClick(book.id)} data-testid={`button-history-${book.id}`}><Sparkles className="mr-2 h-3.5 w-3.5" />View history</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleHistoryClick(book.id)} data-testid={`button-history-${book.id}`}><Sparkles className="mr-2 h-3.5 w-3.5" />View history</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => { setAddCopiesBook(book); setAddCopiesDialogOpen(true); }} data-testid={`button-add-copies-${book.id}`}><ShoppingCart className="mr-2 h-3.5 w-3.5" />Add purchase / copies</DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => handleDelete(book.id)} data-testid={`button-delete-${book.id}`}>Delete record</DropdownMenuItem>
@@ -426,6 +433,7 @@ export default function CatalogOverviewPage() {
 
       <CatalogAnalyticsDialog open={analyticsOpen} onOpenChange={setAnalyticsOpen} />
       <BookDetailsSheet open={sheetOpen} onOpenChange={setSheetOpen} bookId={selectedBookId} />
+      <BookHistoryDialog open={historyDialogOpen} onOpenChange={setHistoryDialogOpen} bookId={historyBookId} />
       <EditBookDialog book={editingBook} open={editDialogOpen} onOpenChange={setEditDialogOpen} />
       <AddCopiesDialog book={addCopiesBook} open={addCopiesDialogOpen} onOpenChange={setAddCopiesDialogOpen} />
       <Dialog open={!!marcBook} onOpenChange={(open) => { if (!open) setMarcBook(null); }}>

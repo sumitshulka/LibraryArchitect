@@ -57,7 +57,7 @@ import {
   Gauge, ShieldCheck, Sparkles, Settings2, X
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { booksApi, searchAttributesApi, resourceTypesApi, categoriesApi, reservationsApi, statsApi, circulationReportApi, type BookDashboard, type BookLibraryAllocation, type ResourceSearchAttribute } from "@/lib/api";
+import { booksApi, searchAttributesApi, resourceTypesApi, categoriesApi, reservationsApi, statsApi, circulationReportApi, type BookDashboard, type BookHistory, type BookLibraryAllocation, type ResourceSearchAttribute } from "@/lib/api";
 import { SearchAttributesFilter } from "@/components/SearchAttributesFilter";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
@@ -649,6 +649,162 @@ export function BookDetailsSheet({
         </ScrollArea>
       </SheetContent>
     </Sheet>
+  );
+}
+
+export function BookHistoryDialog({
+  open,
+  onOpenChange,
+  bookId,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  bookId: number | null;
+}) {
+  const { format: formatCurrency } = useCurrency();
+  const { data: history, isLoading, isError } = useQuery<BookHistory>({
+    queryKey: ["book-history", bookId],
+    queryFn: () => booksApi.getHistory(bookId!),
+    enabled: open && bookId !== null,
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <History className="h-5 w-5" />
+            Resource history
+          </DialogTitle>
+          <DialogDescription>
+            Purchase batches and loss or damage records for this resource. Current counts include every library and unallocated stock.
+          </DialogDescription>
+        </DialogHeader>
+
+        {isLoading ? (
+          <div className="flex min-h-48 items-center justify-center text-muted-foreground">Loading resource history...</div>
+        ) : isError || !history ? (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-6 text-center text-sm text-destructive">
+            Resource history could not be loaded.
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <div className="rounded-lg border bg-muted/20 p-4">
+              <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                <div>
+                  <h3 className="font-semibold">{history.book.title}</h3>
+                  <p className="mt-1 text-xs text-muted-foreground">{formatIsbn(history.book.isbn)}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-center sm:grid-cols-3">
+                  <div>
+                    <div className="text-xl font-bold">{history.inventory.totalCopies}</div>
+                    <div className="text-[11px] text-muted-foreground">Total copies</div>
+                  </div>
+                  <div>
+                    <div className="text-xl font-bold text-green-600">{history.inventory.presentCopies}</div>
+                    <div className="text-[11px] text-muted-foreground">Present now</div>
+                  </div>
+                  <div className="col-span-2 sm:col-span-1">
+                    <div className="text-xl font-bold text-muted-foreground">
+                      {history.inventory.totalCopies - history.inventory.presentCopies}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">Not present</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <section>
+              <h3 className="mb-3 flex items-center gap-2 font-semibold">
+                <Library className="h-4 w-4" />
+                Final count across libraries
+              </h3>
+              {history.inventory.byLibrary.length === 0 ? (
+                <div className="rounded-lg border border-dashed p-5 text-center text-sm text-muted-foreground">No copies have been created yet.</div>
+              ) : (
+                <div className="space-y-2">
+                  {history.inventory.byLibrary.map((library) => (
+                    <div key={library.libraryId} className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <div className="font-medium">{library.libraryName}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {library.presentCopies} present of {library.totalCopies} total
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2 text-xs">
+                        <Badge variant="outline" className="text-green-700">{library.availableCopies} available</Badge>
+                        <Badge variant="outline">{library.checkedOutCopies} checked out</Badge>
+                        {library.damagedCopies > 0 && <Badge variant="outline" className="text-orange-700">{library.damagedCopies} damaged</Badge>}
+                        {library.lostCopies > 0 && <Badge variant="outline" className="text-red-700">{library.lostCopies} lost</Badge>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            <section>
+              <h3 className="mb-3 flex items-center gap-2 font-semibold">
+                <ShoppingCart className="h-4 w-4" />
+                Purchase history
+              </h3>
+              {history.purchases.length === 0 ? (
+                <div className="rounded-lg border border-dashed p-5 text-center text-sm text-muted-foreground">No purchase records available.</div>
+              ) : (
+                <div className="space-y-2">
+                  {history.purchases.map((purchase, index) => (
+                    <div key={`${purchase.date ?? "unknown"}-${purchase.source ?? "unknown"}-${purchase.unitPrice}-${index}`} className="flex items-center justify-between rounded-lg border p-3 text-sm">
+                      <div>
+                        <div className="font-medium">{purchase.quantity} {purchase.quantity === 1 ? "copy" : "copies"} purchased</div>
+                        <div className="text-xs text-muted-foreground">
+                          {purchase.date ? format(new Date(purchase.date), "MMM d, yyyy") : "Date unknown"}
+                          {purchase.source && ` • ${purchase.source}`}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-semibold text-green-700">{formatCurrency(purchase.cost)}</div>
+                        <div className="text-xs text-muted-foreground">{formatCurrency(purchase.unitPrice)} / copy</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            <section>
+              <h3 className="mb-3 flex items-center gap-2 font-semibold">
+                <AlertTriangle className="h-4 w-4" />
+                Loss and damage records
+              </h3>
+              {history.conditionRecords.length === 0 ? (
+                <div className="rounded-lg border border-dashed p-5 text-center text-sm text-muted-foreground">No loss or damage records.</div>
+              ) : (
+                <div className="space-y-2">
+                  {history.conditionRecords.map((record) => (
+                    <div key={record.id} className="rounded-lg border p-3 text-sm">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <Badge variant={record.type === "LOST" ? "destructive" : "outline"}>{record.type}</Badge>
+                          <span className="font-medium">{record.copyBarcode || (record.copyId ? `Copy #${record.copyId}` : "Copy not specified")}</span>
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          {record.date ? format(new Date(record.date), "MMM d, yyyy") : "Date unknown"}
+                        </span>
+                      </div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {record.libraryName || "Unallocated"} • {record.status.replaceAll("_", " ")}
+                        {record.resolution && ` • ${record.resolution.replaceAll("_", " ")}`}
+                      </div>
+                      {record.description && <p className="mt-2 text-xs">{record.description}</p>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 

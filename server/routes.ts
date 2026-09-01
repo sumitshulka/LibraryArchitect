@@ -506,6 +506,122 @@ export async function registerRoutes(
     }
   });
 
+  // Focused resource history: acquisition batches, condition reports, and
+  // the current physical count across every library and unallocated stock.
+  app.get("/api/books/:id/history", async (req, res) => {
+    try {
+      const bookId = parseInt(req.params.id);
+      if (isNaN(bookId)) {
+        return res.status(400).json({ error: "Invalid book ID" });
+      }
+
+      const book = await storage.getBook(bookId);
+      if (!book) {
+        return res.status(404).json({ error: "Book not found" });
+      }
+
+      const [copies, libraries, conditionResult] = await Promise.all([
+        storage.getBookCopiesByBook(bookId),
+        storage.getAllLibraries(),
+        storage.getLostDamagedReports({ bookId, limit: 1000 }),
+      ]);
+      const libraryMap = new Map(libraries.map((library) => [library.id, library]));
+      const counts = new Map<number, {
+        libraryId: number;
+        libraryName: string;
+        totalCopies: number;
+        presentCopies: number;
+        availableCopies: number;
+        checkedOutCopies: number;
+        damagedCopies: number;
+        lostCopies: number;
+      }>();
+      const purchases = new Map<string, {
+        date: Date | null;
+        source: string | null;
+        quantity: number;
+        cost: number;
+        unitPrice: number;
+      }>();
+
+      for (const copy of copies) {
+        const libraryId = copy.libraryId ?? 0;
+        const library = libraryId ? libraryMap.get(libraryId) : undefined;
+        const count = counts.get(libraryId) ?? {
+          libraryId,
+          libraryName: library?.name ?? "Unallocated",
+          totalCopies: 0,
+          presentCopies: 0,
+          availableCopies: 0,
+          checkedOutCopies: 0,
+          damagedCopies: 0,
+          lostCopies: 0,
+        };
+        count.totalCopies += 1;
+        if (copy.status !== "LOST") count.presentCopies += 1;
+        if (copy.status === "AVAILABLE") count.availableCopies += 1;
+        if (copy.status === "CHECKED_OUT") count.checkedOutCopies += 1;
+        if (copy.status === "DAMAGED") count.damagedCopies += 1;
+        if (copy.status === "LOST") count.lostCopies += 1;
+        counts.set(libraryId, count);
+
+        const unitPrice = copy.price ?? book.unitPrice ?? 0;
+        const date = copy.acquisitionDate ? new Date(copy.acquisitionDate) : null;
+        const validDate = date && !isNaN(date.getTime()) ? date : null;
+        const dateKey = validDate ? validDate.toISOString() : "unknown";
+        const source = copy.acquisitionSource || null;
+        const key = `${dateKey}|${source || "unknown"}|${unitPrice}`;
+        const purchase = purchases.get(key);
+        if (purchase) {
+          purchase.quantity += 1;
+          purchase.cost += unitPrice;
+        } else {
+          purchases.set(key, {
+            date: validDate,
+            source,
+            quantity: 1,
+            cost: unitPrice,
+            unitPrice,
+          });
+        }
+      }
+
+      const byLibrary = Array.from(counts.values()).sort((a, b) => {
+        if (a.libraryId === 0) return 1;
+        if (b.libraryId === 0) return -1;
+        return a.libraryName.localeCompare(b.libraryName);
+      });
+
+      res.json({
+        book,
+        purchases: Array.from(purchases.values()).sort((a, b) => {
+          if (!a.date) return 1;
+          if (!b.date) return -1;
+          return b.date.getTime() - a.date.getTime();
+        }),
+        conditionRecords: conditionResult.reports.map((report) => ({
+          id: report.id,
+          type: report.type,
+          date: report.reportDate,
+          status: report.status,
+          copyId: report.bookCopyId,
+          copyBarcode: report.bookCopyAccession,
+          libraryName: report.libraryName,
+          description: report.description,
+          resolution: report.resolution,
+        })),
+        inventory: {
+          totalCopies: copies.length,
+          presentCopies: copies.filter((copy) => copy.status !== "LOST").length,
+          byLibrary,
+        },
+      });
+    } catch (error) {
+      console.error("Error fetching book history:", error);
+      res.status(500).json({ error: "Failed to fetch book history" });
+    }
+  });
+
   app.post("/api/books/:id/copies", async (req, res) => {
     try {
       const bookId = parseInt(req.params.id);
