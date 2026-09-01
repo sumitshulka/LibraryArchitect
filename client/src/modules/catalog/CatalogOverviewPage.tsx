@@ -273,7 +273,7 @@ export default function CatalogOverviewPage() {
 
           <div className="mt-5 flex flex-col justify-between gap-3 border-t pt-4 text-xs text-muted-foreground sm:flex-row">
             <span className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-green-600" />Catalog synced with the latest local records</span>
-            <Link href="/settings?tab=catalog" className="flex items-center gap-1.5 font-medium text-primary hover:underline" data-testid="link-catalog-settings">Catalog settings <Settings2 className="h-3.5 w-3.5" /></Link>
+            <Link href="/settings?section=catalog" className="flex items-center gap-1.5 font-medium text-primary hover:underline" data-testid="link-catalog-settings">Catalog settings <Settings2 className="h-3.5 w-3.5" /></Link>
           </div>
         </div>
 

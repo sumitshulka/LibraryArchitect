@@ -53,7 +53,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { resourceTypesApi, categoriesApi, erpIntegrationsApi, configApi, paymentMethodsApi, resourceTypeSettingsApi, type ErpIntegrationPublic, type ErpCredentials, type ErpPullEndpoint, type PaymentMethodApi, type ResourceTypeSettingApi } from "@/lib/api";
 import { toast } from "sonner";
 import type { ResourceType, Category, ErpWhitelist } from "@shared/schema";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { CURRENCIES, getCurrencyByCode } from "@/lib/currency";
 import { useCurrency } from "@/lib/useCurrency";
 
@@ -3058,9 +3058,10 @@ function PaymentMethodsSettings() {
 
 export default function SettingsPage() {
   const queryClient = useQueryClient();
-  const [settingsLocation] = useLocation();
-  const requestedTab = new URLSearchParams(settingsLocation.split("?")[1] || "").get("tab");
-  const defaultSettingsTab = requestedTab === "catalog" ? "catalog" : "general";
+  const searchString = useSearch();
+  const initialSection = new URLSearchParams(searchString).get("section") === "catalog"
+    ? "catalog"
+    : "general";
   
   // Resource Types state
   const [editingType, setEditingType] = useState<ResourceType | undefined>();
@@ -3219,7 +3220,7 @@ export default function SettingsPage() {
         <p className="text-muted-foreground mt-1">Configure library rules, integrations, and preferences.</p>
       </div>
 
-      <Tabs defaultValue={defaultSettingsTab} className="w-full">
+      <Tabs defaultValue={initialSection} className="w-full">
         <div className="grid md:grid-cols-[250px_1fr] gap-6">
           <div className="flex flex-col">
             <TabsList className="flex flex-col h-auto items-stretch bg-transparent p-0 space-y-1">
