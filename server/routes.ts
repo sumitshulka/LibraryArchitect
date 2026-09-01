@@ -51,6 +51,7 @@ const z3950SearchSchema = z.object({
     "auto",
     "open-library",
     "google-books",
+    "abebooks",
     "loc",
     "ox",
     "bl",
@@ -142,6 +143,51 @@ async function searchGoogleBooksWeb(isbn: string): Promise<any | null> {
   );
   if (!response.ok) return null;
   return extractGoogleBooksWebRecord(await response.text(), isbn);
+}
+
+export function extractAbeBooksWebRecord(html: string, isbn: string): any | null {
+  const escapedMarker = `\\"isbn13\\":\\"${isbn}\\"`;
+  const plainMarker = `"isbn13":"${isbn}"`;
+  const markerIndex = Math.max(html.indexOf(escapedMarker), html.indexOf(plainMarker));
+  if (markerIndex < 0) return null;
+
+  const listing = html.slice(markerIndex, markerIndex + 5_000).replace(/\\"/g, '"');
+  const readField = (field: string): string => {
+    const match = listing.match(new RegExp(`"${field}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`));
+    if (!match) return "";
+    try {
+      return JSON.parse(`"${match[1]}"`);
+    } catch {
+      return decodeHtmlEntities(match[1]);
+    }
+  };
+
+  const title = readField("title");
+  if (!title) return null;
+
+  return {
+    id: `abebooks-${isbn}`,
+    title,
+    author: readField("author") || "Unknown Author",
+    isbn,
+    publisher: readField("publisher") || "Unknown Publisher",
+    year: "",
+    source: "AbeBooks",
+    category: "General",
+    cover: readField("fullSizePictureUrl") || `https://pictures.abebooks.com/isbn/${isbn}-us.jpg`,
+  };
+}
+
+async function searchAbeBooksWeb(isbn: string): Promise<any | null> {
+  const response = await fetch(
+    `https://www.abebooks.com/servlet/SearchResults?isbn=${encodeURIComponent(isbn)}`,
+    {
+      headers: { "User-Agent": "LibraryCatalogMetadataSearch/1.0" },
+      signal: AbortSignal.timeout(8_000),
+    },
+  );
+  if (!response.ok) return null;
+  return extractAbeBooksWebRecord(await response.text(), isbn);
 }
 
 function getSessionId(req: any): string | undefined {
@@ -3184,14 +3230,20 @@ export async function registerRoutes(
 
       const cleanIsbn = searchQuery.replace(/[-\s]/g, "");
       const isIsbnQuery = /^(?:\d{9}[\dX]|\d{13})$/i.test(cleanIsbn);
-      const selectedSource = server === "open-library" || server === "google-books" ? server : "auto";
+      const selectedSource =
+        server === "open-library" || server === "google-books" || server === "abebooks"
+          ? server
+          : "auto";
+      if (selectedSource === "abebooks" && !isIsbnQuery) {
+        return res.status(400).json({ error: "AbeBooks search requires a valid ISBN-10 or ISBN-13." });
+      }
       const results: any[] = [];
       let attemptedProviders = 0;
       let failedProviders = 0;
 
       // This endpoint uses live public catalog metadata sources. The server names
       // accepted by older Add Resource flows are treated as the automatic source.
-      if (selectedSource !== "google-books") {
+      if (selectedSource !== "google-books" && selectedSource !== "abebooks") {
         attemptedProviders += 1;
         try {
           const openLibUrl = isIsbnQuery
@@ -3299,6 +3351,24 @@ export async function registerRoutes(
         }
         if (!googleBooksSucceeded) {
           failedProviders += 1;
+        }
+      }
+
+      if (
+        isIsbnQuery &&
+        (selectedSource === "abebooks" || (selectedSource === "auto" && results.length === 0))
+      ) {
+        attemptedProviders += 1;
+        try {
+          const abeBooksRecord = await searchAbeBooksWeb(cleanIsbn);
+          if (abeBooksRecord) {
+            results.push(abeBooksRecord);
+          } else {
+            failedProviders += 1;
+          }
+        } catch (abeBooksError) {
+          failedProviders += 1;
+          console.error("AbeBooks web fallback error:", abeBooksError);
         }
       }
 

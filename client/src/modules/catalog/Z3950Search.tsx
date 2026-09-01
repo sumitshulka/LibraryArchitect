@@ -96,6 +96,7 @@ export function Z3950Search() {
                   <SelectItem value="auto">All live sources</SelectItem>
                   <SelectItem value="open-library">Open Library</SelectItem>
                   <SelectItem value="google-books">Google Books</SelectItem>
+                  <SelectItem value="abebooks">AbeBooks</SelectItem>
               </SelectContent>
             </Select>
             
