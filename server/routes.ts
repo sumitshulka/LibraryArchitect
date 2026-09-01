@@ -77,6 +77,73 @@ function checkZ3950RateLimit(userId: number): { allowed: boolean; retryAfterSeco
   return { allowed: true };
 }
 
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'")
+    .replace(/&#39;/gi, "'")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCodePoint(parseInt(code, 16)));
+}
+
+function extractGoogleBooksWebRecord(html: string, isbn: string): any | null {
+  const stripMarkup = (value: string) =>
+    decodeHtmlEntities(value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
+  const metadata = new Map<string, string>();
+
+  for (const rowMatch of html.matchAll(/<tr[^>]*class=["']metadata_row["'][^>]*>([\s\S]*?)<\/tr>/gi)) {
+    const cells = [...rowMatch[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map((match) => stripMarkup(match[1]));
+    if (cells.length >= 2 && cells[0]) {
+      metadata.set(cells[0], cells[1]);
+    }
+  }
+
+  const title =
+    metadata.get("Title") ||
+    html.match(/<meta\s+name=["']title["']\s+content=["']([^"']+)["']/i)?.[1] ||
+    "";
+  const author = metadata.get("Authors") || "";
+  const publisher = metadata.get("Publisher") || "";
+  const subjects = metadata.get("Subjects") || "";
+  const matchedIsbn =
+    metadata.get("ISBN")?.match(/\b97[89]\d{10}\b/)?.[0] ||
+    metadata.get("ISBN")?.match(/\b\d{9}[\dX]\b/i)?.[0] ||
+    isbn;
+
+  if (!title.trim()) return null;
+
+  const volumeId = html.match(/https:\/\/books\.google\.com\/books\?id=([a-zA-Z0-9_-]+)/i)?.[1];
+  return {
+    id: `gb-web-${matchedIsbn}`,
+    title: stripMarkup(title),
+    author: author || "Unknown Author",
+    isbn: matchedIsbn,
+    publisher: publisher || "Unknown Publisher",
+    year: publisher.match(/\b(?:19|20)\d{2}\b/)?.[0] || "",
+    source: "Google Books",
+    category: subjects
+      .split(/\s*[›>]\s*/)
+      .map((subject) => subject.trim())
+      .filter(Boolean)
+      .slice(0, 3)
+      .join(", ") || "General",
+    cover: volumeId
+      ? `https://books.google.com/books/content?id=${volumeId}&printsec=frontcover&img=1&zoom=1&source=gbs_api`
+      : null,
+  };
+}
+
+async function searchGoogleBooksWeb(isbn: string): Promise<any | null> {
+  const response = await fetch(
+    `https://books.google.com/books?vid=ISBN${encodeURIComponent(isbn)}&hl=en`,
+    { signal: AbortSignal.timeout(8_000) },
+  );
+  if (!response.ok) return null;
+  return extractGoogleBooksWebRecord(await response.text(), isbn);
+}
+
 function getSessionId(req: any): string | undefined {
   const cookieId = req.cookies && req.cookies.session_id;
   if (cookieId) return cookieId;
@@ -3179,6 +3246,7 @@ export async function registerRoutes(
       // when selected in Settings.
       if (selectedSource === "google-books" || (selectedSource === "auto" && results.length === 0)) {
         attemptedProviders += 1;
+        let googleBooksSucceeded = false;
         try {
           const googleQuery = isIsbnQuery ? `isbn:${cleanIsbn}` : searchQuery;
           const googleResponse = await fetch(
@@ -3187,6 +3255,7 @@ export async function registerRoutes(
           );
 
           if (googleResponse.ok) {
+            googleBooksSucceeded = true;
             const googleData = await googleResponse.json();
             for (const bookResult of (googleData.items || []).slice(0, 10)) {
               const book = bookResult.volumeInfo || {};
@@ -3207,12 +3276,29 @@ export async function registerRoutes(
                 description: book.description || null,
               });
             }
-          } else {
-            failedProviders += 1;
+          } else if (isIsbnQuery) {
+            const webRecord = await searchGoogleBooksWeb(cleanIsbn);
+            if (webRecord) {
+              googleBooksSucceeded = true;
+              results.push(webRecord);
+            }
           }
         } catch (googleError) {
-          failedProviders += 1;
           console.error("Google Books API error:", googleError);
+          if (isIsbnQuery) {
+            try {
+              const webRecord = await searchGoogleBooksWeb(cleanIsbn);
+              if (webRecord) {
+                googleBooksSucceeded = true;
+                results.push(webRecord);
+              }
+            } catch (webError) {
+              console.error("Google Books web fallback error:", webError);
+            }
+          }
+        }
+        if (!googleBooksSucceeded) {
+          failedProviders += 1;
         }
       }
 
