@@ -706,6 +706,20 @@ export async function registerRoutes(
           }
         }
       }
+
+      // If the library and Google Books image services do not have a cover,
+      // use the ISBN image served by AbeBooks. This also works when the
+      // Google Books API quota is exhausted but the book is still indexed.
+      if (!imageBuffer) {
+        const abeBooksCoverUrl = `https://pictures.abebooks.com/isbn/${cleanIsbn}-us.jpg`;
+        const abeBooksResponse = await fetch(abeBooksCoverUrl, {
+          signal: AbortSignal.timeout(8_000),
+        });
+        if (abeBooksResponse.ok && abeBooksResponse.headers.get('content-type')?.startsWith('image/')) {
+          imageBuffer = Buffer.from(await abeBooksResponse.arrayBuffer());
+          contentType = abeBooksResponse.headers.get('content-type') || 'image/jpeg';
+        }
+      }
       
       if (!imageBuffer) {
         return res.status(404).json({ error: "No cover image found for this ISBN" });
