@@ -136,7 +136,15 @@ export default function LibrariesPage() {
                       return (
                         <TableRow key={library.id} data-testid={`row-library-${library.id}`}>
                           <TableCell className="font-mono text-sm">{library.code}</TableCell>
-                          <TableCell className="font-medium">{library.name}</TableCell>
+                          <TableCell>
+                            <Link
+                              href={`/organizations/libraries/${library.id}`}
+                              className="font-medium text-primary underline-offset-4 hover:underline"
+                              data-testid={`link-library-name-${library.id}`}
+                            >
+                              {library.name}
+                            </Link>
+                          </TableCell>
                           <TableCell className="text-muted-foreground">
                             {orgUnit?.name || "-"}
                           </TableCell>
