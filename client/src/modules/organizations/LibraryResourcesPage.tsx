@@ -113,6 +113,7 @@ function ResourceCard({
   }[resource.format] || Book;
   
   const FormatIcon = formatIcon;
+  const searchAttributes = resource.searchAttributes ?? [];
 
   return (
     <Card className="hover:shadow-md transition-shadow" data-testid={`resource-card-${resource.bookId}`}>
@@ -139,6 +140,26 @@ function ResourceCard({
                 {resource.format.toLowerCase()}
               </Badge>
             </div>
+            {searchAttributes.length > 0 && (
+              <div
+                className="flex flex-wrap items-center gap-1 mt-1.5"
+                data-testid={`resource-attributes-${resource.bookId}`}
+              >
+                <span className="text-xs text-muted-foreground mr-1">
+                  Search Attributes:
+                </span>
+                {searchAttributes.map((attribute) => (
+                  <Badge
+                    key={attribute.attributeValueId}
+                    variant="secondary"
+                    className="text-[10px] font-normal px-1.5 py-0 h-4"
+                    data-testid={`badge-library-resource-attr-${resource.bookId}-${attribute.attributeValueId}`}
+                  >
+                    {attribute.attributeValue}
+                  </Badge>
+                ))}
+              </div>
+            )}
           </div>
         </div>
         

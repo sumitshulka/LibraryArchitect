@@ -497,6 +497,12 @@ export interface LibraryResourceStats {
   category: string;
   format: string;
   coverUrl: string | null;
+  searchAttributes: {
+    attributeValueId: number;
+    attributeValue: string;
+    attributeTypeName: string;
+    attributeTypeId: number;
+  }[];
   totalCopies: number;
   available: number;
   checkedOut: number;
@@ -1869,6 +1875,9 @@ export class DBStorage implements IStorage {
     const total = filteredBooks.length;
     
     const paginatedBooks = filteredBooks.slice(offset, offset + limit);
+    const attributesByBook = await this.getResourceSearchAttributesForBooks(
+      paginatedBooks.map(book => book.id)
+    );
     
     const resources: LibraryResourceStats[] = paginatedBooks.map(book => {
       const stats = copyStatsByBook.get(book.id)!;
@@ -1882,6 +1891,7 @@ export class DBStorage implements IStorage {
         category: book.category,
         format: book.format,
         coverUrl: book.coverUrl,
+        searchAttributes: attributesByBook.get(book.id) || [],
         totalCopies: stats.total,
         available: stats.available,
         checkedOut: stats.checkedOut,

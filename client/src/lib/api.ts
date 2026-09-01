@@ -1338,6 +1338,12 @@ export interface LibraryResourceStats {
   category: string;
   format: string;
   coverUrl: string | null;
+  searchAttributes: {
+    attributeValueId: number;
+    attributeValue: string;
+    attributeTypeName: string;
+    attributeTypeId: number;
+  }[];
   totalCopies: number;
   available: number;
   checkedOut: number;
