@@ -13,7 +13,12 @@ import {
 vi.mock("@/lib/api", () => ({
   bookCopiesApi: { getByBook: vi.fn(), getByBookAndLibrary: vi.fn() },
   booksApi: { getAll: vi.fn() },
-  circulationApi: { getAll: vi.fn(), lookupBook: vi.fn(), checkoutMany: vi.fn(), returnBook: vi.fn() },
+  circulationApi: {
+    getAll: vi.fn(),
+    lookupBook: vi.fn(),
+    checkoutMany: vi.fn(),
+    returnBook: vi.fn(),
+  },
   librariesApi: { getActive: vi.fn() },
   libraryMembershipsApi: { getByUser: vi.fn() },
   reservationsApi: {},
@@ -64,6 +69,7 @@ const mockedGetCirculation = vi.mocked(circulationApi.getAll);
 const mockedLookupBook = vi.mocked(circulationApi.lookupBook);
 const mockedGetLibraries = vi.mocked(librariesApi.getActive);
 const mockedCheckoutMany = vi.mocked(circulationApi.checkoutMany);
+const mockedReturn = vi.mocked(circulationApi.returnBook);
 
 const member = {
   id: 2,
@@ -174,6 +180,7 @@ describe("CirculationPage checkout", () => {
       },
     ] as never);
     mockedCheckoutMany.mockResolvedValue([{ id: 12 }] as never);
+    mockedReturn.mockResolvedValue({ id: 42 } as never);
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
@@ -280,5 +287,34 @@ describe("CirculationPage checkout", () => {
     expect(screen.getByText("Fine information")).toBeInTheDocument();
     expect((await screen.findAllByText("$7.50")).length).toBeGreaterThan(0);
     expect(mockedLookupBook).toHaveBeenCalledWith("SSN-8");
+  });
+
+  it("looks up an active checkout by ISBN and processes the matching return", async () => {
+    const user = userEvent.setup();
+    mockedLookupBook.mockResolvedValue({ book, copy: null } as never);
+    mockedGetCirculation.mockResolvedValue([
+      {
+        id: 42,
+        bookId: book.id,
+        userId: member.id,
+        status: "ACTIVE",
+        checkoutDate: "2026-08-20T00:00:00.000Z",
+        dueDate: "2099-09-15T00:00:00.000Z",
+      },
+    ] as never);
+    renderPage();
+
+    await user.click(screen.getByTestId("tab-return"));
+    await user.type(screen.getByTestId("input-return-isbn"), ` ${book.isbn} `);
+    await user.click(screen.getByTestId("button-lookup-return"));
+
+    await waitFor(() => expect(screen.getAllByText("Effective Testing").length).toBeGreaterThan(0));
+    expect(screen.getAllByText("Patron Reader").length).toBeGreaterThan(0);
+    expect(screen.getByTestId("button-process-return")).toBeEnabled();
+    expect(mockedLookupBook).toHaveBeenCalledWith(book.isbn);
+
+    await user.click(screen.getByTestId("button-process-return"));
+
+    await waitFor(() => expect(mockedReturn).toHaveBeenCalledWith(42));
   });
 });
