@@ -61,6 +61,18 @@ import { circulationPolicyApi, fineCalculationModeApi, type CirculationPolicy, t
 import { PolicyChangeDialog, PolicyHistoryList } from "@/components/PolicyChangeDialog";
 import { Z3950Search } from "@/modules/catalog/Z3950Search";
 
+const SETTINGS_SECTIONS = [
+  "general",
+  "catalog",
+  "circulation",
+  "integration",
+  "notifications",
+  "security",
+  "payment-methods",
+  "digital-resources",
+  "audit",
+] as const;
+
 function CirculationRulesForm() {
   const { currency } = useCurrency();
   const queryClient = useQueryClient();
@@ -3059,9 +3071,26 @@ function PaymentMethodsSettings() {
 export default function SettingsPage() {
   const queryClient = useQueryClient();
   const searchString = useSearch();
-  const initialSection = new URLSearchParams(searchString).get("section") === "catalog"
-    ? "catalog"
+  const [, setLocation] = useLocation();
+  const sectionFromQuery = new URLSearchParams(searchString).get("section");
+  const initialSection = SETTINGS_SECTIONS.includes(sectionFromQuery as typeof SETTINGS_SECTIONS[number])
+    ? sectionFromQuery as typeof SETTINGS_SECTIONS[number]
     : "general";
+  const [activeSection, setActiveSection] = useState<typeof SETTINGS_SECTIONS[number]>(initialSection);
+
+  useEffect(() => {
+    setActiveSection(initialSection);
+  }, [initialSection]);
+
+  const handleSectionChange = (section: string) => {
+    if (!SETTINGS_SECTIONS.includes(section as typeof SETTINGS_SECTIONS[number])) {
+      return;
+    }
+
+    const nextSection = section as typeof SETTINGS_SECTIONS[number];
+    setActiveSection(nextSection);
+    setLocation(`/settings?section=${encodeURIComponent(nextSection)}`);
+  };
   
   // Resource Types state
   const [editingType, setEditingType] = useState<ResourceType | undefined>();
@@ -3220,7 +3249,7 @@ export default function SettingsPage() {
         <p className="text-muted-foreground mt-1">Configure library rules, integrations, and preferences.</p>
       </div>
 
-      <Tabs defaultValue={initialSection} className="w-full">
+      <Tabs value={activeSection} onValueChange={handleSectionChange} className="w-full">
         <div className="grid md:grid-cols-[250px_1fr] gap-6">
           <div className="flex flex-col">
             <TabsList className="flex flex-col h-auto items-stretch bg-transparent p-0 space-y-1">

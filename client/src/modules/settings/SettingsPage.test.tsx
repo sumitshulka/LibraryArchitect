@@ -52,17 +52,20 @@ function renderSettings(path: string) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+  const setLocation = vi.fn();
 
-  return render(
+  const view = render(
     <QueryClientProvider client={queryClient}>
       <Router
-        hook={() => [path, vi.fn()]}
+        hook={() => [path, setLocation]}
         searchHook={() => path.slice(path.indexOf("?"))}
       >
         <SettingsPage />
       </Router>
     </QueryClientProvider>,
   );
+
+  return { ...view, setLocation };
 }
 
 describe("SettingsPage", () => {
@@ -103,7 +106,7 @@ describe("SettingsPage", () => {
 
   it("still switches settings tabs normally", async () => {
     const user = userEvent.setup();
-    renderSettings("/settings");
+    const { setLocation } = renderSettings("/settings");
 
     await user.click(
       await screen.findByRole("tab", { name: "Catalog Settings" }),
@@ -113,5 +116,16 @@ describe("SettingsPage", () => {
       screen.getByRole("tab", { name: "Catalog Settings" }),
     ).toHaveAttribute("data-state", "active");
     expect(screen.getByText("Resource Types", { exact: true })).toBeInTheDocument();
+    expect(setLocation.mock.calls[0]?.[0]).toBe("/settings?section=catalog");
+  });
+
+  it("opens any selected settings section from its query", async () => {
+    renderSettings("/settings?section=digital-resources");
+
+    expect(await screen.findByRole("tab", { name: "Digital Resources" })).toHaveAttribute(
+      "data-state",
+      "active",
+    );
+    expect(screen.getByRole("tab", { name: "General" })).toHaveAttribute("data-state", "inactive");
   });
 });
