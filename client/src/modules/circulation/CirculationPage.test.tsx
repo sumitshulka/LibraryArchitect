@@ -13,7 +13,7 @@ import {
 vi.mock("@/lib/api", () => ({
   bookCopiesApi: { getByBook: vi.fn(), getByBookAndLibrary: vi.fn() },
   booksApi: { getAll: vi.fn() },
-  circulationApi: { getAll: vi.fn(), checkout: vi.fn(), returnBook: vi.fn() },
+  circulationApi: { getAll: vi.fn(), lookupBook: vi.fn(), checkoutMany: vi.fn(), returnBook: vi.fn() },
   librariesApi: { getActive: vi.fn() },
   libraryMembershipsApi: { getByUser: vi.fn() },
   reservationsApi: {},
@@ -61,8 +61,9 @@ vi.mock("sonner", () => ({
 const mockedGetCopies = vi.mocked(bookCopiesApi.getByBookAndLibrary);
 const mockedGetBooks = vi.mocked(booksApi.getAll);
 const mockedGetCirculation = vi.mocked(circulationApi.getAll);
+const mockedLookupBook = vi.mocked(circulationApi.lookupBook);
 const mockedGetLibraries = vi.mocked(librariesApi.getActive);
-const mockedCheckout = vi.mocked(circulationApi.checkout);
+const mockedCheckoutMany = vi.mocked(circulationApi.checkoutMany);
 
 const member = {
   id: 2,
@@ -129,6 +130,28 @@ describe("CirculationPage checkout", () => {
     ]);
     mockedGetBooks.mockResolvedValue([book] as never);
     mockedGetCirculation.mockResolvedValue([]);
+    mockedLookupBook.mockResolvedValue({
+      book,
+      copy: {
+        id: 8,
+        bookId: 7,
+        libraryId: 3,
+        barcode: "BC-8",
+        internalSSN: "SSN-8",
+        userDefinedSSN: null,
+        callNumber: null,
+        shelfLocation: "A-1",
+        status: "AVAILABLE",
+        condition: "GOOD",
+        acquisitionDate: null,
+        acquisitionSource: null,
+        price: null,
+        notes: null,
+        allocatedAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    } as never);
     mockedGetCopies.mockResolvedValue([
       {
         id: 8,
@@ -150,7 +173,7 @@ describe("CirculationPage checkout", () => {
         updatedAt: new Date(),
       },
     ] as never);
-    mockedCheckout.mockResolvedValue({ id: 12 } as never);
+    mockedCheckoutMany.mockResolvedValue([{ id: 12 }] as never);
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
@@ -207,13 +230,55 @@ describe("CirculationPage checkout", () => {
     expect(await screen.findByText("Confirm Book Issue")).toBeInTheDocument();
     await user.click(screen.getByTestId("button-confirm-issue"));
 
-    await waitFor(() => expect(mockedCheckout).toHaveBeenCalledTimes(1));
-    expect(mockedCheckout.mock.calls[0][0]).toMatchObject({
+    await waitFor(() => expect(mockedCheckoutMany).toHaveBeenCalledTimes(1));
+    expect(mockedCheckoutMany.mock.calls[0][0]).toEqual([expect.objectContaining({
       bookId: 7,
       userId: 2,
       libraryId: 3,
       bookCopyId: 8,
       dueDate: expect.any(Date),
-    });
+    })]);
+  });
+
+  it("looks up an SSN-specific active checkout and displays its borrower and fine information", async () => {
+    const user = userEvent.setup();
+    mockedGetCirculation.mockResolvedValue([{
+      id: 12,
+      bookId: 7,
+      bookCopyId: 8,
+      libraryId: 3,
+      userId: 2,
+      checkoutDate: new Date("2026-08-01"),
+      dueDate: new Date("2026-08-15"),
+      returnDate: null,
+      status: "OVERDUE",
+      fineAmount: 0,
+      fineStatus: "OUTSTANDING",
+      finePaidAmount: 0,
+      fineWaivedAmount: 0,
+      damageCost: 0,
+      damageStatus: "NONE",
+      damagePaidAmount: 0,
+      damageWaivedAmount: 0,
+      damageNotes: null,
+      renewalCount: 0,
+      accruedFine: 750,
+      fineOutstanding: 750,
+      damageOutstanding: 0,
+      daysOverdue: 17,
+      isOverdue: true,
+    }] as never);
+
+    renderPage();
+    await user.click(screen.getByTestId("tab-return"));
+
+    const input = screen.getByTestId("input-return-isbn");
+    await user.type(input, "SSN-8");
+    await user.keyboard("{Enter}");
+
+    expect((await screen.findAllByText("Patron Reader")).length).toBeGreaterThan(0);
+    expect(screen.getByText("Fine information")).toBeInTheDocument();
+    expect((await screen.findAllByText("$7.50")).length).toBeGreaterThan(0);
+    expect(mockedLookupBook).toHaveBeenCalledWith("SSN-8");
   });
 });

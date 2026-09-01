@@ -62,6 +62,19 @@ type CheckoutItem = {
   copy: BookCopyType;
 };
 
+type ReturnInfo = {
+  circulationId: number;
+  book: Book;
+  copy: BookCopyType | null;
+  user: SafeUser;
+  dueDate: string;
+  isOverdue: boolean;
+  accruedFine: number;
+  fineOutstanding: number;
+  damageOutstanding: number;
+  daysOverdue: number;
+};
+
 function MemberSearchBox({
   selectedUser,
   onSelect,
@@ -402,8 +415,8 @@ export default function CirculationPage() {
     return d.toISOString().split("T")[0];
   });
   const [txSearch, setTxSearch] = useState("");
-  const [returnIsbn, setReturnIsbn] = useState("");
-  const [returnInfo, setReturnInfo] = useState<{ circulationId: number; book: Book; user: SafeUser; dueDate: string; isOverdue: boolean } | null>(null);
+  const [returnIdentifier, setReturnIdentifier] = useState("");
+  const [returnInfo, setReturnInfo] = useState<ReturnInfo | null>(null);
   const [isLookingUpReturn, setIsLookingUpReturn] = useState(false);
   const [bookLookupMode, setBookLookupMode] = useState<"isbn" | "browse">("isbn");
   const [checkoutItems, setCheckoutItems] = useState<CheckoutItem[]>([]);
@@ -592,7 +605,7 @@ export default function CirculationPage() {
       queryClient.invalidateQueries({ queryKey: ["books"] });
       queryClient.invalidateQueries({ queryKey: ["pending-fines"] });
       setReturnInfo(null);
-      setReturnIsbn("");
+      setReturnIdentifier("");
     },
     onError: (err: Error) => {
       toast.error(err.message);
@@ -625,22 +638,23 @@ export default function CirculationPage() {
     setCheckoutItems([]);
   };
 
-  const lookupReturn = () => {
-    if (!returnIsbn.trim()) return;
+  const lookupReturn = async () => {
+    const identifier = returnIdentifier.trim();
+    if (!identifier) return;
     setIsLookingUpReturn(true);
     setReturnInfo(null);
     try {
-      const cleanIsbn = returnIsbn.replace(/[-\s]/g, "");
-      const book = books.find(
-        b => b.isbn.replace(/[-\s]/g, "") === cleanIsbn || b.isbn === returnIsbn.trim()
+      const { book, copy } = await circulationApi.lookupBook(identifier);
+      const activeCirculations = circulation.filter(c =>
+        c.bookId === book.id && (c.status === "ACTIVE" || c.status === "OVERDUE")
       );
-      if (!book) {
-        toast.error("No book found with this ISBN");
-        return;
-      }
-      const activeCirc = circulation.find(c => c.bookId === book.id && (c.status === "ACTIVE" || c.status === "OVERDUE"));
+      const activeCirc = copy
+        ? activeCirculations.find(c => c.bookCopyId === copy.id)
+        : activeCirculations[0];
       if (!activeCirc) {
-        toast.error("This book does not have an active checkout");
+        toast.error(copy
+          ? "This copy does not have an active checkout"
+          : "This book does not have an active checkout");
         return;
       }
       const user = allUsers.find((u: any) => u.id === activeCirc.userId);
@@ -651,10 +665,17 @@ export default function CirculationPage() {
       setReturnInfo({
         circulationId: activeCirc.id,
         book,
+        copy,
         user,
         dueDate: new Date(activeCirc.dueDate).toLocaleDateString(),
-        isOverdue: new Date() > new Date(activeCirc.dueDate),
+        isOverdue: (activeCirc as any).isOverdue ?? new Date() > new Date(activeCirc.dueDate),
+        accruedFine: (activeCirc as any).accruedFine ?? activeCirc.fineAmount ?? 0,
+        fineOutstanding: (activeCirc as any).fineOutstanding ?? 0,
+        damageOutstanding: (activeCirc as any).damageOutstanding ?? 0,
+        daysOverdue: (activeCirc as any).daysOverdue ?? 0,
       });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not look up this book");
     } finally {
       setIsLookingUpReturn(false);
     }
@@ -1019,13 +1040,13 @@ export default function CirculationPage() {
                   <div className="space-y-2">
                     <Label className="flex items-center gap-1.5 text-sm font-medium">
                       <Hash className="h-3.5 w-3.5" />
-                      Book ISBN
+                      Book Identifier
                     </Label>
                     <div className="flex gap-2">
                       <Input
-                        placeholder="Enter or scan ISBN to return..."
-                        value={returnIsbn}
-                        onChange={(e) => { setReturnIsbn(e.target.value); setReturnInfo(null); }}
+                        placeholder="Enter or scan ISBN, SSN, or copy barcode..."
+                        value={returnIdentifier}
+                        onChange={(e) => { setReturnIdentifier(e.target.value); setReturnInfo(null); }}
                         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); lookupReturn(); } }}
                         className="h-10 flex-1"
                         data-testid="input-return-isbn"
@@ -1033,7 +1054,7 @@ export default function CirculationPage() {
                       <Button
                         variant="secondary"
                         onClick={lookupReturn}
-                        disabled={isLookingUpReturn || !returnIsbn.trim()}
+                        disabled={isLookingUpReturn || !returnIdentifier.trim()}
                         className="h-10"
                         data-testid="button-lookup-return"
                       >
@@ -1056,6 +1077,11 @@ export default function CirculationPage() {
                         <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Book</p>
                         <p className="text-sm font-semibold">{returnInfo.book.title}</p>
                         <p className="text-xs text-muted-foreground">by {returnInfo.book.author} · ISBN: {formatIsbn(returnInfo.book.isbn)}</p>
+                        {returnInfo.copy && (
+                          <p className="text-xs text-muted-foreground">
+                            Copy: {returnInfo.copy.userDefinedSSN || returnInfo.copy.internalSSN || returnInfo.copy.barcode}
+                          </p>
+                        )}
                       </div>
                       <Separator />
                       <div className="grid grid-cols-2 gap-4">
@@ -1074,6 +1100,34 @@ export default function CirculationPage() {
                           )}
                         </div>
                       </div>
+                      {(returnInfo.accruedFine > 0 || returnInfo.fineOutstanding > 0 || returnInfo.damageOutstanding > 0) && (
+                        <>
+                          <Separator />
+                          <div className="rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/40">
+                            <p className="text-xs font-medium uppercase tracking-wide text-amber-800 dark:text-amber-300">Fine information</p>
+                            <div className="mt-2 grid grid-cols-2 gap-3 text-sm">
+                              {returnInfo.accruedFine > 0 && (
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Accrued fine</p>
+                                  <p className="font-semibold">{formatMoney(returnInfo.accruedFine)}</p>
+                                </div>
+                              )}
+                              {returnInfo.fineOutstanding > 0 && (
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Outstanding fine</p>
+                                  <p className="font-semibold text-red-600">{formatMoney(returnInfo.fineOutstanding)}</p>
+                                </div>
+                              )}
+                              {returnInfo.damageOutstanding > 0 && (
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Outstanding damage</p>
+                                  <p className="font-semibold text-red-600">{formatMoney(returnInfo.damageOutstanding)}</p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </>
+                      )}
                     </div>
                     <Button
                       className="w-full gap-1.5"
