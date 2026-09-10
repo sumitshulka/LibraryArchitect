@@ -6836,10 +6836,18 @@ export async function registerRoutes(
   app.post("/api/book-copies", async (req, res) => {
     try {
       const validated = insertBookCopySchema.parse(req.body);
-      
-      const existingBarcode = await storage.getBookCopyByBarcode(validated.barcode);
-      if (existingBarcode) {
-        return res.status(400).json({ error: "A book copy with this barcode already exists" });
+
+      const requestedIdentifiers = [
+        validated.barcode,
+        validated.internalSSN,
+        validated.userDefinedSSN,
+      ].filter((identifier): identifier is string => Boolean(identifier));
+      const existingIdentifierCopies = await storage.getBookCopiesByIdentifiers(requestedIdentifiers);
+      if (existingIdentifierCopies.length > 0) {
+        return res.status(409).json({
+          error: "A copy identifier is already used by another copy",
+          conflictingCopyIds: existingIdentifierCopies.map((copy) => copy.id),
+        });
       }
       
       const book = await storage.getBook(validated.bookId);
@@ -6869,14 +6877,30 @@ export async function registerRoutes(
     try {
       const id = parseInt(req.params.id);
       const validated = insertBookCopySchema.partial().parse(req.body);
-      
+
+      const existingCopy = await storage.getBookCopy(id);
+      if (!existingCopy) {
+        return res.status(404).json({ error: "Book copy not found" });
+      }
+
+      const requestedIdentifiers = [
+        validated.barcode,
+        validated.internalSSN,
+        validated.userDefinedSSN,
+      ].filter((identifier): identifier is string => Boolean(identifier));
+      if (requestedIdentifiers.length > 0) {
+        const existingIdentifierCopies = await storage.getBookCopiesByIdentifiers(requestedIdentifiers);
+        const conflictingCopies = existingIdentifierCopies.filter((copy) => copy.id !== id);
+        if (conflictingCopies.length > 0) {
+          return res.status(409).json({
+            error: "A copy identifier is already used by another copy",
+            conflictingCopyIds: conflictingCopies.map((copy) => copy.id),
+          });
+        }
+      }
+
       // Check status transition rules if status is being updated
       if (validated.status) {
-        const existingCopy = await storage.getBookCopy(id);
-        if (!existingCopy) {
-          return res.status(404).json({ error: "Book copy not found" });
-        }
-        
         // DAMAGED and LOST are final statuses - cannot transition out of them
         const finalStatuses = ['DAMAGED', 'LOST'];
         if (finalStatuses.includes(existingCopy.status) && existingCopy.status !== validated.status) {
