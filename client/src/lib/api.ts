@@ -1874,6 +1874,12 @@ export interface SearchAttributeValue {
   createdAt: string;
 }
 
+export interface BulkSearchAttributeValuesResult {
+  createdCount: number;
+  skippedCount: number;
+  values: SearchAttributeValue[];
+}
+
 export interface ResourceSearchAttribute {
   id: number;
   bookId: number;
@@ -1949,6 +1955,19 @@ export const searchAttributesApi = {
     if (!res.ok) {
       const error = await res.json();
       throw new Error(error.error || "Failed to create search attribute value");
+    }
+    return res.json();
+  },
+
+  createValues: async (typeId: number, values: string[]): Promise<BulkSearchAttributeValuesResult> => {
+    const res = await fetch(`${API_BASE}/search-attributes/types/${typeId}/values/bulk`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ values }),
+    });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || "Failed to create search attribute values");
     }
     return res.json();
   },

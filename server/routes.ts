@@ -7524,6 +7524,50 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/search-attributes/types/:typeId/values/bulk", async (req, res) => {
+    try {
+      const typeId = parseInt(req.params.typeId);
+      if (!Number.isInteger(typeId) || typeId <= 0) {
+        return res.status(400).json({ error: "Invalid search attribute type" });
+      }
+
+      const type = await storage.getSearchAttributeType(typeId);
+      if (!type) return res.status(404).json({ error: "Search attribute type not found" });
+
+      const validated = z.object({
+        values: z.array(z.string().trim().min(1).max(500)).min(1).max(10000),
+      }).parse(req.body);
+      const requestedValues = Array.from(new Set(validated.values));
+      const created = await storage.createSearchAttributeValues(typeId, requestedValues);
+      const skippedCount = requestedValues.length - created.length;
+
+      logAudit(req, {
+        category: "CATALOG",
+        action: "SEARCH_ATTR_VALUES_BULK_CREATED",
+        targetType: "search_attribute_type",
+        targetId: String(typeId),
+        details: {
+          typeName: type.name,
+          requestedCount: requestedValues.length,
+          createdCount: created.length,
+          skippedCount,
+        },
+      });
+
+      res.status(201).json({
+        createdCount: created.length,
+        skippedCount,
+        values: created,
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error creating search attribute values in bulk:", error);
+      res.status(500).json({ error: "Failed to create search attribute values" });
+    }
+  });
+
   app.patch("/api/search-attributes/values/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id);

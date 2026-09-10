@@ -382,6 +382,7 @@ export interface IStorage {
   getSearchAttributeValuesByType(typeId: number): Promise<SearchAttributeValue[]>;
   getSearchAttributeValue(id: number): Promise<SearchAttributeValue | undefined>;
   createSearchAttributeValue(data: InsertSearchAttributeValue): Promise<SearchAttributeValue>;
+  createSearchAttributeValues(typeId: number, values: string[]): Promise<SearchAttributeValue[]>;
   updateSearchAttributeValue(id: number, data: Partial<InsertSearchAttributeValue>): Promise<SearchAttributeValue | undefined>;
   deleteSearchAttributeValue(id: number): Promise<boolean>;
 
@@ -2055,6 +2056,29 @@ export class DBStorage implements IStorage {
   async createSearchAttributeValue(data: InsertSearchAttributeValue): Promise<SearchAttributeValue> {
     const [result] = await db.insert(searchAttributeValues).values(data).returning();
     return result;
+  }
+
+  async createSearchAttributeValues(typeId: number, values: string[]): Promise<SearchAttributeValue[]> {
+    const existing = await this.getSearchAttributeValuesByType(typeId);
+    const existingValues = new Set(existing.map((item) => item.value));
+    const uniqueValues = Array.from(new Set(values.map((value) => value.trim())))
+      .filter((value) => value.length > 0 && !existingValues.has(value));
+    const created: SearchAttributeValue[] = [];
+
+    // Keep each INSERT below the proxy's request-size limit while still
+    // avoiding one network request per course or program.
+    for (let offset = 0; offset < uniqueValues.length; offset += 500) {
+      const rows = uniqueValues.slice(offset, offset + 500).map((value) => ({
+        attributeTypeId: typeId,
+        value,
+      }));
+      const inserted = await returningViaCte<SearchAttributeValue>(
+        db.insert(searchAttributeValues).values(rows).returning(),
+      );
+      created.push(...inserted);
+    }
+
+    return created;
   }
 
   async updateSearchAttributeValue(id: number, data: Partial<InsertSearchAttributeValue>): Promise<SearchAttributeValue | undefined> {

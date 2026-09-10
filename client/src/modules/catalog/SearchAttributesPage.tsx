@@ -34,6 +34,8 @@ import { toast } from "sonner";
 function AddValueInput({ typeId, onAdded }: { typeId: number; onAdded: () => void }) {
   const [value, setValue] = useState("");
   const [isAdding, setIsAdding] = useState(false);
+  const [bulkValueText, setBulkValueText] = useState("");
+  const [showBulkDialog, setShowBulkDialog] = useState(false);
   const queryClient = useQueryClient();
 
   const createMutation = useMutation({
@@ -47,17 +49,89 @@ function AddValueInput({ typeId, onAdded }: { typeId: number; onAdded: () => voi
     onError: (error: Error) => toast.error(error.message),
   });
 
+  const bulkCreateMutation = useMutation({
+    mutationFn: (values: string[]) => searchAttributesApi.createValues(typeId, values),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["search-attribute-types"] });
+      setBulkValueText("");
+      setShowBulkDialog(false);
+      onAdded();
+      toast.success(
+        result.skippedCount > 0
+          ? `${result.createdCount} values added; ${result.skippedCount} duplicates skipped`
+          : `${result.createdCount} values added`,
+      );
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const parsedBulkValues = Array.from(new Set(
+    bulkValueText
+      .split(/\r?\n/)
+      .map((entry) => entry.trim())
+      .filter(Boolean),
+  ));
+
   if (!isAdding) {
     return (
-      <Button
-        variant="ghost"
-        size="sm"
-        className="gap-1 text-xs"
-        onClick={() => setIsAdding(true)}
-        data-testid={`button-add-value-${typeId}`}
-      >
-        <Plus className="h-3 w-3" /> Add Value
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="gap-1 text-xs"
+          onClick={() => setIsAdding(true)}
+          data-testid={`button-add-value-${typeId}`}
+        >
+          <Plus className="h-3 w-3" /> Add Value
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="gap-1 text-xs"
+          onClick={() => setShowBulkDialog(true)}
+          data-testid={`button-add-multiple-values-${typeId}`}
+        >
+          <Plus className="h-3 w-3" /> Add multiple values
+        </Button>
+        <Dialog open={showBulkDialog} onOpenChange={(open) => {
+          if (!open) setBulkValueText("");
+          setShowBulkDialog(open);
+        }}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Add multiple values</DialogTitle>
+              <DialogDescription>
+                Enter one value per line. Blank lines and duplicate entries in this list will be ignored.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2">
+              <Label htmlFor={`bulk-values-${typeId}`}>Values</Label>
+              <Textarea
+                id={`bulk-values-${typeId}`}
+                value={bulkValueText}
+                onChange={(event) => setBulkValueText(event.target.value)}
+                placeholder={"CS101\nCS102\nCS103"}
+                rows={12}
+                autoFocus
+                data-testid={`textarea-bulk-values-${typeId}`}
+              />
+              <p className="text-xs text-muted-foreground">
+                {parsedBulkValues.length} unique value{parsedBulkValues.length === 1 ? "" : "s"} ready to add.
+              </p>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowBulkDialog(false)}>Cancel</Button>
+              <Button
+                onClick={() => bulkCreateMutation.mutate(parsedBulkValues)}
+                disabled={parsedBulkValues.length === 0 || bulkCreateMutation.isPending}
+                data-testid={`button-save-bulk-values-${typeId}`}
+              >
+                {bulkCreateMutation.isPending ? "Adding..." : "Add values"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
     );
   }
 

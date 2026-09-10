@@ -14,6 +14,7 @@ vi.mock("@/lib/api", () => ({
     getTypes: vi.fn(),
     createType: vi.fn(),
     createValue: vi.fn(),
+    createValues: vi.fn(),
     updateType: vi.fn(),
     deleteValue: vi.fn(),
     deleteType: vi.fn(),
@@ -29,6 +30,7 @@ const mockedGetTypes = vi.mocked(searchAttributesApi.getTypes);
 const mockedGetBooks = vi.mocked(booksApi.getAll);
 const mockedGetDigitalResources = vi.mocked(digitalResourcesApi.getAll);
 const mockedBulkAssign = vi.mocked(searchAttributesApi.bulkAssign);
+const mockedCreateValues = vi.mocked(searchAttributesApi.createValues);
 let navigateSpy: (path: string, ...args: any[]) => any;
 
 const types = [{
@@ -83,6 +85,7 @@ describe("SearchAttributesPage bulk assignment", () => {
       { id: 3, title: "Library Orientation", author: "Library Team", subject: "Welcome" },
     ] as any);
     mockedBulkAssign.mockResolvedValue({ booksUpdated: 1, digitalResourcesUpdated: 1 });
+    mockedCreateValues.mockResolvedValue({ createdCount: 2, skippedCount: 0, values: [] });
   });
 
   afterEach(() => cleanup());
@@ -93,6 +96,23 @@ describe("SearchAttributesPage bulk assignment", () => {
 
     await user.click(screen.getByTestId("button-bulk-assign-attributes"));
     expect(navigateSpy).toHaveBeenCalledWith("/catalog/search-attributes/bulk-assign", undefined);
+  });
+
+  it("adds multiple attribute values from one value-per-line submission", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByTestId("button-add-multiple-values-1"));
+    expect(screen.getByRole("heading", { name: "Add multiple values" })).toBeInTheDocument();
+    await user.type(
+      screen.getByTestId("textarea-bulk-values-1"),
+      "CS101\nCS102\n\nCS101",
+    );
+
+    expect(screen.getByText("2 unique values ready to add.")).toBeInTheDocument();
+    await user.click(screen.getByTestId("button-save-bulk-values-1"));
+
+    expect(mockedCreateValues).toHaveBeenCalledWith(1, ["CS101", "CS102"]);
   });
 
   it("selects targets and shows removable review items on the bulk page", async () => {

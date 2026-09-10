@@ -44,6 +44,12 @@ describe("POST /api/search-attributes/bulk-assign", () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    storageMock.getSearchAttributeType.mockResolvedValue({ id: 7, name: "Courses" });
+    storageMock.getSearchAttributeValuesByType.mockResolvedValue([{ value: "CS101" }]);
+    storageMock.createSearchAttributeValues.mockResolvedValue([
+      { id: 8, attributeTypeId: 7, value: "CS102" },
+      { id: 9, attributeTypeId: 7, value: "CS103" },
+    ]);
     storageMock.getSearchAttributeValue.mockImplementation(async (id: number) => ({ id }));
     storageMock.getBook.mockImplementation(async (id: number) => ({ id, title: `Book ${id}` }));
     storageMock.getDigitalResource.mockImplementation(async (id: number) => ({ id, title: `Resource ${id}` }));
@@ -71,6 +77,41 @@ describe("POST /api/search-attributes/bulk-assign", () => {
       body: JSON.stringify(body),
     });
   }
+
+  async function createValues(typeId: number, body: unknown) {
+    const address = httpServer.address() as AddressInfo;
+    return fetch(`http://127.0.0.1:${address.port}/api/search-attributes/types/${typeId}/values/bulk`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it("creates many values in one request and reports skipped values", async () => {
+    const response = await createValues(7, {
+      values: ["CS101", "CS102", "CS103", "CS102"],
+    });
+
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({
+      createdCount: 2,
+      skippedCount: 1,
+    });
+    expect(storageMock.createSearchAttributeValues).toHaveBeenCalledWith(
+      7,
+      ["CS101", "CS102", "CS103"],
+    );
+  });
+
+  it("rejects bulk values for an unknown attribute type", async () => {
+    storageMock.getSearchAttributeType.mockResolvedValue(undefined);
+
+    const response = await createValues(999, { values: ["CS101"] });
+
+    expect(response.status).toBe(404);
+    expect((await response.json()).error).toBe("Search attribute type not found");
+    expect(storageMock.createSearchAttributeValues).not.toHaveBeenCalled();
+  });
 
   it("validates all targets before replacing assignments", async () => {
     const response = await assign({
