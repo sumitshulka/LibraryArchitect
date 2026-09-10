@@ -514,6 +514,58 @@ function BulkTargetList<T extends { id: number }>({
   );
 }
 
+function SelectedTargetSection<T extends { id: number }>({
+  title,
+  icon,
+  items,
+  getLabel,
+  getSecondary,
+  onRemove,
+  testIdPrefix,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  items: T[];
+  getLabel: (item: T) => string;
+  getSecondary: (item: T) => string | null | undefined;
+  onRemove: (id: number) => void;
+  testIdPrefix: string;
+}) {
+  return (
+    <section className="space-y-2">
+      <div className="flex items-center gap-2 text-sm font-medium">
+        {icon}
+        {title}
+        <Badge variant="secondary" className="ml-auto text-xs">{items.length}</Badge>
+      </div>
+      <div className="space-y-1">
+        {items.map((item) => (
+          <div
+            key={item.id}
+            className="flex items-center gap-2 rounded-md border px-2 py-2"
+            data-testid={`${testIdPrefix}-${item.id}`}
+          >
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm">{getLabel(item)}</p>
+              {getSecondary(item) && <p className="truncate text-xs text-muted-foreground">{getSecondary(item)}</p>}
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+              onClick={() => onRemove(item.id)}
+              aria-label={`Remove ${getLabel(item)}`}
+              data-testid={`${testIdPrefix}-remove-${item.id}`}
+            >
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export default function SearchAttributesPage() {
   const [, setLocation] = useLocation();
   const [showAddDialog, setShowAddDialog] = useState(false);

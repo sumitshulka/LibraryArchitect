@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Router } from "wouter";
-import SearchAttributesPage from "./SearchAttributesPage";
+import SearchAttributesPage, { BulkAssignAttributesPage } from "./SearchAttributesPage";
 import { booksApi, digitalResourcesApi, searchAttributesApi } from "@/lib/api";
 
 vi.mock("@/lib/api", () => ({
@@ -29,6 +29,7 @@ const mockedGetTypes = vi.mocked(searchAttributesApi.getTypes);
 const mockedGetBooks = vi.mocked(booksApi.getAll);
 const mockedGetDigitalResources = vi.mocked(digitalResourcesApi.getAll);
 const mockedBulkAssign = vi.mocked(searchAttributesApi.bulkAssign);
+let navigateSpy: (path: string, ...args: any[]) => any;
 
 const types = [{
   id: 1,
@@ -43,14 +44,27 @@ const types = [{
   ],
 }];
 
-function renderPage() {
+function renderPage(path = "/catalog/search-attributes") {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <Router hook={() => ["/catalog/search-attributes", vi.fn()]}>
+      <Router hook={() => [path, navigateSpy]}>
         <SearchAttributesPage />
+      </Router>
+    </QueryClientProvider>,
+  );
+}
+
+function renderBulkPage() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <Router hook={() => ["/catalog/search-attributes/bulk-assign", navigateSpy]}>
+        <BulkAssignAttributesPage />
       </Router>
     </QueryClientProvider>,
   );
@@ -59,6 +73,7 @@ function renderPage() {
 describe("SearchAttributesPage bulk assignment", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    navigateSpy = vi.fn();
     mockedGetTypes.mockResolvedValue(types);
     mockedGetBooks.mockResolvedValue([
       { id: 1, title: "Algorithms", author: "A. Author", isbn: "111" },
@@ -72,26 +87,37 @@ describe("SearchAttributesPage bulk assignment", () => {
 
   afterEach(() => cleanup());
 
-  it("selects attribute values, books, and digital resources independently", async () => {
+  it("navigates to the dedicated bulk assignment page", async () => {
     const user = userEvent.setup();
     renderPage();
 
     await user.click(screen.getByTestId("button-bulk-assign-attributes"));
+    expect(navigateSpy).toHaveBeenCalledWith("/catalog/search-attributes/bulk-assign", undefined);
+  });
+
+  it("selects targets and shows removable review items on the bulk page", async () => {
+    const user = userEvent.setup();
+    renderBulkPage();
+
     expect(await screen.findByRole("heading", { name: "Bulk Assign Attributes" })).toBeInTheDocument();
 
     await user.click(screen.getByTestId("checkbox-bulk-attribute-10"));
     await user.click(screen.getByTestId("checkbox-book-1"));
     await user.click(screen.getByTestId("checkbox-digital-resource-3"));
 
-    expect(screen.getByText("1 attribute values · 1 books · 1 digital resources selected")).toBeInTheDocument();
-    expect(screen.getByText("Replace existing search attributes for the selected books and digital resources.")).toBeInTheDocument();
+    expect(screen.getByTestId("selected-book-1")).toHaveTextContent("Algorithms");
+    expect(screen.getByTestId("selected-digital-resource-3")).toHaveTextContent("Library Orientation");
+    expect(screen.getByText("1 attribute values · 2 resources selected")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("selected-book-remove-1"));
+    expect(screen.queryByTestId("selected-book-1")).not.toBeInTheDocument();
+    expect(screen.getByText("1 attribute values · 1 resources selected")).toBeInTheDocument();
   });
 
   it("supports selecting all visible targets and submits both target types", async () => {
     const user = userEvent.setup();
-    renderPage();
+    renderBulkPage();
 
-    await user.click(screen.getByTestId("button-bulk-assign-attributes"));
     await screen.findByTestId("checkbox-book-1");
     await user.click(screen.getByTestId("checkbox-bulk-attribute-10"));
     await user.click(screen.getByTestId("button-select-all-book"));
