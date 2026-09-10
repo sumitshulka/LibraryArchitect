@@ -2,6 +2,10 @@ export function parseOrderedSsns(input: string): string[] {
   return input.split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
 }
 
+export function appendScannedSsns(existing: string[], input: string): string[] {
+  return [...existing, ...parseOrderedSsns(input)];
+}
+
 function parseDelimitedRow(line: string): string[] {
   const delimiter = line.includes("\t") ? "\t" : ",";
   const fields: string[] = [];

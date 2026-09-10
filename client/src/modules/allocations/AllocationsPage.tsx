@@ -42,14 +42,14 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { Package, ChevronDown, ChevronRight, Library, Loader2, CheckCircle, AlertCircle, Hash, Upload } from "lucide-react";
+import { Package, ChevronDown, ChevronRight, Library, Loader2, CheckCircle, AlertCircle, Hash, Upload, X } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { allocationsApi, librariesApi, type UnallocatedCopyInfo } from "@/lib/api";
-import { parseMappedSsns, parseOrderedSsns } from "./allocation-ssn";
+import { appendScannedSsns, parseMappedSsns, parseOrderedSsns } from "./allocation-ssn";
 import { toast } from "sonner";
 
 type SsnMode = "GENERATE" | "SUPPLIED";
-type SsnInputMethod = "ORDERED" | "MAPPED";
+type SsnInputMethod = "ORDERED" | "SCAN" | "MAPPED";
 
 export default function AllocationsPage() {
   const queryClient = useQueryClient();
@@ -60,6 +60,8 @@ export default function AllocationsPage() {
   const [ssnMode, setSsnMode] = useState<SsnMode>("GENERATE");
   const [ssnInputMethod, setSsnInputMethod] = useState<SsnInputMethod>("ORDERED");
   const [ssnInput, setSsnInput] = useState("");
+  const [scannedSsns, setScannedSsns] = useState<string[]>([]);
+  const [scanValue, setScanValue] = useState("");
   const [ssnPrefix, setSsnPrefix] = useState("SSN");
 
   const { data: unallocatedBooks = [], isLoading: loadingUnallocated, refetch } = useQuery({
@@ -83,6 +85,8 @@ export default function AllocationsPage() {
       setSelectedCopies(new Map());
       setSelectedLibraryId(null);
       setSsnInput("");
+      setScannedSsns([]);
+      setScanValue("");
     },
     onError: (error: Error) => {
       toast.error(error.message);
@@ -161,8 +165,8 @@ export default function AllocationsPage() {
 
     const errors: string[] = [];
     let assignments: Array<{ copyId: number; ssn: string }> = [];
-    if (ssnInputMethod === "ORDERED") {
-      const ssns = parseOrderedSsns(ssnInput);
+    if (ssnInputMethod === "ORDERED" || ssnInputMethod === "SCAN") {
+      const ssns = ssnInputMethod === "SCAN" ? scannedSsns : parseOrderedSsns(ssnInput);
       if (ssns.length !== selectedCopyDetails.length) {
         errors.push(`Enter exactly ${selectedCopyDetails.length} SSNs; ${ssns.length} provided.`);
       }
@@ -204,6 +208,12 @@ export default function AllocationsPage() {
   const suppliedSsnByCopyId = new Map(
     suppliedSsnValidation.assignments.map((assignment) => [assignment.copyId, assignment.ssn]),
   );
+
+  const addScannedSsns = () => {
+    if (!scanValue.trim()) return;
+    setScannedSsns((current) => appendScannedSsns(current, scanValue));
+    setScanValue("");
+  };
 
   const handleAllocate = () => {
     if (!selectedLibraryId) {
@@ -485,14 +495,23 @@ export default function AllocationsPage() {
                     onValueChange={(value) => {
                       setSsnInputMethod(value as SsnInputMethod);
                       setSsnInput("");
+                      setScannedSsns([]);
+                      setScanValue("");
                     }}
-                    className="grid sm:grid-cols-2"
+                    className="grid sm:grid-cols-3"
                   >
                     <label className="flex cursor-pointer items-start gap-2 rounded-md border bg-background p-3">
                       <RadioGroupItem value="ORDERED" data-testid="radio-ssn-ordered" />
                       <span>
                         <span className="block text-sm font-medium">One SSN per line</span>
                         <span className="block text-xs text-muted-foreground">Assigned in the displayed copy order.</span>
+                      </span>
+                    </label>
+                    <label className="flex cursor-pointer items-start gap-2 rounded-md border bg-background p-3">
+                      <RadioGroupItem value="SCAN" data-testid="radio-ssn-scan" />
+                      <span>
+                        <span className="block text-sm font-medium">Scan one at a time</span>
+                        <span className="block text-xs text-muted-foreground">Scan or enter each SSN, then press Enter.</span>
                       </span>
                     </label>
                     <label className="flex cursor-pointer items-start gap-2 rounded-md border bg-background p-3">
@@ -506,40 +525,100 @@ export default function AllocationsPage() {
 
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-3">
-                      <Label htmlFor="supplied-ssns">
-                        {ssnInputMethod === "ORDERED" ? "Original SSNs" : "System barcode and original SSN"}
+                      <Label htmlFor={ssnInputMethod === "SCAN" ? "scan-supplied-ssn" : "supplied-ssns"}>
+                        {ssnInputMethod === "ORDERED"
+                          ? "Original SSNs"
+                          : ssnInputMethod === "SCAN"
+                            ? "Scan or enter the next original SSN"
+                            : "System barcode and original SSN"}
                       </Label>
-                      <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-medium text-primary">
-                        <Upload className="h-3.5 w-3.5" />
-                        Load CSV/TXT
-                        <input
-                          type="file"
-                          accept=".csv,.txt,text/csv,text/plain"
-                          className="sr-only"
-                          onChange={async (event) => {
-                            const file = event.target.files?.[0];
-                            if (file) setSsnInput(await file.text());
-                            event.target.value = "";
-                          }}
-                          data-testid="input-ssn-file"
-                        />
-                      </label>
+                      {ssnInputMethod !== "SCAN" && (
+                        <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-medium text-primary">
+                          <Upload className="h-3.5 w-3.5" />
+                          Load CSV/TXT
+                          <input
+                            type="file"
+                            accept=".csv,.txt,text/csv,text/plain"
+                            className="sr-only"
+                            onChange={async (event) => {
+                              const file = event.target.files?.[0];
+                              if (file) setSsnInput(await file.text());
+                              event.target.value = "";
+                            }}
+                            data-testid="input-ssn-file"
+                          />
+                        </label>
+                      )}
                     </div>
-                    <Textarea
-                      id="supplied-ssns"
-                      rows={9}
-                      value={ssnInput}
-                      onChange={(event) => setSsnInput(event.target.value)}
-                      placeholder={ssnInputMethod === "ORDERED"
-                        ? "LIB-00001\nLIB-00002\nLIB-00003"
-                        : "barcode,ssn\nBC-101,LIB-00001\nBC-102,LIB-00002"}
-                      className="font-mono text-xs"
-                      data-testid="textarea-supplied-ssns"
-                    />
+                    {ssnInputMethod === "SCAN" ? (
+                      <div className="flex gap-2">
+                        <Input
+                          id="scan-supplied-ssn"
+                          autoFocus
+                          value={scanValue}
+                          onChange={(event) => setScanValue(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              addScannedSsns();
+                            }
+                          }}
+                          placeholder="Scan or type an SSN, then press Enter"
+                          className="font-mono text-xs"
+                          data-testid="input-scan-supplied-ssn"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={addScannedSsns}
+                          disabled={!scanValue.trim()}
+                          data-testid="button-add-scanned-ssn"
+                        >
+                          Add
+                        </Button>
+                      </div>
+                    ) : (
+                      <Textarea
+                        id="supplied-ssns"
+                        rows={9}
+                        value={ssnInput}
+                        onChange={(event) => setSsnInput(event.target.value)}
+                        placeholder={ssnInputMethod === "ORDERED"
+                          ? "LIB-00001\nLIB-00002\nLIB-00003"
+                          : "barcode,ssn\nBC-101,LIB-00001\nBC-102,LIB-00002"}
+                        className="font-mono text-xs"
+                        data-testid="textarea-supplied-ssns"
+                      />
+                    )}
                     <p className="text-xs text-muted-foreground">
                       {suppliedSsnValidation.assignments.length} of {selectedCount} copies mapped.
-                      Barcode labels will use the supplied SSNs after allocation.
+                      {ssnInputMethod === "SCAN"
+                        ? " Each scan is assigned to the next selected copy."
+                        : " Barcode labels will use the supplied SSNs after allocation."}
                     </p>
+                    {ssnInputMethod === "SCAN" && scannedSsns.length > 0 && (
+                      <div className="flex flex-wrap gap-2 rounded-md border bg-background p-3">
+                        {scannedSsns.slice(0, 100).map((ssn, index) => (
+                          <Badge key={`${ssn}-${index}`} variant="secondary" className="gap-1 font-mono">
+                            {index + 1}. {ssn}
+                            <button
+                              type="button"
+                              className="rounded-sm hover:bg-muted"
+                              onClick={() => setScannedSsns((current) => current.filter((_, itemIndex) => itemIndex !== index))}
+                              aria-label={`Remove scanned SSN ${index + 1}`}
+                              data-testid={`button-remove-scanned-ssn-${index}`}
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </Badge>
+                        ))}
+                        {scannedSsns.length > 100 && (
+                          <span className="self-center text-xs text-muted-foreground">
+                            Showing the first 100 scans.
+                          </span>
+                        )}
+                      </div>
+                    )}
                     {suppliedSsnValidation.errors.length > 0 && ssnInput.trim() && (
                       <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
                         {suppliedSsnValidation.errors.slice(0, 4).map((error) => <p key={error}>{error}</p>)}

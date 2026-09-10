@@ -1,9 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { parseMappedSsns, parseOrderedSsns } from "./allocation-ssn";
+import { appendScannedSsns, parseMappedSsns, parseOrderedSsns } from "./allocation-ssn";
 
 describe("allocation SSN import parsing", () => {
   it("parses one supplied SSN per non-empty line", () => {
     expect(parseOrderedSsns(" LIB-001 \n\nLIB-002\r\nLIB-003 ")).toEqual([
+      "LIB-001",
+      "LIB-002",
+      "LIB-003",
+    ]);
+  });
+
+  it("appends scanner input in arrival order", () => {
+    expect(appendScannedSsns(["LIB-001"], " LIB-002\n\nLIB-003 ")).toEqual([
       "LIB-001",
       "LIB-002",
       "LIB-003",
