@@ -17,8 +17,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Tags, Plus, Pencil, Trash2, ChevronDown, ChevronRight, X, Search, Check,
+  ArrowLeft, BookOpen, FileText,
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import {
   booksApi,
   digitalResourcesApi,
@@ -196,11 +198,8 @@ function AttributeTypeCard({ type }: { type: SearchAttributeType }) {
   );
 }
 
-function BulkAssignDialog({ open, onOpenChange, types }: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  types: SearchAttributeType[];
-}) {
+export function BulkAssignAttributesPage() {
+  const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const [selectedAttributeIds, setSelectedAttributeIds] = useState<Set<number>>(new Set());
   const [selectedBookIds, setSelectedBookIds] = useState<Set<number>>(new Set());
@@ -208,15 +207,17 @@ function BulkAssignDialog({ open, onOpenChange, types }: {
   const [bookSearch, setBookSearch] = useState("");
   const [digitalSearch, setDigitalSearch] = useState("");
 
+  const { data: types = [], isLoading: typesLoading } = useQuery({
+    queryKey: ["search-attribute-types"],
+    queryFn: searchAttributesApi.getTypes,
+  });
   const { data: books = [], isLoading: booksLoading } = useQuery({
     queryKey: ["bulk-search-attribute-books"],
     queryFn: () => booksApi.getAll(),
-    enabled: open,
   });
   const { data: digitalResources = [], isLoading: digitalResourcesLoading } = useQuery({
     queryKey: ["bulk-search-attribute-digital-resources"],
     queryFn: () => digitalResourcesApi.getAll(),
-    enabled: open,
   });
 
   const availableTypes = types.filter((type) => type.isActive && type.values.some((value) => value.isActive));
@@ -253,14 +254,6 @@ function BulkAssignDialog({ open, onOpenChange, types }: {
     });
   };
 
-  const reset = () => {
-    setSelectedAttributeIds(new Set());
-    setSelectedBookIds(new Set());
-    setSelectedDigitalResourceIds(new Set());
-    setBookSearch("");
-    setDigitalSearch("");
-  };
-
   const bulkAssignMutation = useMutation({
     mutationFn: () => searchAttributesApi.bulkAssign({
       attributeValueIds: Array.from(selectedAttributeIds),
@@ -273,8 +266,7 @@ function BulkAssignDialog({ open, onOpenChange, types }: {
       queryClient.invalidateQueries({ queryKey: ["digital-resources"] });
       queryClient.invalidateQueries({ queryKey: ["search-attribute-types"] });
       toast.success(`Assigned attributes to ${result.booksUpdated} books and ${result.digitalResourcesUpdated} digital resources`);
-      reset();
-      onOpenChange(false);
+      setLocation("/catalog/search-attributes");
     },
     onError: (error: Error) => toast.error(error.message),
   });
@@ -282,95 +274,164 @@ function BulkAssignDialog({ open, onOpenChange, types }: {
   const canSubmit = selectedAttributeIds.size > 0 && (selectedBookIds.size > 0 || selectedDigitalResourceIds.size > 0);
   const visibleBookIds = filteredBooks.map((book) => book.id);
   const visibleDigitalResourceIds = filteredDigitalResources.map((resource) => resource.id);
+  const selectedBooks = books.filter((book) => selectedBookIds.has(book.id));
+  const selectedDigitalResources = digitalResources.filter((resource) => selectedDigitalResourceIds.has(resource.id));
 
   return (
-    <Dialog open={open} onOpenChange={(nextOpen) => {
-      if (!nextOpen) reset();
-      onOpenChange(nextOpen);
-    }}>
-      <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Bulk Assign Attributes</DialogTitle>
-          <DialogDescription>
-            Replace existing search attributes for the selected books and digital resources.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-5">
-          <section className="space-y-2">
-            <Label>Attribute values</Label>
-            <div className="rounded-md border p-3 space-y-3">
-              {availableTypes.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Create an active attribute type with values before assigning attributes.</p>
-              ) : availableTypes.map((type) => (
-                <div key={type.id} className="space-y-2">
-                  <p className="text-sm font-medium">{type.name}</p>
-                  <div className="flex flex-wrap gap-2">
-                    {type.values.filter((value) => value.isActive).map((value) => (
-                      <label key={value.id} className="flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm cursor-pointer hover:bg-muted/50">
-                        <Checkbox
-                          checked={selectedAttributeIds.has(value.id)}
-                          onCheckedChange={() => toggleId(setSelectedAttributeIds, value.id)}
-                          data-testid={`checkbox-bulk-attribute-${value.id}`}
-                        />
-                        {value.value}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <div className="grid gap-5 lg:grid-cols-2">
-            <BulkTargetList
-              title="Books"
-              search={bookSearch}
-              onSearchChange={setBookSearch}
-              items={filteredBooks}
-              loading={booksLoading}
-              selectedIds={selectedBookIds}
-              visibleIds={visibleBookIds}
-              onToggle={(id) => toggleId(setSelectedBookIds, id)}
-              onToggleVisible={() => toggleVisible(setSelectedBookIds, visibleBookIds)}
-              getLabel={(book) => `${book.title} — ${book.author || book.isbn}`}
-              getSecondary={(book) => book.isbn}
-              testIdPrefix="book"
-            />
-            <BulkTargetList
-              title="Digital resources"
-              search={digitalSearch}
-              onSearchChange={setDigitalSearch}
-              items={filteredDigitalResources}
-              loading={digitalResourcesLoading}
-              selectedIds={selectedDigitalResourceIds}
-              visibleIds={visibleDigitalResourceIds}
-              onToggle={(id) => toggleId(setSelectedDigitalResourceIds, id)}
-              onToggleVisible={() => toggleVisible(setSelectedDigitalResourceIds, visibleDigitalResourceIds)}
-              getLabel={(resource) => resource.title}
-              getSecondary={(resource) => resource.author || resource.subject || resource.resourceType || "Digital resource"}
-              testIdPrefix="digital-resource"
-            />
+    <MainLayout>
+      <div className="flex flex-col gap-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mb-2 -ml-2 gap-2"
+              onClick={() => setLocation("/catalog/search-attributes")}
+              data-testid="button-back-search-attributes"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Search Attributes
+            </Button>
+            <h1 className="text-3xl font-bold tracking-tight text-foreground flex items-center gap-2">
+              <Check className="h-7 w-7" />
+              Bulk Assign Attributes
+            </h1>
+            <p className="text-muted-foreground mt-1">
+              Choose attribute values, then select the books and digital resources that should inherit them.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Badge variant="outline">{selectedBookIds.size} books</Badge>
+            <Badge variant="outline">{selectedDigitalResourceIds.size} digital resources</Badge>
           </div>
         </div>
 
-        <DialogFooter className="flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-muted-foreground">
-            {selectedAttributeIds.size} attribute values · {selectedBookIds.size} books · {selectedDigitalResourceIds.size} digital resources selected
-          </p>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button
-              onClick={() => bulkAssignMutation.mutate()}
-              disabled={!canSubmit || bulkAssignMutation.isPending}
-              data-testid="button-confirm-bulk-assign"
-            >
-              {bulkAssignMutation.isPending ? "Assigning..." : "Assign Attributes"}
-            </Button>
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="min-w-0 space-y-5">
+            <section className="space-y-2">
+              <Label>Attribute values</Label>
+              <Card>
+                <CardContent className="space-y-4 p-4">
+                  {typesLoading ? (
+                    <p className="text-sm text-muted-foreground">Loading attribute values...</p>
+                  ) : availableTypes.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">Create an active attribute type with values before assigning attributes.</p>
+                  ) : availableTypes.map((type) => (
+                    <div key={type.id} className="space-y-2">
+                      <p className="text-sm font-medium">{type.name}</p>
+                      <div className="flex flex-wrap gap-2">
+                        {type.values.filter((value) => value.isActive).map((value) => (
+                          <label key={value.id} className="flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm cursor-pointer hover:bg-muted/50">
+                            <Checkbox
+                              checked={selectedAttributeIds.has(value.id)}
+                              onCheckedChange={() => toggleId(setSelectedAttributeIds, value.id)}
+                              data-testid={`checkbox-bulk-attribute-${value.id}`}
+                            />
+                            {value.value}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            </section>
+
+            <div className="grid gap-5 lg:grid-cols-2">
+              <BulkTargetList
+                title="Books"
+                search={bookSearch}
+                onSearchChange={setBookSearch}
+                items={filteredBooks}
+                loading={booksLoading}
+                selectedIds={selectedBookIds}
+                visibleIds={visibleBookIds}
+                onToggle={(id) => toggleId(setSelectedBookIds, id)}
+                onToggleVisible={() => toggleVisible(setSelectedBookIds, visibleBookIds)}
+                getLabel={(book) => `${book.title} — ${book.author || book.isbn}`}
+                getSecondary={(book) => book.isbn}
+                testIdPrefix="book"
+              />
+              <BulkTargetList
+                title="Digital resources"
+                search={digitalSearch}
+                onSearchChange={setDigitalSearch}
+                items={filteredDigitalResources}
+                loading={digitalResourcesLoading}
+                selectedIds={selectedDigitalResourceIds}
+                visibleIds={visibleDigitalResourceIds}
+                onToggle={(id) => toggleId(setSelectedDigitalResourceIds, id)}
+                onToggleVisible={() => toggleVisible(setSelectedDigitalResourceIds, visibleDigitalResourceIds)}
+                getLabel={(resource) => resource.title}
+                getSecondary={(resource) => resource.author || resource.subject || resource.resourceType || "Digital resource"}
+                testIdPrefix="digital-resource"
+              />
+            </div>
           </div>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+
+          <Card className="h-fit xl:sticky xl:top-6">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Selected resources</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Review and remove targets before assigning the selected attributes.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {selectedBooks.length === 0 && selectedDigitalResources.length === 0 ? (
+                <div className="rounded-md border border-dashed p-6 text-center">
+                  <Check className="mx-auto mb-2 h-8 w-8 text-muted-foreground/50" />
+                  <p className="text-sm font-medium">No resources selected</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Select books or digital resources from the left.</p>
+                </div>
+              ) : (
+                <ScrollArea className="max-h-[calc(100vh-22rem)] pr-3">
+                  <div className="space-y-4">
+                    {selectedBooks.length > 0 && (
+                      <SelectedTargetSection
+                        title="Books"
+                        icon={<BookOpen className="h-4 w-4" />}
+                        items={selectedBooks}
+                        getLabel={(book) => book.title}
+                        getSecondary={(book) => book.isbn}
+                        onRemove={(id) => toggleId(setSelectedBookIds, id)}
+                        testIdPrefix="selected-book"
+                      />
+                    )}
+                    {selectedDigitalResources.length > 0 && (
+                      <SelectedTargetSection
+                        title="Digital resources"
+                        icon={<FileText className="h-4 w-4" />}
+                        items={selectedDigitalResources}
+                        getLabel={(resource) => resource.title}
+                        getSecondary={(resource) => resource.author || resource.subject || "Digital resource"}
+                        onRemove={(id) => toggleId(setSelectedDigitalResourceIds, id)}
+                        testIdPrefix="selected-digital-resource"
+                      />
+                    )}
+                  </div>
+                </ScrollArea>
+              )}
+              <div className="border-t pt-4">
+                <p className="mb-3 text-sm text-muted-foreground">
+                  {selectedAttributeIds.size} attribute values · {selectedBookIds.size + selectedDigitalResourceIds.size} resources selected
+                </p>
+                <Button
+                  className="w-full"
+                  onClick={() => bulkAssignMutation.mutate()}
+                  disabled={!canSubmit || bulkAssignMutation.isPending}
+                  data-testid="button-confirm-bulk-assign"
+                >
+                  {bulkAssignMutation.isPending ? "Assigning..." : "Assign Attributes"}
+                </Button>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  This replaces existing search attributes on each selected resource.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </MainLayout>
   );
 }
 
@@ -454,8 +515,8 @@ function BulkTargetList<T extends { id: number }>({
 }
 
 export default function SearchAttributesPage() {
+  const [, setLocation] = useLocation();
   const [showAddDialog, setShowAddDialog] = useState(false);
-  const [showBulkAssignDialog, setShowBulkAssignDialog] = useState(false);
   const [newTypeName, setNewTypeName] = useState("");
   const [newTypeDescription, setNewTypeDescription] = useState("");
   const queryClient = useQueryClient();
@@ -498,7 +559,7 @@ export default function SearchAttributesPage() {
             variant="outline"
             size="sm"
             className="gap-2"
-            onClick={() => setShowBulkAssignDialog(true)}
+            onClick={() => setLocation("/catalog/search-attributes/bulk-assign")}
             data-testid="button-bulk-assign-attributes"
           >
             <Check className="h-4 w-4" />
@@ -582,11 +643,6 @@ export default function SearchAttributesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <BulkAssignDialog
-        open={showBulkAssignDialog}
-        onOpenChange={setShowBulkAssignDialog}
-        types={types}
-      />
     </MainLayout>
   );
 }

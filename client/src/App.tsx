@@ -28,7 +28,7 @@ import ReportsPage from "@/modules/reports/ReportsPage";
 import AuditLogsPage from "@/modules/reports/AuditLogsPage";
 import SettingsPage from "@/modules/settings/SettingsPage";
 import SSOTestingPage from "./modules/settings/SSOTestingPage";
-import SearchAttributesPage from "./modules/catalog/SearchAttributesPage";
+import SearchAttributesPage, { BulkAssignAttributesPage } from "./modules/catalog/SearchAttributesPage";
 import PublicHomePage from "./pages/PublicHomePage";
 import DigitalResourcesDashboardPage from "@/modules/digital-resources/DigitalResourcesDashboardPage";
 import RepositoryPage from "@/modules/digital-resources/RepositoryPage";
@@ -66,6 +66,7 @@ function AppRouter() {
       <Route path="/catalog/new">{() => <ProtectedRoute component={AddResourcePage} />}</Route>
       <Route path="/catalog/bulk-upload">{() => <ProtectedRoute component={BulkUploadPage} />}</Route>
       <Route path="/catalog/search-attributes">{() => <ProtectedRoute component={SearchAttributesPage} />}</Route>
+      <Route path="/catalog/search-attributes/bulk-assign">{() => <ProtectedRoute component={BulkAssignAttributesPage} />}</Route>
       <Route path="/digital-resources">{() => <ProtectedRoute component={DigitalResourcesDashboardPage} />}</Route>
       <Route path="/digital-resources/repository">{() => <ProtectedRoute component={RepositoryPage} />}</Route>
       <Route path="/digital-resources/upload">{() => <ProtectedRoute component={UploadResourcePage} />}</Route>
