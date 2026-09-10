@@ -115,6 +115,24 @@ describe("SearchAttributesPage bulk assignment", () => {
     expect(mockedCreateValues).toHaveBeenCalledWith(1, ["CS101", "CS102"]);
   });
 
+  it("filters values by name within each attribute card", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    const searchInput = await screen.findByTestId("input-search-values-1");
+    await user.type(searchInput, "computer");
+
+    expect(screen.getByTestId("badge-value-10")).toBeInTheDocument();
+    expect(screen.queryByTestId("badge-value-11")).not.toBeInTheDocument();
+    expect(screen.getByText("Showing 1 of 2 values")).toBeInTheDocument();
+
+    await user.clear(searchInput);
+    await user.type(searchInput, "does-not-exist");
+
+    expect(screen.getByText("No values match your search.")).toBeInTheDocument();
+    expect(screen.getByText("Showing 0 of 2 values")).toBeInTheDocument();
+  });
+
   it("selects targets and shows removable review items on the bulk page", async () => {
     const user = userEvent.setup();
     renderBulkPage();

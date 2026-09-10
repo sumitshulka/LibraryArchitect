@@ -172,7 +172,13 @@ function AddValueInput({ typeId, onAdded }: { typeId: number; onAdded: () => voi
 
 function AttributeTypeCard({ type }: { type: SearchAttributeType }) {
   const [expanded, setExpanded] = useState(true);
+  const [valueSearch, setValueSearch] = useState("");
   const queryClient = useQueryClient();
+  const filteredValues = useMemo(() => {
+    const query = valueSearch.trim().toLowerCase();
+    if (!query) return type.values;
+    return type.values.filter((value) => value.value.toLowerCase().includes(query));
+  }, [type.values, valueSearch]);
 
   const toggleMutation = useMutation({
     mutationFn: () => searchAttributesApi.updateType(type.id, { isActive: !type.isActive }),
@@ -242,24 +248,44 @@ function AttributeTypeCard({ type }: { type: SearchAttributeType }) {
         <CardContent className="pt-0">
           <div className="ml-6">
             {type.values.length > 0 ? (
-              <div className="flex flex-wrap gap-2 mb-3">
-                {type.values.map((val) => (
-                  <Badge
-                    key={val.id}
-                    variant={val.isActive ? "default" : "secondary"}
-                    className="gap-1 pr-1"
-                    data-testid={`badge-value-${val.id}`}
-                  >
-                    {val.value}
-                    <button
-                      onClick={() => deleteValueMutation.mutate(val.id)}
-                      className="ml-1 hover:bg-white/20 rounded-full p-0.5"
-                      data-testid={`button-remove-value-${val.id}`}
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </Badge>
-                ))}
+              <div className="mb-3 space-y-3">
+                <div className="relative max-w-md">
+                  <Search className="absolute left-2.5 top-2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    value={valueSearch}
+                    onChange={(event) => setValueSearch(event.target.value)}
+                    placeholder={`Search ${type.name.toLowerCase()} values...`}
+                    className="pl-8"
+                    aria-label={`Search ${type.name} values`}
+                    data-testid={`input-search-values-${type.id}`}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Showing {filteredValues.length} of {type.values.length} values
+                </p>
+                {filteredValues.length > 0 ? (
+                  <div className="flex max-h-64 flex-wrap gap-2 overflow-y-auto pr-2">
+                    {filteredValues.map((val) => (
+                      <Badge
+                        key={val.id}
+                        variant={val.isActive ? "default" : "secondary"}
+                        className="gap-1 pr-1"
+                        data-testid={`badge-value-${val.id}`}
+                      >
+                        {val.value}
+                        <button
+                          onClick={() => deleteValueMutation.mutate(val.id)}
+                          className="ml-1 hover:bg-white/20 rounded-full p-0.5"
+                          data-testid={`button-remove-value-${val.id}`}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No values match your search.</p>
+                )}
               </div>
             ) : (
               <p className="text-sm text-muted-foreground mb-3">No values defined yet.</p>
