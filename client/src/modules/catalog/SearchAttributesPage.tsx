@@ -306,6 +306,7 @@ export function BulkAssignAttributesPage() {
   const [selectedDigitalResourceIds, setSelectedDigitalResourceIds] = useState<Set<number>>(new Set());
   const [bookSearch, setBookSearch] = useState("");
   const [digitalSearch, setDigitalSearch] = useState("");
+  const [attributeSearches, setAttributeSearches] = useState<Record<number, string>>({});
 
   const { data: types = [], isLoading: typesLoading } = useQuery({
     queryKey: ["search-attribute-types"],
@@ -419,18 +420,52 @@ export function BulkAssignAttributesPage() {
                   ) : availableTypes.map((type) => (
                     <div key={type.id} className="space-y-2">
                       <p className="text-sm font-medium">{type.name}</p>
-                      <div className="flex flex-wrap gap-2">
-                        {type.values.filter((value) => value.isActive).map((value) => (
-                          <label key={value.id} className="flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm cursor-pointer hover:bg-muted/50">
-                            <Checkbox
-                              checked={selectedAttributeIds.has(value.id)}
-                              onCheckedChange={() => toggleId(setSelectedAttributeIds, value.id)}
-                              data-testid={`checkbox-bulk-attribute-${value.id}`}
-                            />
-                            {value.value}
-                          </label>
-                        ))}
-                      </div>
+                      {(() => {
+                        const activeValues = type.values.filter((value) => value.isActive);
+                        const search = attributeSearches[type.id] ?? "";
+                        const query = search.trim().toLowerCase();
+                        const filteredValues = query
+                          ? activeValues.filter((value) => value.value.toLowerCase().includes(query))
+                          : activeValues;
+
+                        return (
+                          <>
+                            <div className="relative max-w-md">
+                              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                              <Input
+                                value={search}
+                                onChange={(event) => setAttributeSearches((current) => ({
+                                  ...current,
+                                  [type.id]: event.target.value,
+                                }))}
+                                placeholder={`Search ${type.name.toLowerCase()} values...`}
+                                className="pl-8"
+                                aria-label={`Search ${type.name} values for bulk assignment`}
+                                data-testid={`input-search-bulk-attribute-${type.id}`}
+                              />
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              Showing {filteredValues.length} of {activeValues.length} active values
+                            </p>
+                            {filteredValues.length > 0 ? (
+                              <div className="flex max-h-64 flex-wrap gap-2 overflow-y-auto pr-2">
+                                {filteredValues.map((value) => (
+                                  <label key={value.id} className="flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm cursor-pointer hover:bg-muted/50">
+                                    <Checkbox
+                                      checked={selectedAttributeIds.has(value.id)}
+                                      onCheckedChange={() => toggleId(setSelectedAttributeIds, value.id)}
+                                      data-testid={`checkbox-bulk-attribute-${value.id}`}
+                                    />
+                                    {value.value}
+                                  </label>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-sm text-muted-foreground">No values match your search.</p>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
                   ))}
                 </CardContent>

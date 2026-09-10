@@ -152,6 +152,24 @@ describe("SearchAttributesPage bulk assignment", () => {
     expect(screen.getByText("1 attribute values · 1 resources selected")).toBeInTheDocument();
   });
 
+  it("filters bulk assignment attribute values by name", async () => {
+    const user = userEvent.setup();
+    renderBulkPage();
+
+    const searchInput = await screen.findByTestId("input-search-bulk-attribute-1");
+    await user.type(searchInput, "computer");
+
+    expect(screen.getByTestId("checkbox-bulk-attribute-10")).toBeInTheDocument();
+    expect(screen.queryByTestId("checkbox-bulk-attribute-11")).not.toBeInTheDocument();
+    expect(screen.getByText("Showing 1 of 1 active values")).toBeInTheDocument();
+
+    await user.clear(searchInput);
+    await user.type(searchInput, "does-not-exist");
+
+    expect(screen.getByText("No values match your search.")).toBeInTheDocument();
+    expect(screen.getByText("Showing 0 of 1 active values")).toBeInTheDocument();
+  });
+
   it("supports selecting all visible targets and submits both target types", async () => {
     const user = userEvent.setup();
     renderBulkPage();
