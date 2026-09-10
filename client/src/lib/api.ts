@@ -1751,8 +1751,20 @@ export interface UnallocatedCopyInfo {
 export interface AllocationResult {
   success: boolean;
   allocatedCount: number;
+  barcodeReadyCount: number;
   copies: BookCopy[];
 }
+
+export type CopyAllocationRequest = {
+  copyIds: number[];
+  libraryId: number;
+} & (
+  | { ssnMode: "GENERATE"; ssnPrefix: string }
+  | {
+      ssnMode: "SUPPLIED";
+      ssnAssignments: Array<{ copyId: number; ssn: string }>;
+    }
+);
 
 export const allocationsApi = {
   getUnallocated: async (): Promise<UnallocatedCopyInfo[]> => {
@@ -1761,12 +1773,7 @@ export const allocationsApi = {
     return res.json();
   },
 
-  allocate: async (data: {
-    copyIds: number[];
-    libraryId: number;
-    generateSSN: boolean;
-    ssnPrefix?: string;
-  }): Promise<AllocationResult> => {
+  allocate: async (data: CopyAllocationRequest): Promise<AllocationResult> => {
     const res = await fetch(`${API_BASE}/allocations/allocate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

@@ -44,6 +44,27 @@ const Z3950_RATE_LIMIT_WINDOW_MS = 60_000;
 const Z3950_RATE_LIMIT_MAX_REQUESTS = 30;
 const z3950RateLimits = new Map<number, { count: number; resetAt: number }>();
 
+const copyAllocationSchema = z.object({
+  copyIds: z.array(z.number().int().positive()).min(1).max(5000),
+  libraryId: z.number().int().positive(),
+  ssnMode: z.enum(["GENERATE", "SUPPLIED"]),
+  ssnPrefix: z.string().trim().min(1).max(50).optional(),
+  ssnAssignments: z.array(z.object({
+    copyId: z.number().int().positive(),
+    ssn: z.string().trim().min(1).max(200),
+  })).max(5000).optional(),
+}).superRefine((value, context) => {
+  if (new Set(value.copyIds).size !== value.copyIds.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "copyIds must not contain duplicates", path: ["copyIds"] });
+  }
+  if (value.ssnMode === "GENERATE" && !value.ssnPrefix) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "SSN prefix is required", path: ["ssnPrefix"] });
+  }
+  if (value.ssnMode === "SUPPLIED" && (!value.ssnAssignments || value.ssnAssignments.length === 0)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Supplied SSN assignments are required", path: ["ssnAssignments"] });
+  }
+});
+
 const z3950SearchSchema = z.object({
   query: z.string().trim().min(1).max(200).optional(),
   isbn: z.string().trim().min(1).max(200).optional(),
@@ -6915,45 +6936,101 @@ export async function registerRoutes(
 
   app.post("/api/allocations/allocate", async (req, res) => {
     try {
-      const { copyIds, libraryId, generateSSN, ssnPrefix } = req.body;
-      
-      if (!Array.isArray(copyIds) || copyIds.length === 0) {
-        return res.status(400).json({ error: "copyIds must be a non-empty array of copy IDs" });
-      }
-      
-      if (!libraryId || typeof libraryId !== 'number') {
-        return res.status(400).json({ error: "libraryId is required and must be a number" });
-      }
+      const validated = copyAllocationSchema.parse(req.body);
+      const { copyIds, libraryId, ssnMode, ssnPrefix } = validated;
       
       const library = await storage.getLibrary(libraryId);
       if (!library) {
         return res.status(404).json({ error: "Library not found" });
       }
-      
-      for (const copyId of copyIds) {
-        const copy = await storage.getBookCopy(copyId);
-        if (!copy) {
-          return res.status(400).json({ error: `Book copy with ID ${copyId} not found` });
-        }
+
+      const copies = await storage.getBookCopiesByIds(copyIds);
+      const copiesById = new Map(copies.map((copy) => [copy.id, copy]));
+      const missingCopyIds = copyIds.filter((copyId) => !copiesById.has(copyId));
+      if (missingCopyIds.length > 0) {
+        return res.status(400).json({ error: `Book copies not found: ${missingCopyIds.join(", ")}` });
+      }
+
+      for (const copy of copies) {
         if (copy.libraryId !== null) {
           return res.status(400).json({ error: `Book copy ${copy.barcode} is already allocated to a library` });
         }
       }
-      
+
+      let ssnOptions:
+        | { mode: "GENERATE"; prefix?: string }
+        | { mode: "SUPPLIED"; assignments: Array<{ copyId: number; ssn: string }> };
+      if (ssnMode === "SUPPLIED") {
+        const assignments = validated.ssnAssignments ?? [];
+        const assignmentCopyIds = assignments.map((assignment) => assignment.copyId);
+        if (
+          assignments.length !== copyIds.length
+          || new Set(assignmentCopyIds).size !== assignments.length
+          || assignmentCopyIds.some((copyId) => !copiesById.has(copyId))
+        ) {
+          return res.status(400).json({ error: "Supply exactly one SSN for every selected copy" });
+        }
+
+        const normalizedSsnKeys = assignments.map((assignment) => assignment.ssn.toLocaleLowerCase());
+        if (new Set(normalizedSsnKeys).size !== assignments.length) {
+          return res.status(400).json({ error: "Supplied SSNs must be unique within the allocation batch" });
+        }
+
+        const suppliedSsns = assignments.map((assignment) => assignment.ssn);
+        const existingIdentifierCopies = await storage.getBookCopiesByIdentifiers(suppliedSsns);
+        const assignedCopyBySsn = new Map(assignments.map((assignment) => [assignment.ssn.toLocaleLowerCase(), assignment.copyId]));
+        const conflict = existingIdentifierCopies.find((copy) => {
+          const matchedIdentifiers = [copy.barcode, copy.internalSSN, copy.userDefinedSSN]
+            .filter(Boolean)
+            .map((identifier) => identifier!.toLocaleLowerCase());
+          return matchedIdentifiers.some((identifier) => assignedCopyBySsn.has(identifier) && assignedCopyBySsn.get(identifier) !== copy.id);
+        });
+        if (conflict) {
+          const conflictingIdentifier = suppliedSsns.find((ssn) =>
+            ssn.toLocaleLowerCase() === conflict.barcode.toLocaleLowerCase()
+            || ssn.toLocaleLowerCase() === conflict.internalSSN?.toLocaleLowerCase()
+            || ssn.toLocaleLowerCase() === conflict.userDefinedSSN?.toLocaleLowerCase(),
+          );
+          return res.status(409).json({ error: `SSN "${conflictingIdentifier}" is already used by another copy` });
+        }
+
+        ssnOptions = { mode: "SUPPLIED", assignments };
+      } else {
+        ssnOptions = { mode: "GENERATE", prefix: ssnPrefix };
+      }
+
       const allocatedCopies = await storage.allocateCopies(
         copyIds,
         libraryId,
-        generateSSN === true,
-        ssnPrefix
+        ssnOptions,
       );
       
-      logAudit(req, { category: 'STAFF_ALLOCATION', action: 'STAFF_ALLOCATED', targetType: 'library', targetId: String(libraryId), details: { allocatedCount: allocatedCopies.length, copyIds, libraryName: library.name } });
+      logAudit(req, {
+        category: "INVENTORY",
+        action: "BOOK_COPIES_ALLOCATED",
+        targetType: "library",
+        targetId: String(libraryId),
+        details: {
+          allocatedCount: allocatedCopies.length,
+          copyIds,
+          libraryName: library.name,
+          ssnMode,
+          barcodeReadyCount: allocatedCopies.length,
+        },
+      });
       res.json({
         success: true,
         allocatedCount: allocatedCopies.length,
+        barcodeReadyCount: allocatedCopies.length,
         copies: allocatedCopies,
       });
     } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      if (error instanceof Error && error.message.startsWith("Allocation changed")) {
+        return res.status(409).json({ error: error.message });
+      }
       console.error("Error allocating copies:", error);
       res.status(500).json({ error: "Failed to allocate copies" });
     }

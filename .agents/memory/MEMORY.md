@@ -4,3 +4,4 @@
 - [ERP digital-resources search API](erp-digital-resources-search-api.md) — the /api/digital-resources endpoint is session-only; external ERP search needs the separate /api/erp/digital-resources/* pair.
 - [Radix Select in jsdom](jsdom-radix-select.md) — shared tests need pointer-capture and scrollIntoView compatibility methods for real Select interactions.
 - [Wouter search strings in jsdom](wouter-jsdom-search.md) — custom test routers need an explicit searchHook; ssrPath search is not used by client-side jsdom snapshots.
+- [Copy identity during SSN migration](copy-ssn-migration.md) — preserve imported library SSNs separately from system barcodes; barcode labels prefer the imported SSN.

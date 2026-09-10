@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Card,
   CardContent,
@@ -41,10 +42,14 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { Package, ChevronDown, ChevronRight, Library, Loader2, CheckCircle, AlertCircle, Hash } from "lucide-react";
+import { Package, ChevronDown, ChevronRight, Library, Loader2, CheckCircle, AlertCircle, Hash, Upload } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { allocationsApi, librariesApi, type UnallocatedCopyInfo } from "@/lib/api";
+import { parseMappedSsns, parseOrderedSsns } from "./allocation-ssn";
 import { toast } from "sonner";
+
+type SsnMode = "GENERATE" | "SUPPLIED";
+type SsnInputMethod = "ORDERED" | "MAPPED";
 
 export default function AllocationsPage() {
   const queryClient = useQueryClient();
@@ -52,7 +57,9 @@ export default function AllocationsPage() {
   const [selectedCopies, setSelectedCopies] = useState<Map<number, Set<number>>>(new Map());
   const [showAllocationDialog, setShowAllocationDialog] = useState(false);
   const [selectedLibraryId, setSelectedLibraryId] = useState<number | null>(null);
-  const [generateSSN, setGenerateSSN] = useState(true);
+  const [ssnMode, setSsnMode] = useState<SsnMode>("GENERATE");
+  const [ssnInputMethod, setSsnInputMethod] = useState<SsnInputMethod>("ORDERED");
+  const [ssnInput, setSsnInput] = useState("");
   const [ssnPrefix, setSsnPrefix] = useState("SSN");
 
   const { data: unallocatedBooks = [], isLoading: loadingUnallocated, refetch } = useQuery({
@@ -71,10 +78,11 @@ export default function AllocationsPage() {
     mutationFn: allocationsApi.allocate,
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["unallocated-copies"] });
-      toast.success(`Successfully allocated ${result.allocatedCount} copies`);
+      toast.success(`Allocated ${result.allocatedCount} copies; ${result.barcodeReadyCount} barcode labels ready`);
       setShowAllocationDialog(false);
       setSelectedCopies(new Map());
       setSelectedLibraryId(null);
+      setSsnInput("");
     },
     onError: (error: Error) => {
       toast.error(error.message);
@@ -136,6 +144,67 @@ export default function AllocationsPage() {
     return ids;
   };
 
+  const selectedCopyDetails = unallocatedBooks.flatMap((book) =>
+    book.copies
+      .filter((copy) => selectedCopies.get(book.bookId)?.has(copy.id))
+      .map((copy) => ({
+        id: copy.id,
+        barcode: copy.barcode,
+        bookTitle: book.bookTitle,
+      })),
+  );
+
+  const suppliedSsnValidation = (() => {
+    if (ssnMode !== "SUPPLIED") {
+      return { assignments: [] as Array<{ copyId: number; ssn: string }>, errors: [] as string[] };
+    }
+
+    const errors: string[] = [];
+    let assignments: Array<{ copyId: number; ssn: string }> = [];
+    if (ssnInputMethod === "ORDERED") {
+      const ssns = parseOrderedSsns(ssnInput);
+      if (ssns.length !== selectedCopyDetails.length) {
+        errors.push(`Enter exactly ${selectedCopyDetails.length} SSNs; ${ssns.length} provided.`);
+      }
+      assignments = selectedCopyDetails.slice(0, ssns.length).map((copy, index) => ({
+        copyId: copy.id,
+        ssn: ssns[index],
+      }));
+    } else {
+      const parsed = parseMappedSsns(ssnInput);
+      if (parsed.invalidLineNumbers.length > 0) {
+        errors.push(`Invalid barcode/SSN rows: ${parsed.invalidLineNumbers.join(", ")}.`);
+      }
+      const selectedByBarcode = new Map(selectedCopyDetails.map((copy) => [copy.barcode.toLocaleLowerCase(), copy]));
+      const seenBarcodes = new Set<string>();
+      for (const row of parsed.rows) {
+        const barcodeKey = row.barcode.toLocaleLowerCase();
+        if (seenBarcodes.has(barcodeKey)) {
+          errors.push(`System barcode "${row.barcode}" appears more than once.`);
+          continue;
+        }
+        seenBarcodes.add(barcodeKey);
+        const copy = selectedByBarcode.get(barcodeKey);
+        if (!copy) {
+          errors.push(`System barcode "${row.barcode}" is not one of the selected copies.`);
+          continue;
+        }
+        assignments.push({ copyId: copy.id, ssn: row.ssn });
+      }
+      const missingCount = selectedCopyDetails.filter((copy) => !seenBarcodes.has(copy.barcode.toLocaleLowerCase())).length;
+      if (missingCount > 0) errors.push(`${missingCount} selected copies do not have a mapped SSN.`);
+    }
+
+    const normalizedSsns = assignments.map((assignment) => assignment.ssn.toLocaleLowerCase());
+    if (new Set(normalizedSsns).size !== normalizedSsns.length) {
+      errors.push("Every supplied SSN must be unique.");
+    }
+    return { assignments, errors: Array.from(new Set(errors)) };
+  })();
+  const suppliedSsnByCopyId = new Map(
+    suppliedSsnValidation.assignments.map((assignment) => [assignment.copyId, assignment.ssn]),
+  );
+
   const handleAllocate = () => {
     if (!selectedLibraryId) {
       toast.error("Please select a library");
@@ -148,11 +217,21 @@ export default function AllocationsPage() {
       return;
     }
 
-    allocateMutation.mutate({
+    if (ssnMode === "SUPPLIED" && suppliedSsnValidation.errors.length > 0) {
+      toast.error(suppliedSsnValidation.errors[0]);
+      return;
+    }
+
+    allocateMutation.mutate(ssnMode === "GENERATE" ? {
       copyIds,
       libraryId: selectedLibraryId,
-      generateSSN,
-      ssnPrefix: generateSSN ? ssnPrefix : undefined,
+      ssnMode: "GENERATE",
+      ssnPrefix,
+    } : {
+      copyIds,
+      libraryId: selectedLibraryId,
+      ssnMode: "SUPPLIED",
+      ssnAssignments: suppliedSsnValidation.assignments,
     });
   };
 
@@ -322,12 +401,12 @@ export default function AllocationsPage() {
       )}
 
       <Dialog open={showAllocationDialog} onOpenChange={setShowAllocationDialog}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>Allocate Copies to Library</DialogTitle>
             <DialogDescription>
               You are about to allocate {selectedCount} copies to a library.
-              {generateSSN && " Internal SSNs will be generated for each physical copy."}
+              Choose whether to generate new Internal SSNs or preserve the library's existing SSNs.
             </DialogDescription>
           </DialogHeader>
           
@@ -360,26 +439,31 @@ export default function AllocationsPage() {
               )}
             </div>
 
-            <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label htmlFor="generate-ssn" className="flex items-center gap-2">
-                    <Hash className="h-4 w-4" />
-                    Generate Internal SSNs
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    Create unique serial numbers for physical copies to track circulation.
-                  </p>
-                </div>
-                <Switch
-                  id="generate-ssn"
-                  checked={generateSSN}
-                  onCheckedChange={setGenerateSSN}
-                  data-testid="switch-generate-ssn"
-                />
-              </div>
-              
-              {generateSSN && (
+            <div className="space-y-4 rounded-lg border bg-muted/30 p-4">
+              <RadioGroup value={ssnMode} onValueChange={(value) => setSsnMode(value as SsnMode)}>
+                <label className="flex cursor-pointer items-start gap-3 rounded-md border bg-background p-3">
+                  <RadioGroupItem value="GENERATE" data-testid="radio-ssn-generate" />
+                  <span>
+                    <span className="flex items-center gap-2 text-sm font-medium">
+                      <Hash className="h-4 w-4" /> Generate new Internal SSNs
+                    </span>
+                    <span className="mt-1 block text-xs text-muted-foreground">
+                      Create unique system SSNs for all selected copies.
+                    </span>
+                  </span>
+                </label>
+                <label className="flex cursor-pointer items-start gap-3 rounded-md border bg-background p-3">
+                  <RadioGroupItem value="SUPPLIED" data-testid="radio-ssn-supplied" />
+                  <span>
+                    <span className="text-sm font-medium">Use the library's existing SSNs</span>
+                    <span className="mt-1 block text-xs text-muted-foreground">
+                      Preserve original SSNs and prepare barcode labels that encode them.
+                    </span>
+                  </span>
+                </label>
+              </RadioGroup>
+
+              {ssnMode === "GENERATE" ? (
                 <div className="space-y-2">
                   <Label htmlFor="ssn-prefix">SSN Prefix</Label>
                   <Input
@@ -394,6 +478,92 @@ export default function AllocationsPage() {
                     Example SSN: {ssnPrefix}-{Date.now()}-0001
                   </p>
                 </div>
+              ) : (
+                <div className="space-y-4">
+                  <RadioGroup
+                    value={ssnInputMethod}
+                    onValueChange={(value) => {
+                      setSsnInputMethod(value as SsnInputMethod);
+                      setSsnInput("");
+                    }}
+                    className="grid sm:grid-cols-2"
+                  >
+                    <label className="flex cursor-pointer items-start gap-2 rounded-md border bg-background p-3">
+                      <RadioGroupItem value="ORDERED" data-testid="radio-ssn-ordered" />
+                      <span>
+                        <span className="block text-sm font-medium">One SSN per line</span>
+                        <span className="block text-xs text-muted-foreground">Assigned in the displayed copy order.</span>
+                      </span>
+                    </label>
+                    <label className="flex cursor-pointer items-start gap-2 rounded-md border bg-background p-3">
+                      <RadioGroupItem value="MAPPED" data-testid="radio-ssn-mapped" />
+                      <span>
+                        <span className="block text-sm font-medium">Map barcode to SSN</span>
+                        <span className="block text-xs text-muted-foreground">CSV or tab-separated pairs; safest for migration.</span>
+                      </span>
+                    </label>
+                  </RadioGroup>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <Label htmlFor="supplied-ssns">
+                        {ssnInputMethod === "ORDERED" ? "Original SSNs" : "System barcode and original SSN"}
+                      </Label>
+                      <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-medium text-primary">
+                        <Upload className="h-3.5 w-3.5" />
+                        Load CSV/TXT
+                        <input
+                          type="file"
+                          accept=".csv,.txt,text/csv,text/plain"
+                          className="sr-only"
+                          onChange={async (event) => {
+                            const file = event.target.files?.[0];
+                            if (file) setSsnInput(await file.text());
+                            event.target.value = "";
+                          }}
+                          data-testid="input-ssn-file"
+                        />
+                      </label>
+                    </div>
+                    <Textarea
+                      id="supplied-ssns"
+                      rows={9}
+                      value={ssnInput}
+                      onChange={(event) => setSsnInput(event.target.value)}
+                      placeholder={ssnInputMethod === "ORDERED"
+                        ? "LIB-00001\nLIB-00002\nLIB-00003"
+                        : "barcode,ssn\nBC-101,LIB-00001\nBC-102,LIB-00002"}
+                      className="font-mono text-xs"
+                      data-testid="textarea-supplied-ssns"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {suppliedSsnValidation.assignments.length} of {selectedCount} copies mapped.
+                      Barcode labels will use the supplied SSNs after allocation.
+                    </p>
+                    {suppliedSsnValidation.errors.length > 0 && ssnInput.trim() && (
+                      <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
+                        {suppliedSsnValidation.errors.slice(0, 4).map((error) => <p key={error}>{error}</p>)}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="max-h-36 overflow-y-auto rounded-md border bg-background">
+                    {selectedCopyDetails.slice(0, 100).map((copy, index) => (
+                      <div key={copy.id} className="grid grid-cols-[2rem_minmax(0,1fr)_minmax(0,1fr)] gap-2 border-b px-3 py-2 text-xs last:border-b-0">
+                        <span className="text-muted-foreground">{index + 1}.</span>
+                        <span className="truncate font-mono">{copy.barcode}</span>
+                        <span className="truncate">
+                          {suppliedSsnByCopyId.get(copy.id) || "Not mapped"}
+                        </span>
+                      </div>
+                    ))}
+                    {selectedCopyDetails.length > 100 && (
+                      <p className="px-3 py-2 text-xs text-muted-foreground">
+                        Previewing the first 100 of {selectedCopyDetails.length} selected copies.
+                      </p>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
           </div>
@@ -404,7 +574,11 @@ export default function AllocationsPage() {
             </Button>
             <Button 
               onClick={handleAllocate} 
-              disabled={!selectedLibraryId || allocateMutation.isPending}
+              disabled={
+                !selectedLibraryId
+                || allocateMutation.isPending
+                || (ssnMode === "GENERATE" ? !ssnPrefix.trim() : suppliedSsnValidation.errors.length > 0)
+              }
               data-testid="button-confirm-allocate"
             >
               {allocateMutation.isPending ? (

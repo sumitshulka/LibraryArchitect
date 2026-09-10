@@ -315,6 +315,8 @@ export interface IStorage {
   getBookCopy(id: number): Promise<BookCopy | undefined>;
   getBookCopyByBarcode(barcode: string): Promise<BookCopy | undefined>;
   getBookCopyByIdentifier(identifier: string): Promise<BookCopy | undefined>;
+  getBookCopiesByIds(ids: number[]): Promise<BookCopy[]>;
+  getBookCopiesByIdentifiers(identifiers: string[]): Promise<BookCopy[]>;
   createBookCopy(bookCopy: InsertBookCopy): Promise<BookCopy>;
   createBookCopies(bookId: number, quantity: number, shelfLocation?: string, acquisitionDate?: Date, acquisitionSource?: string, price?: number): Promise<BookCopy[]>;
   updateBookCopy(id: number, bookCopy: Partial<InsertBookCopy>): Promise<BookCopy | undefined>;
@@ -329,7 +331,7 @@ export interface IStorage {
   getUnallocatedCopies(): Promise<BookCopy[]>;
   getUnallocatedCopiesWithBookInfo(): Promise<UnallocatedCopyInfo[]>;
   getAvailableCopiesByLibrary(libraryId: number): Promise<BookCopy[]>;
-  allocateCopies(copyIds: number[], libraryId: number, generateSSN: boolean, ssnPrefix?: string): Promise<BookCopy[]>;
+  allocateCopies(copyIds: number[], libraryId: number, ssnOptions: CopyAllocationSsnOptions): Promise<BookCopy[]>;
   
   // Book Transfers
   getBookTransfer(id: number): Promise<BookTransfer | undefined>;
@@ -488,6 +490,10 @@ export interface UnallocatedCopyInfo {
     createdAt: Date;
   }[];
 }
+
+export type CopyAllocationSsnOptions =
+  | { mode: "GENERATE"; prefix?: string }
+  | { mode: "SUPPLIED"; assignments: Array<{ copyId: number; ssn: string }> };
 
 export interface LibraryResourceStats {
   bookId: number;
@@ -1220,6 +1226,23 @@ export class DBStorage implements IStorage {
     return bookCopy;
   }
 
+  async getBookCopiesByIds(ids: number[]): Promise<BookCopy[]> {
+    if (ids.length === 0) return [];
+    return await db.select().from(bookCopies).where(inArray(bookCopies.id, ids));
+  }
+
+  async getBookCopiesByIdentifiers(identifiers: string[]): Promise<BookCopy[]> {
+    if (identifiers.length === 0) return [];
+    const normalizedIdentifiers = identifiers.map((identifier) => identifier.toLocaleLowerCase());
+    return await db.select().from(bookCopies).where(
+      or(
+        inArray(sql`lower(${bookCopies.barcode})`, normalizedIdentifiers),
+        inArray(sql`lower(${bookCopies.internalSSN})`, normalizedIdentifiers),
+        inArray(sql`lower(${bookCopies.userDefinedSSN})`, normalizedIdentifiers),
+      ),
+    );
+  }
+
   async createBookCopy(insertBookCopy: InsertBookCopy): Promise<BookCopy> {
     const [bookCopy] = await db.insert(bookCopies).values(insertBookCopy).returning();
     return bookCopy;
@@ -1406,43 +1429,82 @@ export class DBStorage implements IStorage {
     return Array.from(grouped.values());
   }
 
-  async allocateCopies(copyIds: number[], libraryId: number, generateSSN: boolean, ssnPrefix?: string): Promise<BookCopy[]> {
-    const allocatedCopies: BookCopy[] = [];
-    const prefix = ssnPrefix || 'SSN';
+  async allocateCopies(copyIds: number[], libraryId: number, ssnOptions: CopyAllocationSsnOptions): Promise<BookCopy[]> {
+    const prefix = ssnOptions.mode === "GENERATE" ? ssnOptions.prefix || "SSN" : "SSN";
     const batchTimestamp = Date.now();
     const randomSuffix = Math.random().toString(36).substring(2, 8).toUpperCase();
-    
-    for (let i = 0; i < copyIds.length; i++) {
-      const copyId = copyIds[i];
-      
-      const existingCopy = await db.select().from(bookCopies).where(eq(bookCopies.id, copyId));
-      if (!existingCopy[0] || existingCopy[0].libraryId !== null) {
-        throw new Error(`Copy ${copyId} is already allocated or not found`);
-      }
-      
-      const updates: any = {
-        libraryId,
-        allocatedAt: new Date(),
-        updatedAt: new Date(),
-      };
-      
-      if (generateSSN && !existingCopy[0].internalSSN) {
-        updates.internalSSN = `${prefix}-${batchTimestamp}-${randomSuffix}-${String(i + 1).padStart(4, '0')}`;
-      }
-      
-      const [updatedCopy] = await db.update(bookCopies)
-        .set(updates)
-        .where(and(eq(bookCopies.id, copyId), isNull(bookCopies.libraryId)))
-        .returning();
-      
-      if (!updatedCopy) {
-        throw new Error(`Failed to allocate copy ${copyId} - may have been allocated by another process`);
-      }
-      
-      allocatedCopies.push(updatedCopy);
+    const suppliedByCopyId = new Map(
+      ssnOptions.mode === "SUPPLIED"
+        ? ssnOptions.assignments.map((assignment) => [assignment.copyId, assignment.ssn])
+        : [],
+    );
+    const requestedRows = copyIds.map((copyId, index) => {
+      const internalSSN = ssnOptions.mode === "GENERATE"
+        ? `${prefix}-${batchTimestamp}-${randomSuffix}-${String(index + 1).padStart(4, "0")}`
+        : null;
+      const userDefinedSSN = ssnOptions.mode === "SUPPLIED"
+        ? suppliedByCopyId.get(copyId) ?? null
+        : null;
+      return sql`(
+        ${copyId},
+        ${internalSSN === null ? sql`NULL` : internalSSN}::text,
+        ${userDefinedSSN === null ? sql`NULL` : userDefinedSSN}::text
+      )`;
+    });
+
+    const result = await db.execute<{ updatedCount: number }>(sql`
+      WITH requested(copy_id, internal_ssn, user_defined_ssn) AS (
+        VALUES ${sql.join(requestedRows, sql`, `)}
+      ),
+      eligible AS (
+        SELECT bc.id
+        FROM book_copies bc
+        INNER JOIN requested r ON r.copy_id = bc.id
+        WHERE bc.library_id IS NULL
+      ),
+      updated AS (
+        UPDATE book_copies bc
+        SET
+          library_id = ${libraryId},
+          allocated_at = NOW(),
+          updated_at = NOW(),
+          internal_ssn = CASE
+            WHEN bc.internal_ssn IS NULL THEN r.internal_ssn
+            ELSE bc.internal_ssn
+          END,
+          user_defined_ssn = CASE
+            WHEN r.user_defined_ssn IS NOT NULL THEN r.user_defined_ssn
+            ELSE bc.user_defined_ssn
+          END
+        FROM requested r
+        WHERE bc.id = r.copy_id
+          AND bc.library_id IS NULL
+          AND (SELECT COUNT(*) FROM eligible) = ${copyIds.length}
+          AND NOT EXISTS (
+            SELECT 1
+            FROM book_copies existing
+            INNER JOIN requested requested_identifier
+              ON requested_identifier.user_defined_ssn IS NOT NULL
+              AND (
+                lower(existing.barcode) = lower(requested_identifier.user_defined_ssn)
+                OR lower(existing.internal_ssn) = lower(requested_identifier.user_defined_ssn)
+                OR lower(existing.user_defined_ssn) = lower(requested_identifier.user_defined_ssn)
+              )
+            WHERE existing.id <> requested_identifier.copy_id
+          )
+        RETURNING bc.id
+      )
+      SELECT COUNT(*)::int AS "updatedCount" FROM updated
+    `);
+
+    const updatedCount = Number(result.rows[0]?.updatedCount ?? 0);
+    if (updatedCount !== copyIds.length) {
+      throw new Error("Allocation changed while it was being processed; no copies were allocated");
     }
-    
-    return allocatedCopies;
+
+    const allocatedCopies = await this.getBookCopiesByIds(copyIds);
+    const copyOrder = new Map(copyIds.map((id, index) => [id, index]));
+    return allocatedCopies.sort((a, b) => (copyOrder.get(a.id) ?? 0) - (copyOrder.get(b.id) ?? 0));
   }
 
   async getAvailableCopiesByLibrary(libraryId: number): Promise<BookCopy[]> {
