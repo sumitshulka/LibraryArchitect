@@ -7552,6 +7552,72 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/search-attributes/bulk-assign", async (req, res) => {
+    try {
+      const arrayOfPositiveIntegers = z.array(z.number().int().positive()).min(1);
+      const targetIds = z.array(z.number().int().positive());
+      const validated = z.object({
+        attributeValueIds: arrayOfPositiveIntegers,
+        bookIds: targetIds,
+        digitalResourceIds: targetIds,
+      }).parse(req.body);
+
+      if (validated.bookIds.length === 0 && validated.digitalResourceIds.length === 0) {
+        return res.status(400).json({ error: "Select at least one book or digital resource" });
+      }
+
+      const attributeValueIds = Array.from(new Set(validated.attributeValueIds));
+      const bookIds = Array.from(new Set(validated.bookIds));
+      const digitalResourceIds = Array.from(new Set(validated.digitalResourceIds));
+
+      const attributeValues = await Promise.all(
+        attributeValueIds.map((id) => storage.getSearchAttributeValue(id)),
+      );
+      if (attributeValues.some((value) => !value)) {
+        return res.status(400).json({ error: "One or more search attribute values were not found" });
+      }
+
+      const [books, digitalResources] = await Promise.all([
+        Promise.all(bookIds.map((id) => storage.getBook(id))),
+        Promise.all(digitalResourceIds.map((id) => storage.getDigitalResource(id))),
+      ]);
+      if (books.some((book) => !book)) {
+        return res.status(400).json({ error: "One or more books were not found" });
+      }
+      if (digitalResources.some((resource) => !resource)) {
+        return res.status(400).json({ error: "One or more digital resources were not found" });
+      }
+
+      await Promise.all([
+        ...bookIds.map((bookId) => storage.setResourceSearchAttributes(bookId, attributeValueIds)),
+        ...digitalResourceIds.map((resourceId) => storage.setDigitalResourceSearchAttributes(resourceId, attributeValueIds)),
+      ]);
+
+      logAudit(req, {
+        category: "CATALOG",
+        action: "SEARCH_ATTRS_BULK_ASSIGNED",
+        targetType: "resources",
+        targetId: `${bookIds.length} books, ${digitalResourceIds.length} digital resources`,
+        details: {
+          attributeValueIds,
+          booksUpdated: bookIds.length,
+          digitalResourcesUpdated: digitalResourceIds.length,
+        },
+      });
+
+      res.json({
+        booksUpdated: bookIds.length,
+        digitalResourcesUpdated: digitalResourceIds.length,
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error bulk assigning search attributes:", error);
+      res.status(500).json({ error: "Failed to assign search attributes" });
+    }
+  });
+
   // Resource Search Attribute Assignments
   app.get("/api/books/:bookId/search-attributes", async (req, res) => {
     try {

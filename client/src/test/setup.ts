@@ -19,3 +19,12 @@ if (typeof Element !== "undefined") {
     value: () => {},
   });
 }
+
+if (typeof ResizeObserver === "undefined") {
+  class ResizeObserverMock {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  globalThis.ResizeObserver = ResizeObserverMock as typeof ResizeObserver;
+}

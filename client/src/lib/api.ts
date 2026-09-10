@@ -1894,6 +1894,17 @@ export interface DigitalResourceSearchAttribute {
   attributeTypeId: number;
 }
 
+export interface BulkSearchAttributeAssignment {
+  attributeValueIds: number[];
+  bookIds: number[];
+  digitalResourceIds: number[];
+}
+
+export interface BulkSearchAttributeAssignmentResult {
+  booksUpdated: number;
+  digitalResourcesUpdated: number;
+}
+
 export const searchAttributesApi = {
   getTypes: async (): Promise<SearchAttributeType[]> => {
     const res = await fetch(`${API_BASE}/search-attributes/types`);
@@ -1986,6 +1997,19 @@ export const searchAttributesApi = {
       body: JSON.stringify({ attributeValueIds }),
     });
     if (!res.ok) throw new Error("Failed to update digital resource search attributes");
+    return res.json();
+  },
+
+  bulkAssign: async (data: BulkSearchAttributeAssignment): Promise<BulkSearchAttributeAssignmentResult> => {
+    const res = await fetch(`${API_BASE}/search-attributes/bulk-assign`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || "Failed to assign search attributes");
+    }
     return res.json();
   },
 };
