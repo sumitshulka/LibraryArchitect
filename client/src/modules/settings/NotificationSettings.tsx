@@ -29,6 +29,8 @@ type Route = {
   enabled: boolean;
   templateId?: string;
   language?: string;
+  subject?: string;
+  bodyTemplate?: string;
   valueKeys: string[];
   allowOverride: boolean;
 };
@@ -233,12 +235,18 @@ export function NotificationSettings() {
                   {notificationEvent.routes.map((route) => (
                     <div key={route.channel} className="grid gap-3 rounded-md border p-3 md:grid-cols-[auto_1fr_1fr_1fr_auto] md:items-end">
                       <div className="flex items-center gap-2 pb-2 text-sm font-medium">{channelIcon(route.channel)} {route.channel}</div>
-                      <div className="grid gap-1"><Label className="text-xs">Provider</Label><Select value={route.providerId || "none"} onValueChange={(value) => updateRoute(event.id, route.channel, { providerId: value === "none" ? "" : value })}><SelectTrigger><SelectValue placeholder="Not configured" /></SelectTrigger><SelectContent><SelectItem value="none">Not configured</SelectItem>{providers.filter((provider) => provider.channel === route.channel).map((provider) => <SelectItem key={provider.id} value={provider.id}>{provider.name || provider.provider}</SelectItem>)}</SelectContent></Select></div>
+                      <div className="grid gap-1"><Label className="text-xs">Provider</Label><Select value={route.providerId || "none"} onValueChange={(value) => updateRoute(notificationEvent.id, route.channel, { providerId: value === "none" ? "" : value })}><SelectTrigger><SelectValue placeholder="Not configured" /></SelectTrigger><SelectContent><SelectItem value="none">Not configured</SelectItem>{providers.filter((provider) => provider.channel === route.channel).map((provider) => <SelectItem key={provider.id} value={provider.id}>{provider.name || provider.provider}</SelectItem>)}</SelectContent></Select></div>
                       <div className="grid gap-1"><Label className="text-xs">Provider template ID</Label><Input value={route.templateId || ""} onChange={(inputEvent) => updateRoute(notificationEvent.id, route.channel, { templateId: inputEvent.target.value })} placeholder={route.channel === "EMAIL" ? "Optional application template" : "Required by provider"} /></div>
                       <div className="grid gap-1"><Label className="text-xs">Value keys</Label><Input value={route.valueKeys.join(", ")} onChange={(inputEvent) => updateRoute(notificationEvent.id, route.channel, { valueKeys: inputEvent.target.value.split(",").map((value) => value.trim()).filter(Boolean) })} placeholder="firstName, setupLink" /></div>
                       <div className="flex items-center gap-2 pb-2"><Switch checked={route.enabled} onCheckedChange={(enabled) => updateRoute(notificationEvent.id, route.channel, { enabled })} /><span className="text-xs">Active</span></div>
                       <div className="grid gap-1 md:col-start-2"><Label className="text-xs">Language</Label><Input value={route.language || ""} onChange={(inputEvent) => updateRoute(notificationEvent.id, route.channel, { language: inputEvent.target.value })} placeholder={route.channel === "WHATSAPP" ? "en_US" : "en"} /></div>
                       <div className="flex items-center gap-2 pb-2 md:col-span-2"><Switch checked={route.allowOverride} onCheckedChange={(allowOverride) => updateRoute(notificationEvent.id, route.channel, { allowOverride })} /><span className="text-xs">Allow admin per-send override</span></div>
+                      {route.channel === "EMAIL" && (
+                        <>
+                          <div className="grid gap-1 md:col-start-2"><Label className="text-xs">Subject template</Label><Input value={route.subject || ""} onChange={(inputEvent) => updateRoute(notificationEvent.id, route.channel, { subject: inputEvent.target.value })} placeholder="Your account setup link" /></div>
+                          <div className="grid gap-1 md:col-span-3"><Label className="text-xs">HTML/body template</Label><Textarea value={route.bodyTemplate || ""} onChange={(inputEvent) => updateRoute(notificationEvent.id, route.channel, { bodyTemplate: inputEvent.target.value })} placeholder="Hello {{firstName}}, use {{setupLink}} to set your password." className="font-mono text-xs" /></div>
+                        </>
+                      )}
                     </div>
                   ))}
                 </CardContent>

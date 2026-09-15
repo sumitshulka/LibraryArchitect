@@ -39,6 +39,7 @@ import { registerErpExtraRoutes } from "./erp-extra";
 import { registerDigitalResourceRoutes } from "./digital-resources";
 import { registerLostDamagedRoutes } from "./lost-damaged";
 import { loadNotificationSetup, saveNotificationSetup, toPublicNotificationSetup, type NotificationSetup } from "./notification-setup";
+import { emitNotification } from "./notification-service";
 
 const MAX_WHITELIST_ENTRIES = 5;
 const Z3950_RATE_LIMIT_WINDOW_MS = 60_000;
@@ -3159,7 +3160,12 @@ export async function registerRoutes(
       const currentUser = await requireLocalAdmin(req, res);
       if (!currentUser) return;
       const configs = await storage.getAllSystemConfig();
-      res.json(configs);
+      res.json(configs.map((config) => ({
+        ...config,
+        value: /pass|token|secret|private.?key|client.?secret/i.test(config.key)
+          ? "••••••••"
+          : config.value,
+      })));
     } catch (error) {
       console.error("Error fetching config:", error);
       res.status(500).json({ error: "Failed to fetch configuration" });
@@ -3173,8 +3179,9 @@ export async function registerRoutes(
       const validated = insertSystemConfigSchema.parse(req.body);
       const config = await storage.setSystemConfig(validated);
       if (validated.key === CIRCULATION_POLICY_KEY) invalidateCirculationPolicyCache();
-      logAudit(req, { category: 'SYSTEM_CONFIG', action: 'CONFIG_UPDATED', userId: currentUser.id, userName: currentUser.name, targetType: 'config', targetId: validated.key, details: { key: validated.key, value: validated.value } });
-      res.json(config);
+      const isSensitive = /pass|token|secret|private.?key|client.?secret/i.test(validated.key);
+      logAudit(req, { category: 'SYSTEM_CONFIG', action: 'CONFIG_UPDATED', userId: currentUser.id, userName: currentUser.name, targetType: 'config', targetId: validated.key, details: { key: validated.key, value: isSensitive ? "[REDACTED]" : validated.value } });
+      res.json(isSensitive ? { ...config, value: "••••••••" } : config);
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: fromZodError(error).toString() });
@@ -8126,6 +8133,8 @@ export async function registerRoutes(
     enabled: z.boolean(),
     templateId: z.string().max(200).optional(),
     language: z.string().max(50).optional(),
+    subject: z.string().max(300).optional(),
+    bodyTemplate: z.string().max(10000).optional(),
     valueKeys: z.array(z.string().max(100)).max(50),
     allowOverride: z.boolean(),
   });
@@ -8193,6 +8202,37 @@ export async function registerRoutes(
       }
       console.error("Error saving notification setup:", error);
       res.status(500).json({ error: "Failed to save notification setup" });
+    }
+  });
+
+  app.post("/api/notifications/test", async (req, res) => {
+    try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+      const validated = z.object({
+        eventId: z.string().min(1).max(100),
+        channel: z.enum(["EMAIL", "WHATSAPP", "SMS"]).optional(),
+        providerId: z.string().max(100).optional(),
+        recipient: z.string().min(1).max(320),
+        values: z.record(z.string(), z.union([z.string(), z.number()])),
+        templateIdOverride: z.string().max(200).optional(),
+      }).parse(req.body);
+      const attempts = await emitNotification(storage, validated);
+      await logAudit(req, {
+        userId: currentUser.id,
+        userName: currentUser.username,
+        action: "Notification test sent",
+        category: "SYSTEM_CONFIG",
+        status: attempts.some((attempt) => attempt.status === "SENT") ? "SUCCESS" : "FAILURE",
+        details: { eventId: validated.eventId, channel: validated.channel, providerId: validated.providerId, attempts },
+      });
+      res.json({ success: attempts.some((attempt) => attempt.status === "SENT"), attempts });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).message });
+      }
+      console.error("Error sending notification test:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to send notification test" });
     }
   });
 

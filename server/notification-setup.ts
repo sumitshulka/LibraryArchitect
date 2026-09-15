@@ -19,6 +19,8 @@ export interface NotificationRoute {
   enabled: boolean;
   templateId?: string;
   language?: string;
+  subject?: string;
+  bodyTemplate?: string;
   valueKeys: string[];
   allowOverride: boolean;
 }
@@ -52,7 +54,7 @@ export const NOTIFICATION_EVENT_CATALOG: Omit<NotificationEvent, "routes">[] = [
 ];
 
 const DEFAULT_ROUTES: NotificationRoute[] = [
-  { channel: "EMAIL", providerId: "", enabled: false, templateId: "", language: "en", valueKeys: [], allowOverride: true },
+  { channel: "EMAIL", providerId: "", enabled: false, templateId: "", language: "en", subject: "", bodyTemplate: "", valueKeys: [], allowOverride: true },
   { channel: "WHATSAPP", providerId: "", enabled: false, templateId: "", language: "en_US", valueKeys: [], allowOverride: true },
   { channel: "SMS", providerId: "", enabled: false, templateId: "", language: "", valueKeys: [], allowOverride: true },
 ];

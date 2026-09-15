@@ -61,6 +61,7 @@ import { useAuth } from "@/lib/auth";
 import { circulationPolicyApi, fineCalculationModeApi, type CirculationPolicy, type FineCalculationMode } from "@/lib/api";
 import { PolicyChangeDialog, PolicyHistoryList } from "@/components/PolicyChangeDialog";
 import { Z3950Search } from "@/modules/catalog/Z3950Search";
+import { NotificationSettings } from "./NotificationSettings";
 
 const SETTINGS_SECTIONS = [
   "general",
@@ -3870,6 +3871,7 @@ export default function SettingsPage() {
 
             <TabsContent value="notifications" className="mt-0 space-y-6">
               <EmailProviderSettings />
+              <NotificationSettings />
               <Card>
                 <CardHeader>
                   <CardTitle>Email Notifications</CardTitle>
