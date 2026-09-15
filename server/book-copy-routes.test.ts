@@ -17,11 +17,15 @@ const { storageMock } = vi.hoisted(() => {
   return { storageMock: storage as Record<string, ReturnType<typeof vi.fn>> };
 });
 
+const { logAuditMock } = vi.hoisted(() => ({
+  logAuditMock: vi.fn(),
+}));
+
 vi.mock("./storage", () => ({ storage: storageMock }));
 vi.mock("./audit", () => ({
   getClientInfo: vi.fn(),
   invalidateAuditConfigCache: vi.fn(),
-  logAudit: vi.fn(),
+  logAudit: logAuditMock,
 }));
 vi.mock("./fines", () => ({
   CIRCULATION_POLICY_KEY: "circulation_policy",
@@ -179,6 +183,79 @@ describe("book copy identifier validation", () => {
     } else {
       expect(storageMock.updateBookCopy).not.toHaveBeenCalled();
     }
+  });
+
+  it("records the local administrator and returns nullable values in remediation history", async () => {
+    currentUser = localAdmin;
+    const timestamp = new Date("2026-09-15T09:30:00.000Z");
+    storageMock.queryAuditLogs.mockResolvedValue({
+      total: 1,
+      logs: [{
+        id: 777,
+        userId: localAdmin.id,
+        userName: localAdmin.name,
+        targetId: String(copy.id),
+        details: {
+          field: "userDefinedSSN",
+          previousValue: copy.userDefinedSSN,
+          replacement: null,
+        },
+        timestamp,
+      }],
+    });
+
+    const remediationResponse = await request(
+      "/api/book-copy-identifiers/remediate",
+      "POST",
+      {
+        copyId: copy.id,
+        field: "userDefinedSSN",
+        expectedValue: copy.userDefinedSSN,
+        replacement: null,
+      },
+      true,
+    );
+
+    expect(remediationResponse.status).toBe(200);
+    expect(logAuditMock).toHaveBeenCalledWith(expect.anything(), {
+      category: "CATALOG",
+      action: "BOOK_COPY_IDENTIFIER_REMEDIATED",
+      userId: localAdmin.id,
+      userName: localAdmin.name,
+      targetType: "book_copy",
+      targetId: String(copy.id),
+      details: {
+        field: "userDefinedSSN",
+        previousValue: copy.userDefinedSSN,
+        replacement: null,
+      },
+    });
+
+    const historyResponse = await request(
+      "/api/book-copy-identifiers/remediation-history",
+      "GET",
+      undefined,
+      true,
+    );
+
+    expect(historyResponse.status).toBe(200);
+    expect(await historyResponse.json()).toEqual({
+      events: [{
+        id: 777,
+        copyId: copy.id,
+        field: "userDefinedSSN",
+        previousValue: copy.userDefinedSSN,
+        replacement: null,
+        actor: localAdmin.name,
+        actorId: localAdmin.id,
+        timestamp: timestamp.toISOString(),
+      }],
+    });
+    expect(storageMock.queryAuditLogs).toHaveBeenCalledWith({
+      category: "CATALOG",
+      action: "BOOK_COPY_IDENTIFIER_REMEDIATED",
+      limit: 50,
+    });
   });
 
   it("allows an edit that retains the same copy's identifier", async () => {
