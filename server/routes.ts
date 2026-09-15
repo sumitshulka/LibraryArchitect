@@ -42,7 +42,7 @@ import { registerErpExtraRoutes } from "./erp-extra";
 import { registerDigitalResourceRoutes } from "./digital-resources";
 import { registerLostDamagedRoutes } from "./lost-damaged";
 import { loadNotificationSetup, saveNotificationSetup, toPublicNotificationSetup, type NotificationSetup } from "./notification-setup";
-import { emitNotification, type NotificationAttempt } from "./notification-service";
+import { emitNotification, retryNotificationAttempt, type NotificationAttempt } from "./notification-service";
 
 const MAX_WHITELIST_ENTRIES = 5;
 const Z3950_RATE_LIMIT_WINDOW_MS = 60_000;
@@ -8753,7 +8753,12 @@ export async function registerRoutes(
         action: "Notification test sent",
         category: "SYSTEM_CONFIG",
         status: attempts.some((attempt) => attempt.status === "SENT") ? "SUCCESS" : "FAILURE",
-        details: { eventId: validated.eventId, channel: validated.channel, providerId: validated.providerId, attempts },
+        details: {
+          eventId: validated.eventId,
+          channel: validated.channel,
+          providerId: validated.providerId,
+          statuses: attempts.map((attempt) => ({ channel: attempt.channel, providerId: attempt.providerId, status: attempt.status })),
+        },
       });
       res.json({ success: attempts.some((attempt) => attempt.status === "SENT"), attempts });
     } catch (error) {
@@ -8762,6 +8767,57 @@ export async function registerRoutes(
       }
       console.error("Error sending notification test:", error);
       res.status(400).json({ error: error instanceof Error ? error.message : "Failed to send notification test" });
+    }
+  });
+
+  app.get("/api/notifications/history", async (req, res) => {
+    try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+      const parseDate = (value: unknown, endOfDay = false) => {
+        if (typeof value !== "string" || !value) return undefined;
+        const date = new Date(`${value}${endOfDay ? "T23:59:59.999Z" : "T00:00:00.000Z"}`);
+        return Number.isNaN(date.getTime()) ? undefined : date;
+      };
+      const filters = {
+        eventId: typeof req.query.eventId === "string" && req.query.eventId !== "ALL" ? req.query.eventId : undefined,
+        channel: typeof req.query.channel === "string" && req.query.channel !== "ALL" ? req.query.channel as "EMAIL" | "WHATSAPP" | "SMS" : undefined,
+        providerId: typeof req.query.providerId === "string" && req.query.providerId !== "ALL" ? req.query.providerId : undefined,
+        status: typeof req.query.status === "string" && req.query.status !== "ALL" ? req.query.status as "SENT" | "FAILED" : undefined,
+        startDate: parseDate(req.query.startDate),
+        endDate: parseDate(req.query.endDate, true),
+        limit: Math.min(Math.max(Number(req.query.limit) || 50, 1), 100),
+        offset: Math.max(Number(req.query.offset) || 0, 0),
+      };
+      const history = await storage.getNotificationDeliveryHistory(filters);
+      res.json(history);
+    } catch (error) {
+      console.error("Error loading notification delivery history");
+      res.status(500).json({ error: "Failed to load notification delivery history" });
+    }
+  });
+
+  app.post("/api/notifications/history/:attemptId/retry", async (req, res) => {
+    try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+      const attemptId = Number(req.params.attemptId);
+      if (!Number.isInteger(attemptId) || attemptId <= 0) {
+        return res.status(400).json({ error: "Invalid notification attempt ID" });
+      }
+      const attempt = await retryNotificationAttempt(storage, attemptId);
+      await logAudit(req, {
+        userId: currentUser.id,
+        userName: currentUser.username,
+        action: "Notification delivery retried",
+        category: "SYSTEM_CONFIG",
+        status: attempt.status === "SENT" ? "SUCCESS" : "FAILURE",
+        details: { attemptId, channel: attempt.channel, providerId: attempt.providerId, status: attempt.status },
+      });
+      res.json({ success: attempt.status === "SENT", attempt });
+    } catch (error) {
+      console.error("Error retrying notification delivery");
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to retry notification delivery" });
     }
   });
 

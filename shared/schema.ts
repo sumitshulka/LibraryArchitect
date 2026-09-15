@@ -257,6 +257,34 @@ export const passwordSetupTokens = pgTable("password_setup_tokens", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+export const notificationChannelEnum = pgEnum("notification_channel", ["EMAIL", "WHATSAPP", "SMS"]);
+export const notificationDeliveryStatusEnum = pgEnum("notification_delivery_status", ["SENT", "FAILED"]);
+
+export const notificationDeliveryEvents = pgTable("notification_delivery_events", {
+  id: serial("id").primaryKey(),
+  eventId: text("event_id").notNull(),
+  idempotencyKey: text("idempotency_key").notNull().unique(),
+  recipientRedacted: text("recipient_redacted").notNull(),
+  valuesRedacted: jsonb("values_redacted").notNull(),
+  encryptedPayload: text("encrypted_payload").notNull(),
+  retryOfAttemptId: integer("retry_of_attempt_id"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  eventCreatedAtIdx: uniqueIndex("notification_delivery_events_event_created_idx").on(table.eventId, table.createdAt),
+}));
+
+export const notificationDeliveryAttempts = pgTable("notification_delivery_attempts", {
+  id: serial("id").primaryKey(),
+  eventRecordId: integer("event_record_id").notNull().references(() => notificationDeliveryEvents.id, { onDelete: "cascade" }),
+  channel: notificationChannelEnum("channel").notNull(),
+  providerId: text("provider_id").notNull(),
+  status: notificationDeliveryStatusEnum("status").notNull(),
+  providerMessageId: text("provider_message_id"),
+  errorReason: text("error_reason"),
+  retryOfAttemptId: integer("retry_of_attempt_id"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const erpIntegrationWhitelist = pgTable("erp_integration_whitelist", {
   id: serial("id").primaryKey(),
   integrationId: integer("integration_id").notNull().references(() => erpIntegrations.id, { onDelete: 'cascade' }),
@@ -674,6 +702,16 @@ export const insertSystemConfigSchema = createInsertSchema(systemConfig).omit({
   updatedAt: true,
 });
 
+export const insertNotificationDeliveryEventSchema = createInsertSchema(notificationDeliveryEvents).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertNotificationDeliveryAttemptSchema = createInsertSchema(notificationDeliveryAttempts).omit({
+  id: true,
+  createdAt: true,
+});
+
 export const insertCirculationPolicyVersionSchema = createInsertSchema(circulationPolicyVersions).omit({
   id: true,
   createdAt: true,
@@ -827,6 +865,12 @@ export type Inventory = typeof inventory.$inferSelect;
 
 export type InsertSystemConfig = z.infer<typeof insertSystemConfigSchema>;
 export type SystemConfig = typeof systemConfig.$inferSelect;
+
+export type InsertNotificationDeliveryEvent = z.infer<typeof insertNotificationDeliveryEventSchema>;
+export type NotificationDeliveryEvent = typeof notificationDeliveryEvents.$inferSelect;
+
+export type InsertNotificationDeliveryAttempt = z.infer<typeof insertNotificationDeliveryAttemptSchema>;
+export type NotificationDeliveryAttempt = typeof notificationDeliveryAttempts.$inferSelect;
 
 export type InsertErpIntegration = z.infer<typeof insertErpIntegrationSchema>;
 export type ErpIntegration = typeof erpIntegrations.$inferSelect;

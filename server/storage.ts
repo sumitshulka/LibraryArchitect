@@ -9,6 +9,10 @@ import {
   type InsertInventory,
   type SystemConfig,
   type InsertSystemConfig,
+  type NotificationDeliveryEvent,
+  type InsertNotificationDeliveryEvent,
+  type NotificationDeliveryAttempt,
+  type InsertNotificationDeliveryAttempt,
   type ResourceType,
   type InsertResourceType,
   type Category,
@@ -87,6 +91,8 @@ import {
   circulation,
   inventory,
   systemConfig,
+  notificationDeliveryEvents,
+  notificationDeliveryAttempts,
   resourceTypes,
   categories,
   erpIntegrations,
@@ -123,6 +129,21 @@ export interface AuditLogFilters {
   search?: string;
   limit?: number;
   offset?: number;
+}
+
+export interface NotificationDeliveryHistoryFilters {
+  eventId?: string;
+  channel?: "EMAIL" | "WHATSAPP" | "SMS";
+  providerId?: string;
+  status?: "SENT" | "FAILED";
+  startDate?: Date;
+  endDate?: Date;
+  limit?: number;
+  offset?: number;
+}
+
+export interface NotificationDeliveryHistoryItem extends NotificationDeliveryAttempt {
+  event: Pick<NotificationDeliveryEvent, "eventId" | "recipientRedacted" | "valuesRedacted" | "createdAt">;
 }
 
 // Type for staff allocation logs with user and library details
@@ -416,6 +437,15 @@ export interface IStorage {
   getSystemConfig(key: string): Promise<SystemConfig | undefined>;
   setSystemConfig(config: InsertSystemConfig): Promise<SystemConfig>;
   getAllSystemConfig(): Promise<SystemConfig[]>;
+
+  // Notification delivery history
+  createNotificationDeliveryEvent(event: InsertNotificationDeliveryEvent): Promise<NotificationDeliveryEvent>;
+  createNotificationDeliveryAttempt(attempt: InsertNotificationDeliveryAttempt): Promise<NotificationDeliveryAttempt>;
+  getNotificationDeliveryEventByIdempotencyKey(key: string): Promise<NotificationDeliveryEvent | undefined>;
+  getNotificationDeliveryAttempts(eventRecordId: number): Promise<NotificationDeliveryAttempt[]>;
+  getNotificationDeliveryAttempt(id: number): Promise<(NotificationDeliveryAttempt & { event: NotificationDeliveryEvent }) | undefined>;
+  getNotificationDeliveryRetry(attemptId: number): Promise<NotificationDeliveryAttempt | undefined>;
+  getNotificationDeliveryHistory(filters: NotificationDeliveryHistoryFilters): Promise<{ attempts: NotificationDeliveryHistoryItem[]; total: number }>;
   
   // ERP Integrations
   getErpIntegration(id: number): Promise<ErpIntegration | undefined>;
@@ -1098,6 +1128,84 @@ export class DBStorage implements IStorage {
 
   async getAllSystemConfig(): Promise<SystemConfig[]> {
     return await db.select().from(systemConfig).orderBy(asc(systemConfig.category));
+  }
+
+  // Notification delivery history
+  async createNotificationDeliveryEvent(event: InsertNotificationDeliveryEvent): Promise<NotificationDeliveryEvent> {
+    const inserted = await db
+      .insert(notificationDeliveryEvents)
+      .values(nullifyForInsert(event as any))
+      .onConflictDoNothing({ target: notificationDeliveryEvents.idempotencyKey })
+      .returning();
+    if (inserted[0]) return inserted[0];
+    const existing = await this.getNotificationDeliveryEventByIdempotencyKey(event.idempotencyKey);
+    if (!existing) throw new Error("Notification delivery event could not be recorded");
+    return existing;
+  }
+
+  async createNotificationDeliveryAttempt(attempt: InsertNotificationDeliveryAttempt): Promise<NotificationDeliveryAttempt> {
+    const [created] = await returningViaCte<NotificationDeliveryAttempt>(
+      db.insert(notificationDeliveryAttempts).values(nullifyForInsert(attempt as any)).returning(),
+    );
+    return created;
+  }
+
+  async getNotificationDeliveryEventByIdempotencyKey(key: string): Promise<NotificationDeliveryEvent | undefined> {
+    const [event] = await db.select().from(notificationDeliveryEvents).where(eq(notificationDeliveryEvents.idempotencyKey, key));
+    return event;
+  }
+
+  async getNotificationDeliveryAttempts(eventRecordId: number): Promise<NotificationDeliveryAttempt[]> {
+    return await db.select().from(notificationDeliveryAttempts)
+      .where(eq(notificationDeliveryAttempts.eventRecordId, eventRecordId))
+      .orderBy(asc(notificationDeliveryAttempts.createdAt));
+  }
+
+  async getNotificationDeliveryAttempt(id: number): Promise<(NotificationDeliveryAttempt & { event: NotificationDeliveryEvent }) | undefined> {
+    const [result] = await db.select({
+      attempt: notificationDeliveryAttempts,
+      event: notificationDeliveryEvents,
+    }).from(notificationDeliveryAttempts)
+      .innerJoin(notificationDeliveryEvents, eq(notificationDeliveryAttempts.eventRecordId, notificationDeliveryEvents.id))
+      .where(eq(notificationDeliveryAttempts.id, id));
+    return result ? { ...result.attempt, event: result.event } : undefined;
+  }
+
+  async getNotificationDeliveryRetry(attemptId: number): Promise<NotificationDeliveryAttempt | undefined> {
+    const [retry] = await db.select().from(notificationDeliveryAttempts)
+      .where(eq(notificationDeliveryAttempts.retryOfAttemptId, attemptId))
+      .orderBy(asc(notificationDeliveryAttempts.createdAt));
+    return retry;
+  }
+
+  async getNotificationDeliveryHistory(filters: NotificationDeliveryHistoryFilters): Promise<{ attempts: NotificationDeliveryHistoryItem[]; total: number }> {
+    const conditions = [];
+    if (filters.eventId) conditions.push(eq(notificationDeliveryEvents.eventId, filters.eventId));
+    if (filters.channel) conditions.push(eq(notificationDeliveryAttempts.channel, filters.channel));
+    if (filters.providerId) conditions.push(eq(notificationDeliveryAttempts.providerId, filters.providerId));
+    if (filters.status) conditions.push(eq(notificationDeliveryAttempts.status, filters.status));
+    if (filters.startDate) conditions.push(sql`${notificationDeliveryAttempts.createdAt} >= ${filters.startDate}`);
+    if (filters.endDate) conditions.push(sql`${notificationDeliveryAttempts.createdAt} <= ${filters.endDate}`);
+    const whereClause = conditions.length ? and(...conditions) : undefined;
+    const [countResult] = await db.select({ count: sql<number>`count(*)::int` })
+      .from(notificationDeliveryAttempts)
+      .innerJoin(notificationDeliveryEvents, eq(notificationDeliveryAttempts.eventRecordId, notificationDeliveryEvents.id))
+      .where(whereClause);
+    const rows = await db.select({
+      attempt: notificationDeliveryAttempts,
+      event: {
+        eventId: notificationDeliveryEvents.eventId,
+        recipientRedacted: notificationDeliveryEvents.recipientRedacted,
+        valuesRedacted: notificationDeliveryEvents.valuesRedacted,
+        createdAt: notificationDeliveryEvents.createdAt,
+      },
+    }).from(notificationDeliveryAttempts)
+      .innerJoin(notificationDeliveryEvents, eq(notificationDeliveryAttempts.eventRecordId, notificationDeliveryEvents.id))
+      .where(whereClause)
+      .orderBy(desc(notificationDeliveryAttempts.createdAt))
+      .limit(filters.limit || 50)
+      .offset(filters.offset || 0);
+    return { attempts: rows.map((row) => ({ ...row.attempt, event: row.event })), total: countResult?.count || 0 };
   }
 
   // ERP Integrations

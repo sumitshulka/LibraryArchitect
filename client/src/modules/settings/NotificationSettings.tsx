@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, CheckCircle2, Mail, MessageCircle, Plus, Save, Smartphone, Trash2 } from "lucide-react";
+import { Bell, CheckCircle2, Mail, MessageCircle, Plus, RefreshCw, RotateCcw, Save, Smartphone, Trash2 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -49,6 +49,30 @@ type Setup = {
   secretMarker: string;
   allowErpUserNotifications: boolean;
 };
+type DeliveryHistoryItem = {
+  id: number;
+  channel: Channel;
+  providerId: string;
+  status: "SENT" | "FAILED";
+  providerMessageId?: string | null;
+  errorReason?: string | null;
+  retryOfAttemptId?: number | null;
+  createdAt: string;
+  event: {
+    eventId: string;
+    recipientRedacted: string;
+    valuesRedacted: Record<string, string>;
+    createdAt: string;
+  };
+};
+type DeliveryHistoryFilters = {
+  eventId: string;
+  channel: "ALL" | Channel;
+  providerId: string;
+  status: "ALL" | "SENT" | "FAILED";
+  startDate: string;
+  endDate: string;
+};
 
 const PROVIDER_OPTIONS: Record<Channel, Array<{ value: string; label: string }>> = {
   EMAIL: [],
@@ -71,6 +95,99 @@ function newProvider(channel: Channel, index: number): Provider {
     settings: {},
     secrets: {},
   };
+}
+
+function NotificationDeliveryHistory({ providers, events }: { providers: Provider[]; events: EventConfig[] }) {
+  const queryClient = useQueryClient();
+  const [filters, setFilters] = useState<DeliveryHistoryFilters>({
+    eventId: "ALL",
+    channel: "ALL",
+    providerId: "ALL",
+    status: "ALL",
+    startDate: "",
+    endDate: "",
+  });
+  const [retryingId, setRetryingId] = useState<number | null>(null);
+  const query = useQuery<{ attempts: DeliveryHistoryItem[]; total: number }>({
+    queryKey: ["notification-delivery-history", filters],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value && value !== "ALL") params.set(key, value);
+      });
+      const response = await fetch(`/api/notifications/history?${params.toString()}`);
+      if (!response.ok) throw new Error("Failed to load delivery history");
+      return response.json();
+    },
+  });
+
+  const updateFilter = <K extends keyof DeliveryHistoryFilters>(key: K, value: DeliveryHistoryFilters[K]) =>
+    setFilters((current) => ({ ...current, [key]: value }));
+
+  const retry = async (attemptId: number) => {
+    setRetryingId(attemptId);
+    try {
+      const response = await fetch(`/api/notifications/history/${attemptId}/retry`, { method: "POST" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Failed to retry notification");
+      toast[result.success ? "success" : "error"](result.success ? "Notification retry sent" : "Notification retry failed");
+      queryClient.invalidateQueries({ queryKey: ["notification-delivery-history"] });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to retry notification");
+    } finally {
+      setRetryingId(null);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <CardTitle className="flex items-center gap-2"><RefreshCw className="h-5 w-5" /> Delivery History</CardTitle>
+            <CardDescription>Review redacted delivery outcomes and safely retry failed provider attempts. Message content and credentials are never shown here.</CardDescription>
+          </div>
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => query.refetch()} disabled={query.isFetching}><RefreshCw className={`h-4 w-4 ${query.isFetching ? "animate-spin" : ""}`} /> Refresh</Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-6">
+          <div className="grid gap-1"><Label className="text-xs">Event</Label><Select value={filters.eventId} onValueChange={(value) => updateFilter("eventId", value)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="ALL">All events</SelectItem>{events.map((event) => <SelectItem key={event.id} value={event.id}>{event.label}</SelectItem>)}</SelectContent></Select></div>
+          <div className="grid gap-1"><Label className="text-xs">Channel</Label><Select value={filters.channel} onValueChange={(value) => updateFilter("channel", value as DeliveryHistoryFilters["channel"])}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="ALL">All channels</SelectItem><SelectItem value="EMAIL">Email</SelectItem><SelectItem value="WHATSAPP">WhatsApp</SelectItem><SelectItem value="SMS">SMS</SelectItem></SelectContent></Select></div>
+          <div className="grid gap-1"><Label className="text-xs">Provider</Label><Select value={filters.providerId} onValueChange={(value) => updateFilter("providerId", value)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="ALL">All providers</SelectItem>{providers.map((provider) => <SelectItem key={provider.id} value={provider.id}>{provider.name || provider.id}</SelectItem>)}</SelectContent></Select></div>
+          <div className="grid gap-1"><Label className="text-xs">Status</Label><Select value={filters.status} onValueChange={(value) => updateFilter("status", value as DeliveryHistoryFilters["status"])}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="ALL">All statuses</SelectItem><SelectItem value="SENT">Sent</SelectItem><SelectItem value="FAILED">Failed</SelectItem></SelectContent></Select></div>
+          <div className="grid gap-1"><Label className="text-xs">From</Label><Input type="date" value={filters.startDate} onChange={(event) => updateFilter("startDate", event.target.value)} /></div>
+          <div className="grid gap-1"><Label className="text-xs">To</Label><Input type="date" value={filters.endDate} onChange={(event) => updateFilter("endDate", event.target.value)} /></div>
+        </div>
+        {query.isError && <p className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{query.error instanceof Error ? query.error.message : "Failed to load delivery history"}</p>}
+        {!query.isLoading && !query.data?.attempts.length && <p className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">No delivery attempts match these filters.</p>}
+        {!!query.data?.attempts.length && (
+          <div className="overflow-x-auto rounded-md border">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/40 text-left text-xs text-muted-foreground"><tr><th className="p-3 font-medium">Time</th><th className="p-3 font-medium">Event</th><th className="p-3 font-medium">Channel</th><th className="p-3 font-medium">Provider</th><th className="p-3 font-medium">Recipient / values</th><th className="p-3 font-medium">Status</th><th className="p-3 font-medium">Details</th><th className="p-3 font-medium"></th></tr></thead>
+              <tbody>
+                {query.data.attempts.map((attempt) => {
+                  const event = events.find((item) => item.id === attempt.event.eventId);
+                  const provider = providers.find((item) => item.id === attempt.providerId);
+                  return <tr key={attempt.id} className="border-t align-top">
+                    <td className="whitespace-nowrap p-3 text-xs text-muted-foreground">{new Date(attempt.createdAt).toLocaleString()}</td>
+                    <td className="p-3"><div className="font-medium">{event?.label || attempt.event.eventId}</div><div className="font-mono text-xs text-muted-foreground">{attempt.event.eventId}</div></td>
+                    <td className="p-3"><span className="flex items-center gap-2">{channelIcon(attempt.channel)} {attempt.channel}</span></td>
+                    <td className="p-3">{provider?.name || attempt.providerId}</td>
+                    <td className="p-3 text-xs"><div>{attempt.event.recipientRedacted}</div><div className="mt-1 text-muted-foreground">{Object.keys(attempt.event.valuesRedacted || {}).join(", ") || "No values"}</div></td>
+                    <td className="p-3"><Badge variant={attempt.status === "SENT" ? "default" : "destructive"}>{attempt.status === "SENT" ? "Sent" : "Failed"}</Badge></td>
+                    <td className="max-w-xs p-3 text-xs text-muted-foreground">{attempt.status === "FAILED" ? attempt.errorReason || "Provider delivery failed" : attempt.providerMessageId ? `Provider message: ${attempt.providerMessageId}` : "Accepted by provider"}</td>
+                    <td className="p-3">{attempt.status === "FAILED" && <Button variant="outline" size="sm" className="gap-1" onClick={() => retry(attempt.id)} disabled={retryingId === attempt.id}><RotateCcw className={`h-3.5 w-3.5 ${retryingId === attempt.id ? "animate-spin" : ""}`} /> Retry</Button>}</td>
+                  </tr>;
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {!!query.data?.total && <p className="text-xs text-muted-foreground">Showing {query.data.attempts.length} of {query.data.total} attempts.</p>}
+      </CardContent>
+    </Card>
+  );
 }
 
 export function NotificationSettings() {
@@ -315,6 +432,7 @@ export function NotificationSettings() {
           </div>
         </CardContent>
       </Card>
+      <NotificationDeliveryHistory providers={providers} events={events} />
     </div>
   );
 }

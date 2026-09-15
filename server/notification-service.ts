@@ -11,14 +11,112 @@ export interface NotificationRequest {
   recipientsByChannel?: Partial<Record<NotificationChannel, string>>;
   values: Record<string, string | number>;
   templateIdOverride?: string;
+  idempotencyKey?: string;
+  retryOfAttemptId?: number;
 }
 
 export interface NotificationAttempt {
+  id?: number;
   channel: NotificationChannel;
   providerId: string;
   providerMessageId?: string;
   status: "SENT" | "FAILED";
   error?: string;
+}
+
+export function redactNotificationRecipient(recipient: string): string {
+  const value = recipient.trim();
+  if (value.includes("@")) {
+    const [local, domain] = value.split("@", 2);
+    return `${local.slice(0, 1)}***@${domain}`;
+  }
+  if (value.length <= 4) return "••••";
+  return `${value.slice(0, 2)}••••${value.slice(-2)}`;
+}
+
+export function redactNotificationValues(values: Record<string, string | number>): Record<string, string> {
+  return Object.fromEntries(Object.keys(values).map((key) => [key, "[redacted]"]));
+}
+
+function encryptionKey() {
+  const secret = process.env.SESSION_SECRET;
+  if (!secret) throw new Error("SESSION_SECRET is required to protect notification retry data");
+  return crypto.createHash("sha256").update(secret).digest();
+}
+
+function encryptPayload(request: NotificationRequest): string {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", encryptionKey(), iv);
+  const encrypted = Buffer.concat([cipher.update(JSON.stringify({
+    eventId: request.eventId,
+    channel: request.channel,
+    providerId: request.providerId,
+    recipient: request.recipient,
+    recipientsByChannel: request.recipientsByChannel,
+    values: request.values,
+    templateIdOverride: request.templateIdOverride,
+  }), "utf8"), cipher.final()]);
+  return `${iv.toString("base64url")}.${cipher.getAuthTag().toString("base64url")}.${encrypted.toString("base64url")}`;
+}
+
+function decryptPayload(value: string): NotificationRequest {
+  const [ivText, tagText, encryptedText] = value.split(".");
+  const decipher = crypto.createDecipheriv("aes-256-gcm", encryptionKey(), Buffer.from(ivText, "base64url"));
+  decipher.setAuthTag(Buffer.from(tagText, "base64url"));
+  return JSON.parse(Buffer.concat([
+    decipher.update(Buffer.from(encryptedText, "base64url")),
+    decipher.final(),
+  ]).toString("utf8")) as NotificationRequest;
+}
+
+function safeError(error: unknown, request: NotificationRequest): string {
+  let message = error instanceof Error ? error.message : "Notification failed";
+  const sensitiveValues = [
+    request.recipient,
+    ...Object.values(request.recipientsByChannel || {}),
+    ...Object.values(request.values).map(String),
+  ].filter((value) => value.length > 2).sort((a, b) => b.length - a.length);
+  for (const value of sensitiveValues) message = message.split(value).join("[redacted]");
+  message = message.replace(/bearer\s+[^\s]+/gi, "Bearer [redacted]");
+  return message.slice(0, 500);
+}
+
+async function persistEvent(storage: IStorage, request: NotificationRequest, idempotencyKey: string) {
+  if (typeof storage.createNotificationDeliveryEvent !== "function") return undefined;
+  const existing = await storage.getNotificationDeliveryEventByIdempotencyKey(idempotencyKey);
+  if (existing) {
+    const existingAttempts = await storage.getNotificationDeliveryAttempts(existing.id);
+    return { event: existing, attempts: existingAttempts, duplicate: true };
+  }
+  const event = await storage.createNotificationDeliveryEvent({
+    eventId: request.eventId,
+    idempotencyKey,
+    recipientRedacted: redactNotificationRecipient(request.recipient),
+    valuesRedacted: redactNotificationValues(request.values),
+    encryptedPayload: encryptPayload(request),
+    retryOfAttemptId: request.retryOfAttemptId,
+  });
+  const attempts = await storage.getNotificationDeliveryAttempts(event.id);
+  return { event, attempts, duplicate: attempts.length > 0 };
+}
+
+async function persistAttempt(
+  storage: IStorage,
+  eventRecordId: number | undefined,
+  request: NotificationRequest,
+  attempt: NotificationAttempt,
+) {
+  if (!eventRecordId || typeof storage.createNotificationDeliveryAttempt !== "function") return attempt;
+  const stored = await storage.createNotificationDeliveryAttempt({
+    eventRecordId,
+    channel: attempt.channel,
+    providerId: attempt.providerId,
+    status: attempt.status,
+    providerMessageId: attempt.providerMessageId,
+    errorReason: attempt.error,
+    retryOfAttemptId: request.retryOfAttemptId,
+  });
+  return { ...attempt, id: stored.id };
 }
 
 function render(template: string, values: Record<string, string | number>) {
@@ -135,6 +233,18 @@ export async function emitNotification(storage: IStorage, request: NotificationR
   const setup = await loadNotificationSetup(storage);
   const event = setup.events.find((item) => item.id === request.eventId);
   if (!event || !event.enabled) throw new Error(`Notification event "${request.eventId}" is not enabled`);
+  const idempotencyKey = request.idempotencyKey || crypto.randomUUID();
+  const deliveryEvent = await persistEvent(storage, request, idempotencyKey);
+  if (deliveryEvent?.duplicate) {
+    return deliveryEvent.attempts.map((attempt) => ({
+      id: attempt.id,
+      channel: attempt.channel,
+      providerId: attempt.providerId,
+      providerMessageId: attempt.providerMessageId || undefined,
+      status: attempt.status,
+      error: attempt.errorReason || undefined,
+    }));
+  }
   const providers = new Map(setup.providers.map((provider) => [provider.id, provider]));
   const routes = event.routes.filter((route) =>
     route.enabled
@@ -148,7 +258,9 @@ export async function emitNotification(storage: IStorage, request: NotificationR
     const providerId = route.providerId || setup.defaultProviders[route.channel] || (route.channel === "EMAIL" ? DEFAULT_EMAIL_PROVIDER_ID : "");
     const provider = providers.get(providerId);
     if (!provider || !provider.enabled) {
-      attempts.push({ channel: route.channel, providerId, status: "FAILED", error: "Provider is missing or disabled" });
+      attempts.push(await persistAttempt(storage, deliveryEvent?.event.id, request, {
+        channel: route.channel, providerId, status: "FAILED", error: "Provider is missing or disabled",
+      }));
       continue;
     }
     try {
@@ -161,10 +273,45 @@ export async function emitNotification(storage: IStorage, request: NotificationR
         : route.channel === "WHATSAPP"
           ? await sendWhatsApp(provider, route, routeRequest)
           : await sendSms(provider, route, routeRequest);
-      attempts.push({ channel: route.channel, providerId: provider.id, providerMessageId, status: "SENT" });
+      attempts.push(await persistAttempt(storage, deliveryEvent?.event.id, request, {
+        channel: route.channel, providerId: provider.id, providerMessageId, status: "SENT",
+      }));
     } catch (error) {
-      attempts.push({ channel: route.channel, providerId: provider.id, status: "FAILED", error: error instanceof Error ? error.message : "Notification failed" });
+      attempts.push(await persistAttempt(storage, deliveryEvent?.event.id, request, {
+        channel: route.channel, providerId: provider.id, status: "FAILED", error: safeError(error, request),
+      }));
     }
   }
   return attempts;
+}
+
+export async function retryNotificationAttempt(storage: IStorage, attemptId: number): Promise<NotificationAttempt> {
+  if (typeof storage.getNotificationDeliveryAttempt !== "function") {
+    throw new Error("Notification delivery history is unavailable");
+  }
+  const existingRetry = await storage.getNotificationDeliveryRetry(attemptId);
+  if (existingRetry) {
+    return {
+      id: existingRetry.id,
+      channel: existingRetry.channel,
+      providerId: existingRetry.providerId,
+      providerMessageId: existingRetry.providerMessageId || undefined,
+      status: existingRetry.status,
+      error: existingRetry.errorReason || undefined,
+    };
+  }
+  const failedAttempt = await storage.getNotificationDeliveryAttempt(attemptId);
+  if (!failedAttempt) throw new Error("Notification delivery attempt was not found");
+  if (failedAttempt.status !== "FAILED") throw new Error("Only failed notification attempts can be retried");
+  const request = decryptPayload(failedAttempt.event.encryptedPayload);
+  const attempts = await emitNotification(storage, {
+    ...request,
+    channel: failedAttempt.channel,
+    providerId: failedAttempt.providerId,
+    idempotencyKey: `notification-retry:${attemptId}`,
+    retryOfAttemptId: attemptId,
+  });
+  const retry = attempts.find((attempt) => attempt.channel === failedAttempt.channel && attempt.providerId === failedAttempt.providerId);
+  if (!retry) throw new Error("Notification retry did not produce an attempt");
+  return retry;
 }
