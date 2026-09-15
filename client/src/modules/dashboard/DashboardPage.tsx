@@ -17,6 +17,7 @@ import { statsApi, pendingFinesApi } from "@/lib/api";
 import { useCurrency } from "@/lib/useCurrency";
 import { Link } from "wouter";
 import { format as fmtDate } from "date-fns";
+import { useAuth } from "@/lib/auth";
 
 async function fetchCirculationReport() {
   const res = await fetch("/api/reports/circulation");
@@ -68,19 +69,20 @@ function monthLabel(m: string) {
 
 export default function DashboardPage() {
   const { format: fmtMoney } = useCurrency();
+  const { user } = useAuth();
 
   const { data: stats } = useQuery({
-    queryKey: ["dashboard-stats"],
+    queryKey: ["dashboard-stats", user?.id],
     queryFn: statsApi.getDashboard,
   });
 
   const { data: finesData } = useQuery({
-    queryKey: ["pending-fines"],
+    queryKey: ["pending-fines", user?.id],
     queryFn: () => pendingFinesApi.getAll(),
   });
 
   const { data: report } = useQuery({
-    queryKey: ["circ-report"],
+    queryKey: ["circ-report", user?.id],
     queryFn: fetchCirculationReport,
   });
 

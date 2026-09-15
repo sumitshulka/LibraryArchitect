@@ -116,6 +116,87 @@ describe("library access authorization and messages", () => {
     expect(storageMock.getLibraryDashboard).not.toHaveBeenCalled();
   });
 
+  it("scopes dashboard summaries, fines, and circulation reports to assigned libraries", async () => {
+    currentUser = librarian;
+    storageMock.getMembershipsByUser.mockResolvedValue([membership]);
+    storageMock.getMembershipsByLibrary.mockResolvedValue([membership]);
+    storageMock.getAllBooks.mockResolvedValue([
+      { id: 101, title: "Assigned Book", author: "Author", isbn: "101", category: "One", status: "AVAILABLE" },
+      { id: 102, title: "Other Book", author: "Author", isbn: "102", category: "Two", status: "AVAILABLE" },
+    ]);
+    storageMock.getAllBookCopies.mockResolvedValue([
+      { id: 201, bookId: 101, libraryId: 1, status: "AVAILABLE" },
+      { id: 202, bookId: 102, libraryId: 2, status: "AVAILABLE" },
+    ]);
+    storageMock.getAllUsers.mockResolvedValue([
+      { ...librarian, status: "ACTIVE" },
+    ]);
+    storageMock.getAllCirculation.mockResolvedValue([
+      {
+        id: 301,
+        bookId: 101,
+        userId: librarian.id,
+        libraryId: 1,
+        status: "RETURNED",
+        checkoutDate: new Date("2026-01-01"),
+        dueDate: new Date("2026-01-15"),
+        returnDate: new Date("2026-01-20"),
+        fineAmount: 500,
+        finePaidAmount: 0,
+        fineWaivedAmount: 0,
+        damageCost: 0,
+        damagePaidAmount: 0,
+        damageWaivedAmount: 0,
+        renewalCount: 0,
+      },
+      {
+        id: 302,
+        bookId: 102,
+        userId: librarian.id,
+        libraryId: 2,
+        status: "RETURNED",
+        checkoutDate: new Date("2026-01-01"),
+        dueDate: new Date("2026-01-15"),
+        returnDate: new Date("2026-01-20"),
+        fineAmount: 900,
+        finePaidAmount: 0,
+        fineWaivedAmount: 0,
+        damageCost: 0,
+        damagePaidAmount: 0,
+        damageWaivedAmount: 0,
+        renewalCount: 0,
+      },
+    ]);
+    storageMock.getBook.mockImplementation(async (id: number) =>
+      id === 101
+        ? { id: 101, title: "Assigned Book", isbn: "101" }
+        : { id: 102, title: "Other Book", isbn: "102" },
+    );
+    storageMock.getLibrary.mockImplementation(async (id: number) => libraries.find((library) => library.id === id));
+
+    let response = await request("/api/stats/dashboard");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      totalBooks: 1,
+      availableBooks: 1,
+      checkedOutBooks: 0,
+      activeMembers: 1,
+    });
+
+    response = await request("/api/circulation/pending-fines");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      total: 1,
+      grandTotalCents: 500,
+    });
+
+    response = await request("/api/reports/circulation");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      totals: { totalCheckouts: 1 },
+    });
+  });
+
   it("creates one pending access request for an unassigned librarian", async () => {
     currentUser = librarian;
     storageMock.getStaffLibraryAllocations.mockResolvedValue([]);

@@ -78,7 +78,7 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
   if (
     isLibrarian &&
     libraryAccess?.libraries.length === 1 &&
-    (location === "/" || location === "/dashboard")
+    location === "/libraries"
   ) {
     return <Redirect to={`/organizations/libraries/${libraryAccess.libraries[0].id}`} />;
   }

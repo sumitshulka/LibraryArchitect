@@ -409,6 +409,11 @@ async function getAccessibleLibrariesForUser(user: User) {
   return allLibraries.filter((library) => accessibleIds.has(library.id));
 }
 
+async function getLibraryScopeForStaff(user: User): Promise<Set<number> | null> {
+  if (user.role !== "LIBRARIAN") return null;
+  return new Set((await getAccessibleLibrariesForUser(user)).map((library) => library.id));
+}
+
 async function requireLibraryAccess(req: any, res: any, libraryId: number): Promise<User | null> {
   const currentUser = await requireStaff(req, res);
   if (!currentUser) return null;
@@ -2115,6 +2120,10 @@ export async function registerRoutes(
 
       const libraryId = req.query.libraryId ? parseInt(req.query.libraryId as string) : undefined;
       const search = (req.query.search as string | undefined)?.toLowerCase().trim();
+      const libraryScope = await getLibraryScopeForStaff(currentUser);
+      if (libraryId && libraryScope && !libraryScope.has(libraryId)) {
+        return res.status(403).json({ error: "You are not assigned to this library" });
+      }
 
       const allCirc = await storage.getAllCirculation();
 
@@ -2123,6 +2132,7 @@ export async function registerRoutes(
         const fineOut = Math.max(0, (c.fineAmount ?? 0) - (c.finePaidAmount ?? 0) - (c.fineWaivedAmount ?? 0));
         const dmgOut = Math.max(0, (c.damageCost ?? 0) - (c.damagePaidAmount ?? 0) - (c.damageWaivedAmount ?? 0));
         if (fineOut + dmgOut === 0) return false;
+        if (libraryScope && (c.libraryId === null || !libraryScope.has(c.libraryId))) return false;
         if (libraryId && c.libraryId !== libraryId) return false;
         return true;
       });
@@ -2494,6 +2504,10 @@ export async function registerRoutes(
       }
       const statusFilter = req.query.status ? String(req.query.status).toUpperCase() : undefined;
       const userIdFilter = req.query.userId ? parseInt(String(req.query.userId)) : undefined;
+      const libraryScope = await getLibraryScopeForStaff(staff);
+      if (libraryIdFilter !== undefined && libraryScope && !libraryScope.has(libraryIdFilter)) {
+        return res.status(403).json({ error: "You are not assigned to this library" });
+      }
 
       const [allCirc, allBooks, allUsers, allLibraries] = await Promise.all([
         storage.getAllCirculation(),
@@ -2508,6 +2522,7 @@ export async function registerRoutes(
 
       const filtered = allCirc.filter(c => {
         const d = new Date(c.checkoutDate);
+        if (libraryScope && (c.libraryId === null || !libraryScope.has(c.libraryId))) return false;
         if (fromDate && d < fromDate) return false;
         if (toDate && d > toDate) return false;
         if (libraryIdFilter !== undefined && c.libraryId !== libraryIdFilter) return false;
@@ -8436,15 +8451,50 @@ export async function registerRoutes(
   // Dashboard Stats API
   app.get("/api/stats/dashboard", async (req, res) => {
     try {
-      const books = await storage.getAllBooks();
-      const users = await storage.getAllUsers();
-      const circulation = await storage.getAllCirculation();
-      
-      const totalBooks = books.length;
-      const availableBooks = books.filter(b => b.status === 'AVAILABLE').length;
-      const checkedOutBooks = books.filter(b => b.status === 'CHECKED_OUT').length;
-      
-      const activeMembers = users.filter(u => u.status === 'ACTIVE').length;
+      const currentUser = await requireStaff(req, res);
+      if (!currentUser) return;
+      const libraryScope = await getLibraryScopeForStaff(currentUser);
+      const [books, users, allCirculation] = await Promise.all([
+        storage.getAllBooks(),
+        storage.getAllUsers(),
+        storage.getAllCirculation(),
+      ]);
+
+      let totalBooks: number;
+      let availableBooks: number;
+      let checkedOutBooks: number;
+      let activeMembers: number;
+      let circulation = allCirculation;
+
+      if (libraryScope) {
+        const copies = (await storage.getAllBookCopies()).filter(
+          (copy) => copy.libraryId !== null && libraryScope.has(copy.libraryId),
+        );
+        const scopedBookIds = new Set(copies.map((copy) => copy.bookId));
+        totalBooks = scopedBookIds.size;
+        availableBooks = copies.filter((copy) => copy.status === "AVAILABLE").length;
+        checkedOutBooks = copies.filter((copy) => copy.status === "CHECKED_OUT").length;
+        circulation = allCirculation.filter(
+          (record) => record.libraryId !== null && libraryScope.has(record.libraryId),
+        );
+
+        const memberships = (
+          await Promise.all(Array.from(libraryScope).map((libraryId) => storage.getMembershipsByLibrary(libraryId)))
+        ).flat();
+        const now = new Date();
+        const activeMemberIds = new Set(
+          memberships
+            .filter((membership) => membership.isActive && (!membership.expiresAt || membership.expiresAt > now))
+            .map((membership) => membership.userId),
+        );
+        activeMembers = users.filter((user) => user.status === "ACTIVE" && activeMemberIds.has(user.id)).length;
+      } else {
+        totalBooks = books.length;
+        availableBooks = books.filter((book) => book.status === "AVAILABLE").length;
+        checkedOutBooks = books.filter((book) => book.status === "CHECKED_OUT").length;
+        activeMembers = users.filter((user) => user.status === "ACTIVE").length;
+      }
+
       const activeCirculation = circulation.filter(c => c.status === 'ACTIVE').length;
       
       const now = new Date();
