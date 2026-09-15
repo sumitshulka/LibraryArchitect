@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Loader2, BookmarkCheck, Trash2, ScanLine, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import { format as formatDate } from "date-fns";
+import PatronReservationsPage from "@/modules/patron/PatronReservationsPage";
 
 type Filters = {
   status?: string;
@@ -24,6 +25,12 @@ type Filters = {
 };
 
 export default function ReservationsPage() {
+  const { user } = useAuth();
+  if (user?.category === "PATRON") return <PatronReservationsPage />;
+  return <StaffReservationsPage />;
+}
+
+function StaffReservationsPage() {
   const { user } = useAuth();
   const isStaff = user?.role === "ADMIN" || user?.role === "LIBRARIAN";
   const qc = useQueryClient();
