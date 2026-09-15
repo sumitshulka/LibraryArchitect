@@ -127,7 +127,13 @@ describe("SettingsPage", () => {
       collisionCount: 0,
       affectedCopyIds: [],
     });
-    mockedIdentifierHistory.mockResolvedValue([]);
+    mockedIdentifierHistory.mockResolvedValue({
+      events: [],
+      total: 0,
+      limit: 50,
+      offset: 0,
+      hasMore: false,
+    });
     mockedRemediateIdentifier.mockResolvedValue({} as never);
   });
 
@@ -311,16 +317,22 @@ describe("SettingsPage", () => {
   });
 
   it("shows identifier remediation history after collisions are cleared", async () => {
-    mockedIdentifierHistory.mockResolvedValue([{
-      id: 7,
-      copyId: 102,
-      field: "internalSSN",
-      previousValue: "SHARED-ID",
-      replacement: null,
-      actor: "Admin",
-      actorId: 1,
-      timestamp: "2026-09-15T12:34:56.000Z",
-    }]);
+    mockedIdentifierHistory.mockResolvedValue({
+      events: [{
+        id: 7,
+        copyId: 102,
+        field: "internalSSN",
+        previousValue: "SHARED-ID",
+        replacement: null,
+        actor: "Admin",
+        actorId: 1,
+        timestamp: "2026-09-15T12:34:56.000Z",
+      }],
+      total: 1,
+      limit: 50,
+      offset: 0,
+      hasMore: false,
+    });
 
     renderSettings("/settings?section=catalog");
 
@@ -329,6 +341,60 @@ describe("SettingsPage", () => {
     expect(screen.getByTestId("identifier-remediation-event-7")).toHaveTextContent("SHARED-ID");
     expect(screen.getByTestId("identifier-remediation-event-7")).toHaveTextContent("(cleared)");
     expect(screen.getByTestId("identifier-remediation-event-7")).toHaveTextContent("Admin");
+  });
+
+  it("loads older remediation events without replacing recent history", async () => {
+    const user = userEvent.setup();
+    mockedIdentifierHistory
+      .mockReset()
+      .mockResolvedValueOnce({
+        events: [{
+          id: 8,
+          copyId: 103,
+          field: "barcode",
+          previousValue: "NEW-CODE",
+          replacement: "NEWER-CODE",
+          actor: "Admin",
+          actorId: 1,
+          timestamp: "2026-09-15T12:34:56.000Z",
+        }],
+        total: 51,
+        limit: 50,
+        offset: 0,
+        hasMore: true,
+      })
+      .mockResolvedValueOnce({
+        events: [{
+          id: 7,
+          copyId: 102,
+          field: "internalSSN",
+          previousValue: "SHARED-ID",
+          replacement: null,
+          actor: "Admin",
+          actorId: 1,
+          timestamp: "2026-09-14T12:34:56.000Z",
+        }],
+        total: 51,
+        limit: 50,
+        offset: 50,
+        hasMore: false,
+      });
+
+    renderSettings("/settings?section=catalog");
+
+    expect(await screen.findByTestId("identifier-remediation-event-8")).toBeInTheDocument();
+    const loadOlderButton = await screen.findByTestId(
+      "button-load-older-identifier-remediation-history",
+    );
+    await user.click(loadOlderButton);
+
+    expect(await screen.findByTestId("identifier-remediation-event-7")).toBeInTheDocument();
+    expect(screen.getByTestId("identifier-remediation-event-8")).toBeInTheDocument();
+    expect(mockedIdentifierHistory).toHaveBeenNthCalledWith(1, 50, 0);
+    expect(mockedIdentifierHistory).toHaveBeenNthCalledWith(2, 50, 50);
+    expect(
+      screen.queryByTestId("button-load-older-identifier-remediation-history"),
+    ).not.toBeInTheDocument();
   });
 
   it("explains identifier conflicts and stale audits", async () => {

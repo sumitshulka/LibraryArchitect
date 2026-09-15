@@ -250,11 +250,86 @@ describe("book copy identifier validation", () => {
         actorId: localAdmin.id,
         timestamp: timestamp.toISOString(),
       }],
+      total: 1,
+      limit: 50,
+      offset: 0,
+      hasMore: false,
     });
     expect(storageMock.queryAuditLogs).toHaveBeenCalledWith({
       category: "CATALOG",
       action: "BOOK_COPY_IDENTIFIER_REMEDIATED",
       limit: 50,
+      offset: 0,
+    });
+  });
+
+  it("returns older remediation history pages in newest-first order", async () => {
+    currentUser = localAdmin;
+    const timestamps = [
+      new Date("2026-09-14T09:30:00.000Z"),
+      new Date("2026-09-13T09:30:00.000Z"),
+    ];
+    storageMock.queryAuditLogs.mockResolvedValue({
+      total: 4,
+      logs: [
+        {
+          id: 776,
+          userId: localAdmin.id,
+          userName: localAdmin.name,
+          targetId: "11",
+          details: {
+            field: "barcode",
+            previousValue: "OLD-2",
+            replacement: "OLD-3",
+          },
+          timestamp: timestamps[0],
+        },
+        {
+          id: 775,
+          userId: localAdmin.id,
+          userName: localAdmin.name,
+          targetId: "12",
+          details: {
+            field: "internalSSN",
+            previousValue: "OLD-1",
+            replacement: null,
+          },
+          timestamp: timestamps[1],
+        },
+      ],
+    });
+
+    const response = await request(
+      "/api/book-copy-identifiers/remediation-history?limit=2&offset=2",
+      "GET",
+      undefined,
+      true,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      events: [
+        {
+          id: 776,
+          copyId: 11,
+          timestamp: timestamps[0].toISOString(),
+        },
+        {
+          id: 775,
+          copyId: 12,
+          timestamp: timestamps[1].toISOString(),
+        },
+      ],
+      total: 4,
+      limit: 2,
+      offset: 2,
+      hasMore: false,
+    });
+    expect(storageMock.queryAuditLogs).toHaveBeenCalledWith({
+      category: "CATALOG",
+      action: "BOOK_COPY_IDENTIFIER_REMEDIATED",
+      limit: 2,
+      offset: 2,
     });
   });
 

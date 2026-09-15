@@ -49,7 +49,7 @@ import {
   ArrowDownToLine, Play, Clock, Settings2, Zap, Send, ChevronDown, ChevronUp,
   Users, Repeat, Layers, PieChart, Loader2
 } from "lucide-react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { resourceTypesApi, categoriesApi, erpIntegrationsApi, configApi, paymentMethodsApi, resourceTypeSettingsApi, bookCopyIdentifiersApi, type ErpIntegrationPublic, type ErpCredentials, type ErpPullEndpoint, type PaymentMethodApi, type ResourceTypeSettingApi, type BookCopyIdentifierCollisionOccurrence, type BookCopyIdentifierField } from "@/lib/api";
 import { toast } from "sonner";
 import type { ResourceType, Category, ErpWhitelist } from "@shared/schema";
@@ -3092,14 +3092,23 @@ function BookCopyIdentifierAuditCard() {
     queryFn: bookCopyIdentifiersApi.audit,
   });
   const {
-    data: remediationHistory = [],
+    data: remediationHistoryPages,
     error: remediationHistoryError,
     isLoading: isRemediationHistoryLoading,
+    isFetchingNextPage: isFetchingOlderRemediationHistory,
+    hasNextPage: hasOlderRemediationHistory,
+    fetchNextPage: fetchOlderRemediationHistory,
     refetch: refetchRemediationHistory,
-  } = useQuery({
+  } = useInfiniteQuery({
     queryKey: ["book-copy-identifier-remediation-history"],
-    queryFn: () => bookCopyIdentifiersApi.history(50),
+    queryFn: ({ pageParam }) => bookCopyIdentifiersApi.history(50, pageParam),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => lastPage.hasMore
+      ? lastPage.offset + lastPage.limit
+      : undefined,
   });
+  const remediationHistory = remediationHistoryPages?.pages.flatMap((page) => page.events) ?? [];
+  const remediationHistoryTotal = remediationHistoryPages?.pages[0]?.total ?? 0;
   const [replacementValues, setReplacementValues] = useState<Record<string, string>>({});
   const [feedback, setFeedback] = useState<{
     kind: "stale" | "conflict" | "error";
@@ -3320,9 +3329,12 @@ function BookCopyIdentifierAuditCard() {
         <Separator />
         <div className="space-y-3" data-testid="section-identifier-remediation-history">
           <div>
-            <h3 className="font-medium">Recent remediation history</h3>
+            <h3 className="font-medium">Identifier remediation history</h3>
             <p className="text-sm text-muted-foreground">
               Administrators can review identifier changes even after a collision has been cleared.
+              {remediationHistoryTotal > 0 && (
+                <> Showing {remediationHistory.length} of {remediationHistoryTotal} events.</>
+              )}
             </p>
           </div>
           {isRemediationHistoryLoading ? (
@@ -3345,41 +3357,56 @@ function BookCopyIdentifierAuditCard() {
               No identifier remediation events recorded.
             </p>
           ) : (
-            <div className="overflow-x-auto rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Copy</TableHead>
-                    <TableHead>Field</TableHead>
-                    <TableHead>Previous value</TableHead>
-                    <TableHead>Replacement</TableHead>
-                    <TableHead>Administrator</TableHead>
-                    <TableHead>Timestamp</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {remediationHistory.map((event) => (
-                    <TableRow key={event.id} data-testid={`identifier-remediation-event-${event.id}`}>
-                      <TableCell className="font-medium">{event.copyId}</TableCell>
-                      <TableCell>{IDENTIFIER_FIELD_LABELS[event.field]}</TableCell>
-                      <TableCell>
-                        <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
-                          {event.previousValue ?? "(empty)"}
-                        </code>
-                      </TableCell>
-                      <TableCell>
-                        <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
-                          {event.replacement ?? "(cleared)"}
-                        </code>
-                      </TableCell>
-                      <TableCell>{event.actor}</TableCell>
-                      <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                        {new Date(event.timestamp).toLocaleString()}
-                      </TableCell>
+            <div className="space-y-3">
+              <div className="overflow-x-auto rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Copy</TableHead>
+                      <TableHead>Field</TableHead>
+                      <TableHead>Previous value</TableHead>
+                      <TableHead>Replacement</TableHead>
+                      <TableHead>Administrator</TableHead>
+                      <TableHead>Timestamp</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {remediationHistory.map((event) => (
+                      <TableRow key={event.id} data-testid={`identifier-remediation-event-${event.id}`}>
+                        <TableCell className="font-medium">{event.copyId}</TableCell>
+                        <TableCell>{IDENTIFIER_FIELD_LABELS[event.field]}</TableCell>
+                        <TableCell>
+                          <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
+                            {event.previousValue ?? "(empty)"}
+                          </code>
+                        </TableCell>
+                        <TableCell>
+                          <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
+                            {event.replacement ?? "(cleared)"}
+                          </code>
+                        </TableCell>
+                        <TableCell>{event.actor}</TableCell>
+                        <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                          {new Date(event.timestamp).toLocaleString()}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              {hasOlderRemediationHistory && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full gap-2"
+                  onClick={() => void fetchOlderRemediationHistory()}
+                  disabled={isFetchingOlderRemediationHistory}
+                  data-testid="button-load-older-identifier-remediation-history"
+                >
+                  {isFetchingOlderRemediationHistory && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {isFetchingOlderRemediationHistory ? "Loading older events..." : "Load older events"}
+                </Button>
+              )}
             </div>
           )}
         </div>

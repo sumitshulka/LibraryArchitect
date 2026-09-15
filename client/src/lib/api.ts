@@ -1668,6 +1668,14 @@ export interface BookCopyIdentifierRemediationEvent {
   timestamp: string;
 }
 
+export interface BookCopyIdentifierRemediationHistoryPage {
+  events: BookCopyIdentifierRemediationEvent[];
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+}
+
 export interface BookCopyIdentifierRemediation {
   copyId: number;
   field: BookCopyIdentifierField;
@@ -1709,14 +1717,17 @@ export const bookCopyIdentifiersApi = {
     return res.json();
   },
 
-  history: async (limit = 50): Promise<BookCopyIdentifierRemediationEvent[]> => {
-    const res = await fetch(`${API_BASE}/book-copy-identifiers/remediation-history?limit=${limit}`);
+  history: async (limit = 50, offset = 0): Promise<BookCopyIdentifierRemediationHistoryPage> => {
+    const params = new URLSearchParams({
+      limit: String(limit),
+      offset: String(offset),
+    });
+    const res = await fetch(`${API_BASE}/book-copy-identifiers/remediation-history?${params.toString()}`);
     if (!res.ok) {
       const error = await res.json().catch(() => ({}));
       throw new Error(error.error || "Failed to fetch identifier remediation history");
     }
-    const result: { events: BookCopyIdentifierRemediationEvent[] } = await res.json();
-    return result.events;
+    return res.json();
   },
 
   remediate: async (data: BookCopyIdentifierRemediation): Promise<BookCopy> => {

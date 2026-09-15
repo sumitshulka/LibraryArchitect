@@ -2529,7 +2529,7 @@ export class DBStorage implements IStorage {
       .select()
       .from(auditLogs)
       .where(whereClause)
-      .orderBy(desc(auditLogs.timestamp))
+      .orderBy(desc(auditLogs.timestamp), desc(auditLogs.id))
       .limit(filters.limit || 50)
       .offset(filters.offset || 0);
 

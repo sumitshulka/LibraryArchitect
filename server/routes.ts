@@ -7089,10 +7089,15 @@ export async function registerRoutes(
       const limit = Number.isFinite(requestedLimit)
         ? Math.min(Math.max(requestedLimit, 1), 100)
         : 50;
+      const requestedOffset = Number.parseInt(String(req.query.offset ?? "0"), 10);
+      const offset = Number.isFinite(requestedOffset)
+        ? Math.max(requestedOffset, 0)
+        : 0;
       const result = await storage.queryAuditLogs({
         category: "CATALOG",
         action: "BOOK_COPY_IDENTIFIER_REMEDIATED",
         limit,
+        offset,
       });
       const validFields = new Set(["barcode", "internalSSN", "userDefinedSSN"]);
       const events = result.logs.flatMap((log) => {
@@ -7125,7 +7130,13 @@ export async function registerRoutes(
         }];
       });
 
-      res.json({ events });
+      res.json({
+        events,
+        total: result.total,
+        limit,
+        offset,
+        hasMore: offset + result.logs.length < result.total,
+      });
     } catch (error) {
       console.error("Error fetching book copy identifier remediation history:", error);
       res.status(500).json({ error: "Failed to fetch identifier remediation history" });
