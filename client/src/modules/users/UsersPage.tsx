@@ -114,7 +114,7 @@ export default function UsersPage() {
 
   const users = activeTab === 'STAFF' ? staffUsers : patronUsers;
   const isLoading = activeTab === 'STAFF' ? loadingStaff : loadingPatrons;
-  const usersWithLibraryBadges = users.filter((user) => user.role !== "ADMIN");
+  const usersWithLibraryBadges = users.filter((user) => user.role !== "ADMIN" || Boolean(user.erpIntegrationId));
   const libraryAllocationQueries = useQueries({
     queries: usersWithLibraryBadges.map((user) => ({
       queryKey: ["staff-allocations", user.id],
@@ -304,7 +304,7 @@ export default function UsersPage() {
                         <span className="text-xs text-muted-foreground">{user.email}</span>
                         <div className="mt-1 flex flex-wrap items-center gap-1" data-testid={`user-libraries-${user.id}`}>
                           {getPasswordSetupBadge(user as AdminUser)}
-                          {user.role !== "ADMIN" && (
+                        {(user.role !== "ADMIN" || Boolean(user.erpIntegrationId)) && (
                             <>
                             {(allocationsByUserId.get(user.id) || []).slice(0, 2).map((allocation) => (
                               <Badge
