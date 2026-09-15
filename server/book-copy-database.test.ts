@@ -5,7 +5,31 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import type { InsertBookCopy } from "@shared/schema";
 
-const testDatabaseUrl = process.env.NEON_DATABASE_URL;
+const developmentDatabaseUrl = process.env.DATABASE_URL;
+const testDatabaseUrl = process.env.NEON_DATABASE_URL?.trim();
+
+function databaseIdentity(databaseUrl: string) {
+  try {
+    const parsed = new URL(databaseUrl);
+    parsed.username = "";
+    parsed.password = "";
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return databaseUrl;
+  }
+}
+
+if (
+  testDatabaseUrl
+  && developmentDatabaseUrl
+  && databaseIdentity(testDatabaseUrl) === databaseIdentity(developmentDatabaseUrl)
+) {
+  throw new Error(
+    "NEON_DATABASE_URL must point to an isolated PostgreSQL database, not DATABASE_URL",
+  );
+}
 
 // This suite must use the isolated database URL, rather than the application's
 // normal development database. Dynamic imports let the database module see
@@ -84,7 +108,11 @@ async function waitForIdentifierLock(identifier: string) {
 }
 
 async function removeTestCopies() {
-  await db.execute(sql`DELETE FROM book_copies WHERE barcode LIKE ${`${runId}%`}`);
+  await db.execute(sql`
+    DELETE FROM book_copies
+    WHERE book_id = ${bookId}
+      AND barcode LIKE ${`${runId}%`}
+  `);
 }
 
 describe.skipIf(!testDatabaseUrl)("book copy identifiers against PostgreSQL", () => {
@@ -176,6 +204,7 @@ describe.skipIf(!testDatabaseUrl)("book copy identifiers against PostgreSQL", ()
       const gatePromise = holdIdentifierLock(gateIdentifier, 3);
       await waitForIdentifierLock(gateIdentifier);
       const createPromise = storage.createBookCopy(createInput);
+      void createPromise.catch(() => undefined);
       const updated = await storage.updateBookCopy(existingCopyId, {
         [updateField]: targetIdentifier,
       });

@@ -10,6 +10,7 @@
     "start": "NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
     "test": "vitest run",
+    "test:book-copy-database": "bash script/test-book-copy-database.sh",
     "db:push": "drizzle-kit push"
   },
   "dependencies": {

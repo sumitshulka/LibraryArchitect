@@ -7,7 +7,7 @@ channel = "stable-24_05"
 
 [deployment]
 deploymentTarget = "autoscale"
-build = ["npm", "run", "build"]
+build = ["bash", "-lc", "npm run test:book-copy-database && npm run build"]
 run = ["npm", "run", "start"]
 
 [[ports]]
@@ -37,6 +37,10 @@ author = "agent"
 task = "workflow.run"
 args = "Start application"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "book-copy-database"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -45,6 +49,17 @@ author = "agent"
 task = "shell.exec"
 args = "npm run dev"
 waitForPort = 5000
+
+[[workflows.workflow]]
+name = "book-copy-database"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run test:book-copy-database"
+
+[workflows.workflow.metadata]
+isValidation = true
 
 [agent]
 mockupState = "FULLSTACK"
