@@ -16,6 +16,7 @@ import {
   insertBookCopySchema,
   insertBookTransferSchema,
   insertLibraryMembershipSchema,
+  insertLibraryAccessRequestSchema,
   insertAuditSessionSchema,
   insertInventoryItemSchema,
   insertSearchAttributeTypeSchema,
@@ -371,6 +372,40 @@ async function requireLocalAdmin(req: any, res: any): Promise<any | null> {
     return null;
   }
   return user;
+}
+
+async function getAccessibleLibrariesForUser(user: User) {
+  const allLibraries = await storage.getAllLibraries();
+  if (user.role !== "LIBRARIAN") {
+    return allLibraries;
+  }
+  const memberships = await storage.getMembershipsByUser(user.id);
+  const now = new Date();
+  const accessibleIds = new Set(
+    memberships
+      .filter((membership) => membership.isActive && (!membership.expiresAt || membership.expiresAt > now))
+      .map((membership) => membership.libraryId),
+  );
+  return allLibraries.filter((library) => accessibleIds.has(library.id));
+}
+
+async function requireLibraryAccess(req: any, res: any, libraryId: number): Promise<User | null> {
+  const currentUser = await requireStaff(req, res);
+  if (!currentUser) return null;
+  if (currentUser.role !== "LIBRARIAN") return currentUser;
+  const memberships = await storage.getMembershipsByUser(currentUser.id);
+  const now = new Date();
+  const hasAccess = memberships.some(
+    (membership) =>
+      membership.libraryId === libraryId
+      && membership.isActive
+      && (!membership.expiresAt || membership.expiresAt > now),
+  );
+  if (!hasAccess) {
+    res.status(403).json({ error: "You are not assigned to this library" });
+    return null;
+  }
+  return currentUser;
 }
 
 function isBookCopyIdentifierConflict(error: unknown): error is { conflictingCopyIds: number[] } {
@@ -6706,22 +6741,45 @@ export async function registerRoutes(
   });
 
   // ===== Libraries API =====
+  app.get("/api/me/library-access", async (req, res) => {
+    try {
+      const currentUser = await requireStaff(req, res);
+      if (!currentUser) return;
+      const libraries = await getAccessibleLibrariesForUser(currentUser);
+      const pendingRequest = currentUser.role === "LIBRARIAN"
+        ? await storage.getPendingLibraryAccessRequest(currentUser.id)
+        : null;
+      res.json({
+        role: currentUser.role,
+        hasFullAccess: currentUser.role === "ADMIN",
+        hasAccess: currentUser.role !== "LIBRARIAN" || libraries.length > 0,
+        libraries,
+        pendingRequest: pendingRequest || null,
+      });
+    } catch (error) {
+      console.error("Error fetching current library access:", error);
+      res.status(500).json({ error: "Failed to fetch library access" });
+    }
+  });
+
   app.get("/api/libraries", async (req, res) => {
     try {
+      const currentUser = await requireStaff(req, res);
+      if (!currentUser) return;
       const { orgUnitId, active } = req.query;
       
       if (active === 'true') {
-        const libs = await storage.getActiveLibraries();
+        const libs = (await getAccessibleLibrariesForUser(currentUser)).filter((library) => library.isActive);
         return res.json(libs);
       }
       
       if (orgUnitId) {
-        const libs = await storage.getLibrariesByOrgUnit(parseInt(orgUnitId as string));
+        const accessible = await getAccessibleLibrariesForUser(currentUser);
+        const libs = accessible.filter((library) => library.orgUnitId === parseInt(orgUnitId as string));
         return res.json(libs);
       }
       
-      const libs = await storage.getAllLibraries();
-      res.json(libs);
+      res.json(await getAccessibleLibrariesForUser(currentUser));
     } catch (error) {
       console.error("Error fetching libraries:", error);
       res.status(500).json({ error: "Failed to fetch libraries" });
@@ -6731,6 +6789,7 @@ export async function registerRoutes(
   app.get("/api/libraries/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
+      if (!await requireLibraryAccess(req, res, id)) return;
       const library = await storage.getLibrary(id);
       
       if (!library) {
@@ -6750,6 +6809,7 @@ export async function registerRoutes(
       if (isNaN(id) || id <= 0) {
         return res.status(400).json({ error: "Invalid library ID" });
       }
+      if (!await requireLibraryAccess(req, res, id)) return;
       const dashboard = await storage.getLibraryDashboard(id);
       res.json(dashboard);
     } catch (error) {
@@ -6767,6 +6827,7 @@ export async function registerRoutes(
       if (isNaN(id) || id <= 0) {
         return res.status(400).json({ error: "Invalid library ID" });
       }
+      if (!await requireLibraryAccess(req, res, id)) return;
       const staff = await storage.getLibraryStaff(id);
       res.json(staff);
     } catch (error) {
@@ -6781,6 +6842,7 @@ export async function registerRoutes(
       if (isNaN(id) || id <= 0) {
         return res.status(400).json({ error: "Invalid library ID" });
       }
+      if (!await requireLibraryAccess(req, res, id)) return;
       
       const { query, format, category, status, limit, offset, attributeValueIds } = req.query;
 
@@ -7587,8 +7649,101 @@ export async function registerRoutes(
   });
 
   // ===== Library Memberships API =====
+  app.get("/api/admin/messages", async (req, res) => {
+    try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+      const rawStatus = typeof req.query.status === "string" ? req.query.status : undefined;
+      const status = rawStatus === "PENDING" || rawStatus === "RESOLVED" ? rawStatus : undefined;
+      res.json(await storage.getLibraryAccessRequests(status));
+    } catch (error) {
+      console.error("Error fetching administrator messages:", error);
+      res.status(500).json({ error: "Failed to fetch administrator messages" });
+    }
+  });
+
+  app.patch("/api/admin/messages/:id/resolve", async (req, res) => {
+    try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+      const id = parseInt(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) {
+        return res.status(400).json({ error: "Invalid message ID" });
+      }
+      const request = (await storage.getLibraryAccessRequests("PENDING")).find((item) => item.id === id);
+      if (!request) {
+        return res.status(404).json({ error: "Message not found or already resolved" });
+      }
+      const requesterMemberships = await storage.getStaffLibraryAllocations(request.requesterId);
+      if (requesterMemberships.length === 0) {
+        return res.status(400).json({ error: "Assign at least one library before resolving this request" });
+      }
+      const resolutionNote = z.object({ resolutionNote: z.string().max(1000).optional() }).parse(req.body || {}).resolutionNote;
+      const resolved = await storage.resolveLibraryAccessRequest(id, currentUser.id, resolutionNote);
+      if (!resolved) {
+        return res.status(404).json({ error: "Message not found or already resolved" });
+      }
+      await logAudit(req, {
+        category: "STAFF_ALLOCATION",
+        action: "LIBRARY_ACCESS_REQUEST_RESOLVED",
+        userId: currentUser.id,
+        userName: currentUser.username,
+        targetType: "library_access_request",
+        targetId: String(id),
+        details: { requesterId: request.requesterId, resolutionNote },
+      });
+      res.json(resolved);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error resolving administrator message:", error);
+      res.status(500).json({ error: "Failed to resolve administrator message" });
+    }
+  });
+
+  app.post("/api/library-access-requests", async (req, res) => {
+    try {
+      const currentUser = await requireStaff(req, res);
+      if (!currentUser) return;
+      if (currentUser.role !== "LIBRARIAN") {
+        return res.status(403).json({ error: "Only librarians can request library access" });
+      }
+      const memberships = await storage.getStaffLibraryAllocations(currentUser.id);
+      if (memberships.length > 0) {
+        return res.status(400).json({ error: "You already have library access" });
+      }
+      const existing = await storage.getPendingLibraryAccessRequest(currentUser.id);
+      if (existing) {
+        return res.status(409).json({ error: "Your library access request is already pending", request: existing });
+      }
+      const validated = insertLibraryAccessRequestSchema.parse({
+        requesterId: currentUser.id,
+        message: `${currentUser.name} is requesting access to a library.`,
+      });
+      const request = await storage.createLibraryAccessRequest(validated);
+      await logAudit(req, {
+        category: "STAFF_ALLOCATION",
+        action: "LIBRARY_ACCESS_REQUESTED",
+        userId: currentUser.id,
+        userName: currentUser.username,
+        targetType: "library_access_request",
+        targetId: String(request.id),
+      });
+      res.status(201).json({ success: true, request });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error creating library access request:", error);
+      res.status(500).json({ error: "Failed to send library access request" });
+    }
+  });
+
   app.get("/api/library-memberships", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const { userId, libraryId } = req.query;
       
       if (userId) {
@@ -7610,6 +7765,8 @@ export async function registerRoutes(
 
   app.post("/api/library-memberships", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const validated = insertLibraryMembershipSchema.parse(req.body);
       
       const user = await storage.getUser(validated.userId);
@@ -7635,6 +7792,8 @@ export async function registerRoutes(
 
   app.patch("/api/library-memberships/:id", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       const validated = insertLibraryMembershipSchema.partial().parse(req.body);
       
@@ -7656,6 +7815,8 @@ export async function registerRoutes(
 
   app.delete("/api/library-memberships/:id", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       const membership = await storage.getLibraryMembership(id);
       
@@ -7674,19 +7835,8 @@ export async function registerRoutes(
   // ===== Staff Library Allocation API (Super Admin Only) =====
   app.get("/api/staff-allocations/:staffUserId", async (req, res) => {
     try {
-      const sessionId = getSessionId(req);
-      if (!sessionId) {
-        return res.status(401).json({ error: "Authentication required" });
-      }
-      const session = await storage.getSession(sessionId);
-      if (!session) {
-        return res.status(401).json({ error: "Invalid session" });
-      }
-      
-      const currentUser = await storage.getUser(session.userId);
-      if (!currentUser || currentUser.role !== 'ADMIN') {
-        return res.status(403).json({ error: "Only super admin can manage staff allocations" });
-      }
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       
       const staffUserId = parseInt(req.params.staffUserId);
       const allocations = await storage.getStaffLibraryAllocations(staffUserId);
@@ -7710,19 +7860,8 @@ export async function registerRoutes(
 
   app.post("/api/staff-allocations/:staffUserId/allocate", async (req, res) => {
     try {
-      const sessionId = getSessionId(req);
-      if (!sessionId) {
-        return res.status(401).json({ error: "Authentication required" });
-      }
-      const session = await storage.getSession(sessionId);
-      if (!session) {
-        return res.status(401).json({ error: "Invalid session" });
-      }
-      
-      const currentUser = await storage.getUser(session.userId);
-      if (!currentUser || currentUser.role !== 'ADMIN') {
-        return res.status(403).json({ error: "Only super admin can allocate staff to libraries" });
-      }
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       
       const staffUserId = parseInt(req.params.staffUserId);
       const { libraryId, reason } = req.body;
@@ -7749,7 +7888,7 @@ export async function registerRoutes(
       const membership = await storage.allocateStaffToLibrary(
         staffUserId, 
         libraryId, 
-        session.userId, 
+        currentUser.id,
         reason
       );
       
@@ -7766,19 +7905,8 @@ export async function registerRoutes(
 
   app.post("/api/staff-allocations/:staffUserId/deallocate", async (req, res) => {
     try {
-      const sessionId = getSessionId(req);
-      if (!sessionId) {
-        return res.status(401).json({ error: "Authentication required" });
-      }
-      const session = await storage.getSession(sessionId);
-      if (!session) {
-        return res.status(401).json({ error: "Invalid session" });
-      }
-      
-      const currentUser = await storage.getUser(session.userId);
-      if (!currentUser || currentUser.role !== 'ADMIN') {
-        return res.status(403).json({ error: "Only super admin can deallocate staff from libraries" });
-      }
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       
       const staffUserId = parseInt(req.params.staffUserId);
       const { libraryId, reason } = req.body;
@@ -7793,7 +7921,7 @@ export async function registerRoutes(
       const success = await storage.deallocateStaffFromLibrary(
         staffUserId, 
         libraryId, 
-        session.userId, 
+        currentUser.id,
         reason
       );
       

@@ -1,4 +1,4 @@
-import { LucideIcon, LayoutDashboard, Book, Users, Repeat, AlertCircle, Settings, PieChart, Layers, Bell, Search, Menu, Building2, Package, ClipboardList, Tags, Coins, BookmarkCheck, Banknote, FolderOpen, AlertTriangle, Library } from "lucide-react";
+import { LucideIcon, LayoutDashboard, Book, Users, Repeat, AlertCircle, Settings, PieChart, Layers, Bell, Search, Menu, Building2, Package, ClipboardList, Tags, Coins, BookmarkCheck, Banknote, FolderOpen, AlertTriangle, Library, MessageSquare } from "lucide-react";
 
 export type UserRole = 'ADMIN' | 'LIBRARIAN' | 'STUDENT';
 
@@ -89,6 +89,7 @@ export const navItems = [
   { label: 'Organizations', icon: Building2, href: '/organizations', localAdminOnly: false },
   { label: 'Reports', icon: PieChart, href: '/reports', localAdminOnly: false },
   { label: 'Audit Logs', icon: ClipboardList, href: '/audit-logs', localAdminOnly: true },
+  { label: 'Messages', icon: MessageSquare, href: '/messages', localAdminOnly: true },
   { label: 'Settings', icon: Settings, href: '/settings', localAdminOnly: true },
 ];
 
@@ -98,5 +99,5 @@ export const navGroups: { title: string | null; items: string[] }[] = [
   { title: 'Library Operations', items: ['Allocations', 'Circulation', 'Reservations', 'Lost & Damaged', 'Fines', 'Waiver Requests'] },
   { title: 'Members', items: ['Patrons', 'Organizations'] },
   { title: 'Insights', items: ['Reports'] },
-  { title: 'Administration', items: ['Audit Logs', 'Settings'] },
+  { title: 'Administration', items: ['Messages', 'Audit Logs', 'Settings'] },
 ];

@@ -605,6 +605,19 @@ export const staffAllocationLogs = pgTable("staff_allocation_logs", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+export const libraryAccessRequestStatusEnum = pgEnum('library_access_request_status', ['PENDING', 'RESOLVED']);
+
+export const libraryAccessRequests = pgTable("library_access_requests", {
+  id: serial("id").primaryKey(),
+  requesterId: integer("requester_id").notNull().references(() => users.id),
+  status: libraryAccessRequestStatusEnum("status").notNull().default('PENDING'),
+  message: text("message").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  resolvedAt: timestamp("resolved_at"),
+  resolvedBy: integer("resolved_by").references(() => users.id),
+  resolutionNote: text("resolution_note"),
+});
+
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
   joinedDate: true,
@@ -734,6 +747,15 @@ export const insertStaffAllocationLogSchema = createInsertSchema(staffAllocation
   createdAt: true,
 });
 
+export const insertLibraryAccessRequestSchema = createInsertSchema(libraryAccessRequests).omit({
+  id: true,
+  status: true,
+  createdAt: true,
+  resolvedAt: true,
+  resolvedBy: true,
+  resolutionNote: true,
+});
+
 // ===== Search Attributes =====
 
 export const searchAttributeTypes = pgTable("search_attribute_types", {
@@ -839,6 +861,9 @@ export type LibraryMembership = typeof libraryMemberships.$inferSelect;
 
 export type InsertStaffAllocationLog = z.infer<typeof insertStaffAllocationLogSchema>;
 export type StaffAllocationLog = typeof staffAllocationLogs.$inferSelect;
+
+export type InsertLibraryAccessRequest = z.infer<typeof insertLibraryAccessRequestSchema>;
+export type LibraryAccessRequest = typeof libraryAccessRequests.$inferSelect;
 
 export const insertSearchAttributeTypeSchema = createInsertSchema(searchAttributeTypes).omit({
   id: true,

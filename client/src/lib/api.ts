@@ -22,6 +22,29 @@ export type AdminUser = User & {
   passwordSetupDeliveryError: string | null;
 };
 
+export interface LibraryAccessSummary {
+  role: string;
+  hasFullAccess: boolean;
+  hasAccess: boolean;
+  libraries: Library[];
+  pendingRequest: LibraryAccessRequest | null;
+}
+
+export interface LibraryAccessRequest {
+  id: number;
+  requesterId: number;
+  status: "PENDING" | "RESOLVED";
+  message: string;
+  createdAt: string;
+  resolvedAt: string | null;
+  resolvedBy: number | null;
+  resolutionNote: string | null;
+  requesterName: string;
+  requesterEmail: string;
+  requesterRole: string;
+  resolvedByName: string | null;
+}
+
 // Books API
 export const booksApi = {
   getAll: async (search?: string, attributeValueIds?: number[]): Promise<BookWithSearchAttributes[]> => {
@@ -266,6 +289,37 @@ export const usersApi = {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Failed to send password setup email");
     return data;
+  },
+};
+
+export const libraryAccessApi = {
+  getMine: async (): Promise<LibraryAccessSummary> => {
+    const res = await fetch(`${API_BASE}/me/library-access`, { cache: "no-store" });
+    if (!res.ok) throw new Error(await readError(res, "Failed to fetch library access"));
+    return res.json();
+  },
+  requestAccess: async (): Promise<{ success: boolean; request: LibraryAccessRequest }> => {
+    const res = await fetch(`${API_BASE}/library-access-requests`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    if (!res.ok) throw new Error(await readError(res, "Failed to request library access"));
+    return res.json();
+  },
+  getAdminMessages: async (status?: "PENDING" | "RESOLVED"): Promise<LibraryAccessRequest[]> => {
+    const query = status ? `?status=${status}` : "";
+    const res = await fetch(`${API_BASE}/admin/messages${query}`, { cache: "no-store" });
+    if (!res.ok) throw new Error(await readError(res, "Failed to fetch administrator messages"));
+    return res.json();
+  },
+  resolveMessage: async (id: number, resolutionNote?: string): Promise<LibraryAccessRequest> => {
+    const res = await fetch(`${API_BASE}/admin/messages/${id}/resolve`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resolutionNote }),
+    });
+    if (!res.ok) throw new Error(await readError(res, "Failed to resolve message"));
+    return res.json();
   },
 };
 

@@ -100,6 +100,9 @@ import {
   bookTransfers,
   libraryMemberships,
   staffAllocationLogs,
+  libraryAccessRequests,
+  type LibraryAccessRequest,
+  type InsertLibraryAccessRequest,
   auditLogs,
   auditSessions,
   inventoryItems,
@@ -137,6 +140,13 @@ export interface LibraryStaffMember {
   email: string;
   role: string;
   allocatedAt: Date;
+}
+
+export interface LibraryAccessRequestWithDetails extends LibraryAccessRequest {
+  requesterName: string;
+  requesterEmail: string;
+  requesterRole: string;
+  resolvedByName: string | null;
 }
 import { db, nullifyForInsert, returningViaCte } from "./db";
 import { eq, and, or, like, desc, asc, sql, isNull, inArray } from "drizzle-orm";
@@ -2015,6 +2025,60 @@ export class DBStorage implements IStorage {
       libraryName: libraryMap.get(log.libraryId)?.name || 'Unknown',
       performedByName: userMap.get(log.performedByUserId)?.name || 'Unknown',
     }));
+  }
+
+  async getPendingLibraryAccessRequest(userId: number): Promise<LibraryAccessRequest | undefined> {
+    const [request] = await db.select().from(libraryAccessRequests)
+      .where(and(
+        eq(libraryAccessRequests.requesterId, userId),
+        eq(libraryAccessRequests.status, "PENDING"),
+      ))
+      .orderBy(desc(libraryAccessRequests.createdAt))
+      .limit(1);
+    return request;
+  }
+
+  async createLibraryAccessRequest(request: InsertLibraryAccessRequest): Promise<LibraryAccessRequest> {
+    const [created] = await returningViaCte<LibraryAccessRequest>(
+      db.insert(libraryAccessRequests).values(request).returning(),
+    );
+    return created;
+  }
+
+  async getLibraryAccessRequests(status?: "PENDING" | "RESOLVED"): Promise<LibraryAccessRequestWithDetails[]> {
+    const requests = await db.select().from(libraryAccessRequests)
+      .where(status ? eq(libraryAccessRequests.status, status) : undefined)
+      .orderBy(desc(libraryAccessRequests.createdAt));
+    if (requests.length === 0) return [];
+
+    const userIds = Array.from(new Set(requests.flatMap((request) => [request.requesterId, request.resolvedBy].filter((id): id is number => id !== null))));
+    const usersData = await db.select().from(users).where(inArray(users.id, userIds));
+    const usersById = new Map(usersData.map((user) => [user.id, user]));
+    return requests.map((request) => ({
+      ...request,
+      requesterName: usersById.get(request.requesterId)?.name || "Unknown user",
+      requesterEmail: usersById.get(request.requesterId)?.email || "",
+      requesterRole: usersById.get(request.requesterId)?.role || "UNKNOWN",
+      resolvedByName: request.resolvedBy ? usersById.get(request.resolvedBy)?.name || null : null,
+    }));
+  }
+
+  async resolveLibraryAccessRequest(id: number, resolvedBy: number, resolutionNote?: string): Promise<LibraryAccessRequest | undefined> {
+    const [resolved] = await returningViaCte<LibraryAccessRequest>(
+      db.update(libraryAccessRequests)
+        .set({
+          status: "RESOLVED",
+          resolvedAt: new Date(),
+          resolvedBy,
+          resolutionNote: resolutionNote || null,
+        })
+        .where(and(
+          eq(libraryAccessRequests.id, id),
+          eq(libraryAccessRequests.status, "PENDING"),
+        ))
+        .returning(),
+    );
+    return resolved;
   }
 
   async getLibraryStaff(libraryId: number): Promise<LibraryStaffMember[]> {

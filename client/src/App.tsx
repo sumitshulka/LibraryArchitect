@@ -1,6 +1,6 @@
 import { Switch, Route, Router as WouterRouter, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as SonnerToaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -31,14 +31,24 @@ import SettingsPage from "@/modules/settings/SettingsPage";
 import SSOTestingPage from "./modules/settings/SSOTestingPage";
 import SearchAttributesPage, { BulkAssignAttributesPage } from "./modules/catalog/SearchAttributesPage";
 import PublicHomePage from "./pages/PublicHomePage";
+import NoLibraryAccessPage from "./pages/NoLibraryAccessPage";
+import MessagesPage from "@/modules/messages/MessagesPage";
 import DigitalResourcesDashboardPage from "@/modules/digital-resources/DigitalResourcesDashboardPage";
 import RepositoryPage from "@/modules/digital-resources/RepositoryPage";
 import UploadResourcePage from "@/modules/digital-resources/UploadResourcePage";
 import ResourceDetailsPage from "@/modules/digital-resources/ResourceDetailsPage";
 import { Loader2 } from "lucide-react";
+import { libraryAccessApi } from "@/lib/api";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { user, isAuthenticated, isLoading } = useAuth();
+  const isLibrarian = user?.role === "LIBRARIAN";
+  const { data: libraryAccess, isLoading: isLoadingLibraryAccess } = useQuery({
+    queryKey: ["library-access"],
+    queryFn: libraryAccessApi.getMine,
+    enabled: isLibrarian,
+    refetchInterval: 15_000,
+  });
 
   if (isLoading) {
     return (
@@ -50,6 +60,18 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
 
   if (!isAuthenticated) {
     return <Redirect to="/login" />;
+  }
+
+  if (isLibrarian && isLoadingLibraryAccess) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (isLibrarian && libraryAccess && !libraryAccess.hasAccess) {
+    return <NoLibraryAccessPage />;
   }
 
   return <Component />;
@@ -86,6 +108,7 @@ function AppRouter() {
       <Route path="/organizations/libraries/:libraryId/resources">{() => <ProtectedRoute component={LibraryResourcesPage} />}</Route>
       <Route path="/reports">{() => <ProtectedRoute component={ReportsPage} />}</Route>
       <Route path="/audit-logs">{() => <ProtectedRoute component={AuditLogsPage} />}</Route>
+      <Route path="/messages">{() => <ProtectedRoute component={MessagesPage} />}</Route>
       <Route path="/settings">{() => <ProtectedRoute component={SettingsPage} />}</Route>
       <Route path="/settings/sso-testing">{() => <ProtectedRoute component={SSOTestingPage} />}</Route>
       <Route component={NotFound} />
