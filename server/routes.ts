@@ -44,6 +44,28 @@ const Z3950_RATE_LIMIT_WINDOW_MS = 60_000;
 const Z3950_RATE_LIMIT_MAX_REQUESTS = 30;
 const z3950RateLimits = new Map<number, { count: number; resetAt: number }>();
 
+const bookCopyIdentifierRemediationSchema = z.object({
+  copyId: z.number().int().positive(),
+  field: z.enum(["barcode", "internalSSN", "userDefinedSSN"]),
+  expectedValue: z.string().nullable(),
+  replacement: z.string().nullable(),
+}).superRefine((value, context) => {
+  if (value.field === "barcode" && value.replacement === null) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["replacement"],
+      message: "Barcode cannot be cleared",
+    });
+  }
+  if (value.replacement !== null && value.replacement.trim().length === 0) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["replacement"],
+      message: "Replacement must not be blank",
+    });
+  }
+});
+
 const copyAllocationSchema = z.object({
   copyIds: z.array(z.number().int().positive()).min(1).max(5000),
   libraryId: z.number().int().positive(),
@@ -258,6 +280,12 @@ async function requireLocalAdmin(req: any, res: any): Promise<any | null> {
     return null;
   }
   return user;
+}
+
+function isBookCopyIdentifierConflict(error: unknown): error is { conflictingCopyIds: number[] } {
+  return error instanceof Error
+    && error.name === "BookCopyIdentifierConflictError"
+    && Array.isArray((error as any).conflictingCopyIds);
 }
 
 function generateAppId(): string {
@@ -6707,6 +6735,77 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/book-copy-identifiers/audit", async (req, res) => {
+    try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+
+      const collisions = await storage.auditBookCopyIdentifierCollisions();
+      const affectedCopyIds = Array.from(new Set(collisions.flatMap((collision) => collision.copyIds))).sort((a, b) => a - b);
+      res.json({
+        collisions,
+        collisionCount: collisions.length,
+        affectedCopyIds,
+      });
+    } catch (error) {
+      console.error("Error auditing book copy identifiers:", error);
+      res.status(500).json({ error: "Failed to audit book copy identifiers" });
+    }
+  });
+
+  app.post("/api/book-copy-identifiers/remediate", async (req, res) => {
+    try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+
+      const validated = bookCopyIdentifierRemediationSchema.parse(req.body);
+      const copy = await storage.getBookCopy(validated.copyId);
+      if (!copy) {
+        return res.status(404).json({ error: "Book copy not found" });
+      }
+
+      const currentValue = copy[validated.field];
+      if (currentValue !== validated.expectedValue) {
+        return res.status(409).json({
+          error: "Book copy changed since the audit; refresh the audit before remediating",
+          currentValue,
+        });
+      }
+
+      const updated = await storage.updateBookCopy(validated.copyId, {
+        [validated.field]: validated.replacement,
+      });
+      if (!updated) {
+        return res.status(404).json({ error: "Book copy not found" });
+      }
+
+      logAudit(req, {
+        category: "CATALOG",
+        action: "BOOK_COPY_IDENTIFIER_REMEDIATED",
+        targetType: "book_copy",
+        targetId: String(validated.copyId),
+        details: {
+          field: validated.field,
+          previousValue: validated.expectedValue,
+          replacement: validated.replacement,
+        },
+      });
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      if (isBookCopyIdentifierConflict(error)) {
+        return res.status(409).json({
+          error: "Replacement identifier is already used by another copy",
+          conflictingCopyIds: error.conflictingCopyIds,
+        });
+      }
+      console.error("Error remediating book copy identifier:", error);
+      res.status(500).json({ error: "Failed to remediate book copy identifier" });
+    }
+  });
+
   app.get("/api/book-copies/:id/circulation-history", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
@@ -6868,6 +6967,12 @@ export async function registerRoutes(
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: fromZodError(error).toString() });
       }
+      if (isBookCopyIdentifierConflict(error)) {
+        return res.status(409).json({
+          error: "A copy identifier is already used by another copy",
+          conflictingCopyIds: error.conflictingCopyIds,
+        });
+      }
       console.error("Error creating book copy:", error);
       res.status(500).json({ error: "Failed to create book copy" });
     }
@@ -6920,6 +7025,12 @@ export async function registerRoutes(
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      if (isBookCopyIdentifierConflict(error)) {
+        return res.status(409).json({
+          error: "A copy identifier is already used by another copy",
+          conflictingCopyIds: error.conflictingCopyIds,
+        });
       }
       console.error("Error updating book copy:", error);
       res.status(500).json({ error: "Failed to update book copy" });

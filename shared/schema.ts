@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, serial, timestamp, integer, boolean, pgEnum, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, serial, timestamp, integer, boolean, pgEnum, jsonb, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -384,7 +384,11 @@ export const bookCopies = pgTable("book_copies", {
   allocatedAt: timestamp("allocated_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => [
+  uniqueIndex("book_copies_barcode_lower_unique").on(sql`lower(${table.barcode})`),
+  uniqueIndex("book_copies_internal_ssn_lower_unique").on(sql`lower(${table.internalSSN})`),
+  uniqueIndex("book_copies_user_defined_ssn_lower_unique").on(sql`lower(${table.userDefinedSSN})`),
+]);
 
 export const bookTransfers = pgTable("book_transfers", {
   id: serial("id").primaryKey(),

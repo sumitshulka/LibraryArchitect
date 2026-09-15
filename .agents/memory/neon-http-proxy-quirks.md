@@ -31,3 +31,10 @@ The row is genuinely written (confirmed via raw SQL SELECT afterward) but the RE
 
 ## General guidance
 Any new code doing INSERT/UPDATE with nullable non-text columns or that needs the affected row(s) back should use `nullifyForInsert` + `returningViaCte` from `server/db.ts`. This is a growing list — if you find another proxy quirk, add it here rather than special-casing it inline.
+
+## 5. Drizzle interactive transactions are unavailable over neon-http
+`db.transaction(async (tx) => ...)` is not supported by Drizzle's neon-http session. Use `db.batch([...])` for a fixed sequence of statements that must run in one non-interactive transaction.
+
+**Why:** the neon-http driver explicitly throws for interactive transaction callbacks, while its underlying client supports ordered HTTP transaction batches.
+
+**How to apply:** keep transaction steps independent and construct all SQL before calling `db.batch`; do not rely on results from an earlier statement to build a later statement.

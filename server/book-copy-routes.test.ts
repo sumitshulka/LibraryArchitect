@@ -137,4 +137,37 @@ describe("book copy identifier validation", () => {
     expect(await response.json()).toMatchObject({ conflictingCopyIds: [20, 21] });
     expect(storageMock.updateBookCopy).not.toHaveBeenCalled();
   });
+
+  it("returns one conflict when two creates race for the same identifier", async () => {
+    let created = false;
+    storageMock.getBookCopiesByIdentifiers.mockImplementation(async () => []);
+    storageMock.createBookCopy.mockImplementation(async (value) => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      if (created) {
+        const error = new Error("A copy identifier is already used by another copy");
+        error.name = "BookCopyIdentifierConflictError";
+        (error as Error & { conflictingCopyIds: number[] }).conflictingCopyIds = [11];
+        throw error;
+      }
+      created = true;
+      return { id: 11, ...value };
+    });
+
+    const body = {
+      bookId: 5,
+      libraryId: 3,
+      barcode: "BC-RACE",
+      internalSSN: "SYS-RACE",
+      status: "AVAILABLE",
+    };
+    const responses = await Promise.all([
+      request("/api/book-copies", "POST", body),
+      request("/api/book-copies", "POST", body),
+    ]);
+
+    expect(responses.map((response) => response.status).sort()).toEqual([201, 409]);
+    const conflictResponse = responses.find((response) => response.status === 409);
+    expect(conflictResponse).toBeDefined();
+    expect(await conflictResponse!.json()).toMatchObject({ conflictingCopyIds: [11] });
+  });
 });

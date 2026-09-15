@@ -141,6 +141,153 @@ export interface LibraryStaffMember {
 import { db, nullifyForInsert, returningViaCte } from "./db";
 import { eq, and, or, like, desc, asc, sql, isNull, inArray } from "drizzle-orm";
 
+export type BookCopyIdentifierField = "barcode" | "internalSSN" | "userDefinedSSN";
+
+export interface BookCopyIdentifierCollisionOccurrence {
+  copyId: number;
+  field: BookCopyIdentifierField;
+  value: string;
+}
+
+export interface BookCopyIdentifierCollision {
+  identifier: string;
+  copyIds: number[];
+  occurrences: BookCopyIdentifierCollisionOccurrence[];
+}
+
+export class BookCopyIdentifierConflictError extends Error {
+  readonly conflictingCopyIds: number[];
+
+  constructor(conflictingCopyIds: number[]) {
+    super("A copy identifier is already used by another copy");
+    this.name = "BookCopyIdentifierConflictError";
+    this.conflictingCopyIds = conflictingCopyIds;
+  }
+}
+
+const identifierColumns: Record<BookCopyIdentifierField, string> = {
+  barcode: "barcode",
+  internalSSN: "internal_ssn",
+  userDefinedSSN: "user_defined_ssn",
+};
+
+function normalizeCopyIdentifier(value: string): string {
+  return value.toLocaleLowerCase();
+}
+
+function getCopyIdentifiers(copy: Pick<BookCopy, "barcode" | "internalSSN" | "userDefinedSSN">): string[] {
+  return [copy.barcode, copy.internalSSN, copy.userDefinedSSN]
+    .filter((identifier): identifier is string => Boolean(identifier));
+}
+
+function sqlValue(value: unknown) {
+  return value === null || value === undefined ? sql`NULL` : sql`${value}`;
+}
+
+function sqlIdentifierValues(identifiers: string[]) {
+  return sql.join(identifiers.map((identifier) => sql`(${identifier})`), sql`, `);
+}
+
+function getLockIdentifiers(identifiers: string[]): string[] {
+  return Array.from(new Set(identifiers.map(normalizeCopyIdentifier))).sort();
+}
+
+function identifierCollisionPredicate() {
+  return sql`
+    lower(existing.barcode) = lower(requested.identifier)
+    OR lower(existing.internal_ssn) = lower(requested.identifier)
+    OR lower(existing.user_defined_ssn) = lower(requested.identifier)
+  `;
+}
+
+async function getLockedIdentifierWriteResults(
+  identifiers: string[],
+  mutation: ReturnType<typeof sql>,
+  conflicts: ReturnType<typeof sql>,
+) {
+  const identifierValues = sqlIdentifierValues(getLockIdentifiers(identifiers));
+  const lockQuery = sql`
+    SELECT pg_advisory_xact_lock(hashtextextended(lower(identifier), 0))
+    FROM (VALUES ${identifierValues}) AS requested(identifier)
+  `;
+  return await db.batch([
+    db.execute(lockQuery),
+    db.execute(mutation),
+    db.execute(conflicts),
+  ]);
+}
+
+function getConflictIds(result: { rows?: unknown[] }): number[] {
+  return (result.rows || [])
+    .map((row: any) => Number(row.copyId ?? row.copy_id))
+    .filter((id) => Number.isInteger(id));
+}
+
+async function runLockedBookCopyWrite(
+  identifiers: string[],
+  mutation: ReturnType<typeof sql>,
+  conflicts: ReturnType<typeof sql>,
+) {
+  const results = await getLockedIdentifierWriteResults(identifiers, mutation, conflicts);
+  const insertedRows = ((results[1] as any)?.rows || []) as Array<{ id?: number }>;
+  if (insertedRows.length > 0 && insertedRows[0].id !== undefined) {
+    return { rowId: Number(insertedRows[0].id), conflictingCopyIds: [] };
+  }
+  return { rowId: undefined, conflictingCopyIds: getConflictIds(results[2] as any) };
+}
+
+function assertNoConflictingIdentifierValues(
+  copy: Pick<BookCopy, "barcode" | "internalSSN" | "userDefinedSSN">,
+) {
+  const normalized = getCopyIdentifiers(copy).map(normalizeCopyIdentifier);
+  if (new Set(normalized).size !== normalized.length) {
+    throw new BookCopyIdentifierConflictError([]);
+  }
+}
+
+async function queryBookCopyIdentifierCollisions(): Promise<BookCopyIdentifierCollision[]> {
+  const result = await db.execute(sql`
+    WITH identifiers AS (
+      SELECT id AS copy_id, 'barcode'::text AS field, barcode AS identifier
+      FROM book_copies
+      WHERE barcode IS NOT NULL
+      UNION ALL
+      SELECT id, 'internalSSN'::text, internal_ssn
+      FROM book_copies
+      WHERE internal_ssn IS NOT NULL
+      UNION ALL
+      SELECT id, 'userDefinedSSN'::text, user_defined_ssn
+      FROM book_copies
+      WHERE user_defined_ssn IS NOT NULL
+    )
+    SELECT
+      lower(identifier) AS identifier,
+      array_agg(DISTINCT copy_id ORDER BY copy_id)::int[] AS "copyIds",
+      json_agg(
+        json_build_object('copyId', copy_id, 'field', field, 'value', identifier)
+        ORDER BY copy_id, field
+      ) AS occurrences
+    FROM identifiers
+    GROUP BY lower(identifier)
+    HAVING COUNT(*) > 1
+    ORDER BY lower(identifier)
+  `);
+
+  return ((result.rows || []) as any[]).map((row) => ({
+    identifier: String(row.identifier),
+    copyIds: (row.copyIds || []).map((id: number | string) => Number(id)),
+    occurrences: (row.occurrences || []).map((occurrence: any) => ({
+      copyId: Number(occurrence.copyId),
+      field: occurrence.field as BookCopyIdentifierField,
+      value: String(occurrence.value),
+    })),
+  }));
+}
+
+export async function auditBookCopyIdentifierCollisions(): Promise<BookCopyIdentifierCollision[]> {
+  return queryBookCopyIdentifierCollisions();
+}
+
 export interface IStorage {
   // Users
   getUser(id: number): Promise<User | undefined>;
@@ -317,6 +464,7 @@ export interface IStorage {
   getBookCopyByIdentifier(identifier: string): Promise<BookCopy | undefined>;
   getBookCopiesByIds(ids: number[]): Promise<BookCopy[]>;
   getBookCopiesByIdentifiers(identifiers: string[]): Promise<BookCopy[]>;
+  auditBookCopyIdentifierCollisions(): Promise<BookCopyIdentifierCollision[]>;
   createBookCopy(bookCopy: InsertBookCopy): Promise<BookCopy>;
   createBookCopies(bookId: number, quantity: number, shelfLocation?: string, acquisitionDate?: Date, acquisitionSource?: string, price?: number): Promise<BookCopy[]>;
   updateBookCopy(id: number, bookCopy: Partial<InsertBookCopy>): Promise<BookCopy | undefined>;
@@ -1243,8 +1391,61 @@ export class DBStorage implements IStorage {
     );
   }
 
+  async auditBookCopyIdentifierCollisions(): Promise<BookCopyIdentifierCollision[]> {
+    return queryBookCopyIdentifierCollisions();
+  }
+
   async createBookCopy(insertBookCopy: InsertBookCopy): Promise<BookCopy> {
-    const [bookCopy] = await db.insert(bookCopies).values(insertBookCopy).returning();
+    assertNoConflictingIdentifierValues(insertBookCopy as BookCopy);
+    const identifiers = getCopyIdentifiers(insertBookCopy as BookCopy);
+    const requestedValues = sqlIdentifierValues(identifiers);
+    const mutation = sql`
+      WITH inserted AS (
+        INSERT INTO book_copies (
+          book_id, library_id, barcode, internal_ssn, user_defined_ssn,
+          call_number, shelf_location, status, condition, acquisition_date,
+          acquisition_source, price, notes, allocated_at
+        )
+        SELECT
+          ${sqlValue(insertBookCopy.bookId)},
+          ${sqlValue(insertBookCopy.libraryId)},
+          ${sqlValue(insertBookCopy.barcode)},
+          ${sqlValue(insertBookCopy.internalSSN)},
+          ${sqlValue(insertBookCopy.userDefinedSSN)},
+          ${sqlValue(insertBookCopy.callNumber)},
+          ${sqlValue(insertBookCopy.shelfLocation)},
+          ${sqlValue(insertBookCopy.status || "AVAILABLE")},
+          ${sqlValue(insertBookCopy.condition === undefined ? "GOOD" : insertBookCopy.condition)},
+          ${sqlValue(insertBookCopy.acquisitionDate)},
+          ${sqlValue(insertBookCopy.acquisitionSource)},
+          ${sqlValue(insertBookCopy.price)},
+          ${sqlValue(insertBookCopy.notes)},
+          ${sqlValue(insertBookCopy.allocatedAt)}
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM book_copies existing
+          CROSS JOIN (VALUES ${requestedValues}) AS requested(identifier)
+          WHERE ${identifierCollisionPredicate()}
+        )
+        RETURNING *
+      )
+      SELECT * FROM inserted
+    `;
+    const conflicts = sql`
+      SELECT DISTINCT existing.id AS "copyId"
+      FROM book_copies existing
+      CROSS JOIN (VALUES ${requestedValues}) AS requested(identifier)
+      WHERE ${identifierCollisionPredicate()}
+      ORDER BY existing.id
+    `;
+    const result = await runLockedBookCopyWrite(identifiers, mutation, conflicts);
+    if (result.rowId === undefined) {
+      throw new BookCopyIdentifierConflictError(result.conflictingCopyIds);
+    }
+    const bookCopy = await this.getBookCopy(result.rowId);
+    if (!bookCopy) {
+      throw new Error("Book copy was created but could not be read back");
+    }
     return bookCopy;
   }
 
@@ -1254,26 +1455,89 @@ export class DBStorage implements IStorage {
     
     for (let i = 0; i < quantity; i++) {
       const barcode = `BC-${bookId}-${timestamp}-${String(i + 1).padStart(4, '0')}`;
-      const [bookCopy] = await returningViaCte<BookCopy>(
-        db.insert(bookCopies).values(nullifyForInsert({
-          bookId,
-          libraryId: null,
-          barcode,
-          shelfLocation: shelfLocation || null,
-          status: 'AVAILABLE',
-          condition: 'GOOD',
-          acquisitionDate: acquisitionDate || null,
-          acquisitionSource: acquisitionSource || null,
-          price: price || null,
-        } as any)).returning()
-      );
-      copies.push(bookCopy);
+      copies.push(await this.createBookCopy({
+        bookId,
+        libraryId: null,
+        barcode,
+        shelfLocation: shelfLocation || null,
+        status: 'AVAILABLE',
+        condition: 'GOOD',
+        acquisitionDate: acquisitionDate || null,
+        acquisitionSource: acquisitionSource || null,
+        price: price || null,
+      }));
     }
     
     return copies;
   }
 
   async updateBookCopy(id: number, updateData: Partial<InsertBookCopy>): Promise<BookCopy | undefined> {
+    const hasIdentifierUpdate = Object.prototype.hasOwnProperty.call(updateData, "barcode")
+      || Object.prototype.hasOwnProperty.call(updateData, "internalSSN")
+      || Object.prototype.hasOwnProperty.call(updateData, "userDefinedSSN");
+    if (hasIdentifierUpdate) {
+      const current = await this.getBookCopy(id);
+      if (!current) return undefined;
+
+      const finalCopy = { ...current, ...updateData };
+      assertNoConflictingIdentifierValues(finalCopy);
+      const identifiers = getCopyIdentifiers(finalCopy);
+      const requestedValues = sqlIdentifierValues(identifiers);
+      const setValues = Object.entries(updateData)
+        .filter(([key]) => key in identifierColumns || key !== "id")
+        .map(([key, value]) => {
+          const column = identifierColumns[key as BookCopyIdentifierField]
+            || ({
+              bookId: "book_id",
+              libraryId: "library_id",
+              callNumber: "call_number",
+              shelfLocation: "shelf_location",
+              status: "status",
+              condition: "condition",
+              acquisitionDate: "acquisition_date",
+              acquisitionSource: "acquisition_source",
+              price: "price",
+              notes: "notes",
+              allocatedAt: "allocated_at",
+            } as Record<string, string>)[key];
+          return column ? sql`${sql.raw(column)} = ${sqlValue(value)}` : null;
+        })
+        .filter((value): value is ReturnType<typeof sql> => value !== null);
+      setValues.push(sql`updated_at = NOW()`);
+      const mutation = sql`
+        WITH updated AS (
+          UPDATE book_copies
+          SET ${sql.join(setValues, sql`, `)}
+          WHERE id = ${id}
+            AND NOT EXISTS (
+              SELECT 1
+              FROM book_copies existing
+              CROSS JOIN (VALUES ${requestedValues}) AS requested(identifier)
+              WHERE existing.id <> ${id}
+                AND ${identifierCollisionPredicate()}
+            )
+          RETURNING *
+        )
+        SELECT * FROM updated
+      `;
+      const conflicts = sql`
+        SELECT DISTINCT existing.id AS "copyId"
+        FROM book_copies existing
+        CROSS JOIN (VALUES ${requestedValues}) AS requested(identifier)
+        WHERE existing.id <> ${id}
+          AND ${identifierCollisionPredicate()}
+        ORDER BY existing.id
+      `;
+      const result = await runLockedBookCopyWrite(identifiers, mutation, conflicts);
+      if (result.rowId === undefined) {
+        if (result.conflictingCopyIds.length > 0) {
+          throw new BookCopyIdentifierConflictError(result.conflictingCopyIds);
+        }
+        return undefined;
+      }
+      return this.getBookCopy(result.rowId);
+    }
+
     const [bookCopy] = await db.update(bookCopies)
       .set({ ...updateData, updatedAt: new Date() })
       .where(eq(bookCopies.id, id))
@@ -1438,13 +1702,19 @@ export class DBStorage implements IStorage {
         ? ssnOptions.assignments.map((assignment) => [assignment.copyId, assignment.ssn])
         : [],
     );
-    const requestedRows = copyIds.map((copyId, index) => {
+    const requestedIdentifiers = copyIds.map((copyId, index) => {
       const internalSSN = ssnOptions.mode === "GENERATE"
         ? `${prefix}-${batchTimestamp}-${randomSuffix}-${String(index + 1).padStart(4, "0")}`
         : null;
       const userDefinedSSN = ssnOptions.mode === "SUPPLIED"
         ? suppliedByCopyId.get(copyId) ?? null
         : null;
+      return { copyId, internalSSN, userDefinedSSN };
+    });
+    const identifiers = requestedIdentifiers.flatMap(({ internalSSN, userDefinedSSN }) =>
+      [internalSSN, userDefinedSSN].filter((identifier): identifier is string => Boolean(identifier)),
+    );
+    const requestedRows = requestedIdentifiers.map(({ copyId, internalSSN, userDefinedSSN }) => {
       return sql`(
         ${copyId},
         ${internalSSN === null ? sql`NULL` : internalSSN}::text,
@@ -1452,7 +1722,11 @@ export class DBStorage implements IStorage {
       )`;
     });
 
-    const result = await db.execute<{ updatedCount: number }>(sql`
+    const lockQuery = sql`
+      SELECT pg_advisory_xact_lock(hashtextextended(lower(identifier), 0))
+      FROM (VALUES ${sqlIdentifierValues(getLockIdentifiers(identifiers))}) AS requested(identifier)
+    `;
+    const allocationQuery = sql`
       WITH requested(copy_id, internal_ssn, user_defined_ssn) AS (
         VALUES ${sql.join(requestedRows, sql`, `)}
       ),
@@ -1484,18 +1758,32 @@ export class DBStorage implements IStorage {
             SELECT 1
             FROM book_copies existing
             INNER JOIN requested requested_identifier
-              ON requested_identifier.user_defined_ssn IS NOT NULL
-              AND (
-                lower(existing.barcode) = lower(requested_identifier.user_defined_ssn)
-                OR lower(existing.internal_ssn) = lower(requested_identifier.user_defined_ssn)
-                OR lower(existing.user_defined_ssn) = lower(requested_identifier.user_defined_ssn)
+              ON (
+                requested_identifier.internal_ssn IS NOT NULL
+                AND (
+                  lower(existing.barcode) = lower(requested_identifier.internal_ssn)
+                  OR lower(existing.internal_ssn) = lower(requested_identifier.internal_ssn)
+                  OR lower(existing.user_defined_ssn) = lower(requested_identifier.internal_ssn)
+                )
+              ) OR (
+                requested_identifier.user_defined_ssn IS NOT NULL
+                AND (
+                  lower(existing.barcode) = lower(requested_identifier.user_defined_ssn)
+                  OR lower(existing.internal_ssn) = lower(requested_identifier.user_defined_ssn)
+                  OR lower(existing.user_defined_ssn) = lower(requested_identifier.user_defined_ssn)
+                )
               )
             WHERE existing.id <> requested_identifier.copy_id
           )
         RETURNING bc.id
       )
       SELECT COUNT(*)::int AS "updatedCount" FROM updated
-    `);
+    `;
+    const batchResults = await db.batch([
+      db.execute(lockQuery),
+      db.execute(allocationQuery),
+    ]);
+    const result = batchResults[1] as unknown as { rows: Array<{ updatedCount: number }> };
 
     const updatedCount = Number(result.rows[0]?.updatedCount ?? 0);
     if (updatedCount !== copyIds.length) {
