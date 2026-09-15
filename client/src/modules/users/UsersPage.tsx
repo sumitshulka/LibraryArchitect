@@ -169,7 +169,7 @@ export default function UsersPage() {
       : undefined;
     switch (user.passwordSetupStatus) {
       case "SET":
-        return <Badge title="This account has a local password" className="gap-1 border-none bg-emerald-100 text-emerald-800 hover:bg-emerald-100"><CheckCircle2 className="h-3 w-3" /> Password set</Badge>;
+        return <Badge title="This account has a local password" className="gap-1 border-none bg-emerald-100 text-emerald-800 hover:bg-emerald-100"><KeyRound className="h-3 w-3" /> Set</Badge>;
       case "ERP_MANAGED":
         return <Badge title="Authentication is managed by the ERP/SSO integration" variant="secondary" className="gap-1"><KeyRound className="h-3 w-3" /> ERP managed</Badge>;
       case "INVITATION_SENT":
@@ -302,9 +302,10 @@ export default function UsersPage() {
                           )}
                         </div>
                         <span className="text-xs text-muted-foreground">{user.email}</span>
-                        <div className="mt-1">{getPasswordSetupBadge(user as AdminUser)}</div>
-                        {user.role !== "ADMIN" && (
-                          <div className="mt-2 flex flex-wrap items-center gap-1" data-testid={`user-libraries-${user.id}`}>
+                        <div className="mt-1 flex flex-wrap items-center gap-1" data-testid={`user-libraries-${user.id}`}>
+                          {getPasswordSetupBadge(user as AdminUser)}
+                          {user.role !== "ADMIN" && (
+                            <>
                             {(allocationsByUserId.get(user.id) || []).slice(0, 2).map((allocation) => (
                               <Badge
                                 key={allocation.libraryId}
@@ -325,8 +326,9 @@ export default function UsersPage() {
                                 +{(allocationsByUserId.get(user.id) || []).length - 2} more
                               </Badge>
                             )}
-                          </div>
-                        )}
+                            </>
+                          )}
+                        </div>
                       </div>
                     </TableCell>
                     <TableCell>
