@@ -41,7 +41,13 @@ type EventConfig = {
   enabled: boolean;
   routes: Route[];
 };
-type Setup = { providers: Provider[]; events: EventConfig[]; secretMarker: string };
+type Setup = {
+  providers: Provider[];
+  events: EventConfig[];
+  defaultProviders: Partial<Record<Channel, string>>;
+  configuredChannels: Channel[];
+  secretMarker: string;
+};
 
 const PROVIDER_OPTIONS: Record<Channel, Array<{ value: string; label: string }>> = {
   EMAIL: [],
@@ -78,6 +84,7 @@ export function NotificationSettings() {
   });
   const [providers, setProviders] = useState<Provider[]>([]);
   const [events, setEvents] = useState<EventConfig[]>([]);
+  const [defaultProviders, setDefaultProviders] = useState<Partial<Record<Channel, string>>>({});
   const [selectedChannel, setSelectedChannel] = useState<Channel>("WHATSAPP");
   const [isSaving, setIsSaving] = useState(false);
 
@@ -85,6 +92,7 @@ export function NotificationSettings() {
     if (data) {
       setProviders(data.providers || []);
       setEvents(data.events || []);
+      setDefaultProviders(data.defaultProviders || {});
     }
   }, [data]);
 
@@ -94,7 +102,7 @@ export function NotificationSettings() {
       const response = await fetch("/api/notifications/setup", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ providers, events }),
+        body: JSON.stringify({ providers, events, defaultProviders }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Failed to save notification setup");
@@ -130,6 +138,14 @@ export function NotificationSettings() {
   const visibleProviders = useMemo(
     () => providers.filter((provider) => provider.channel === selectedChannel),
     [providers, selectedChannel],
+  );
+  const configuredChannels = useMemo(
+    () => {
+      const configured = new Set<Channel>(data?.configuredChannels || []);
+      providers.filter((provider) => provider.enabled).forEach((provider) => configured.add(provider.channel));
+      return (["EMAIL", "WHATSAPP", "SMS"] as Channel[]).filter((channel) => configured.has(channel));
+    },
+    [data?.configuredChannels, providers],
   );
 
   if (isLoading) return <Card><CardContent className="py-10 text-center text-muted-foreground">Loading notification setup…</CardContent></Card>;
@@ -208,8 +224,48 @@ export function NotificationSettings() {
 
           <Separator />
           <div>
+            <h3 className="font-semibold">Default providers for events</h3>
+            <p className="text-sm text-muted-foreground">Each event uses the selected provider for its channel unless an advanced API caller supplies an explicit override.</p>
+          </div>
+          <div className="grid gap-4 md:grid-cols-3">
+            {configuredChannels.map((channel) => {
+              const defaultProvider = providers.find((provider) => provider.id === defaultProviders[channel]);
+              return (
+                <Card key={channel} className="border-muted">
+                  <CardContent className="space-y-3 pt-5">
+                    <div className="flex items-center gap-2 font-medium">{channelIcon(channel)} {channel}</div>
+                    {channel === "EMAIL" ? (
+                      <div className="rounded-md border bg-muted/30 p-3 text-sm">
+                        <div className="font-medium">Default Email Provider</div>
+                        <div className="text-xs text-muted-foreground">Managed by the SMTP setup above.</div>
+                      </div>
+                    ) : (
+                      <Select
+                        value={defaultProviders[channel] || "none"}
+                        onValueChange={(value) => setDefaultProviders((current) => ({ ...current, [channel]: value === "none" ? undefined : value }))}
+                      >
+                        <SelectTrigger><SelectValue placeholder={`Select default ${channel.toLowerCase()} provider`} /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">No default provider</SelectItem>
+                          {providers.filter((provider) => provider.channel === channel && provider.enabled).map((provider) => (
+                            <SelectItem key={provider.id} value={provider.id}>{provider.name || provider.provider}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    {channel !== "EMAIL" && defaultProvider && <p className="text-xs text-muted-foreground">Current default: {defaultProvider.name || defaultProvider.provider}</p>}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+          {configuredChannels.length === 0 && (
+            <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">Configure a WhatsApp or SMS provider above to enable event routing for that channel.</p>
+          )}
+
+          <div>
             <h3 className="font-semibold">Event routing and templates</h3>
-            <p className="text-sm text-muted-foreground">The event identifier is what application code uses. Each channel can map it to its own provider template and values.</p>
+            <p className="text-sm text-muted-foreground">The event identifier is what application code uses. Only configured channels appear here; each one uses its selected default provider.</p>
           </div>
           <div className="space-y-4">
             {events.map((notificationEvent) => (
@@ -219,10 +275,10 @@ export function NotificationSettings() {
                     <div><div className="font-medium">{notificationEvent.label}</div><div className="font-mono text-xs text-muted-foreground">{notificationEvent.id}</div><p className="mt-1 text-sm text-muted-foreground">{notificationEvent.description}</p></div>
                     <Switch checked={notificationEvent.enabled} onCheckedChange={(enabled) => setEvents((current) => current.map((item) => item.id === notificationEvent.id ? { ...item, enabled } : item))} />
                   </div>
-                  {notificationEvent.routes.map((route) => (
-                    <div key={route.channel} className="grid gap-3 rounded-md border p-3 md:grid-cols-[auto_1fr_1fr_1fr_auto] md:items-end">
+                  {notificationEvent.routes.filter((route) => configuredChannels.includes(route.channel)).map((route) => (
+                    <div key={route.channel} className="grid gap-3 rounded-md border p-3 md:grid-cols-[auto_1fr_1fr_auto] md:items-end">
                       <div className="flex items-center gap-2 pb-2 text-sm font-medium">{channelIcon(route.channel)} {route.channel}</div>
-                      <div className="grid gap-1"><Label className="text-xs">Provider</Label><Select value={route.providerId || "none"} onValueChange={(value) => updateRoute(notificationEvent.id, route.channel, { providerId: value === "none" ? "" : value })}><SelectTrigger><SelectValue placeholder="Not configured" /></SelectTrigger><SelectContent><SelectItem value="none">Not configured</SelectItem>{providers.filter((provider) => provider.channel === route.channel).map((provider) => <SelectItem key={provider.id} value={provider.id}>{provider.name || provider.provider}</SelectItem>)}</SelectContent></Select></div>
+                      <div className="grid gap-1"><Label className="text-xs">Default provider</Label><div className="flex h-10 items-center rounded-md border bg-muted/30 px-3 text-sm">{route.channel === "EMAIL" ? "Default Email Provider" : (providers.find((provider) => provider.id === defaultProviders[route.channel])?.name || "No default provider selected")}</div></div>
                       <div className="grid gap-1"><Label className="text-xs">Provider template ID</Label><Input value={route.templateId || ""} onChange={(inputEvent) => updateRoute(notificationEvent.id, route.channel, { templateId: inputEvent.target.value })} placeholder={route.channel === "EMAIL" ? "Optional application template" : "Required by provider"} /></div>
                       <div className="grid gap-1"><Label className="text-xs">Value keys</Label><Input value={route.valueKeys.join(", ")} onChange={(inputEvent) => updateRoute(notificationEvent.id, route.channel, { valueKeys: inputEvent.target.value.split(",").map((value) => value.trim()).filter(Boolean) })} placeholder="firstName, setupLink" /></div>
                       <div className="flex items-center gap-2 pb-2"><Switch checked={route.enabled} onCheckedChange={(enabled) => updateRoute(notificationEvent.id, route.channel, { enabled })} /><span className="text-xs">Active</span></div>

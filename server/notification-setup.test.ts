@@ -39,6 +39,7 @@ describe("notification setup", () => {
         secrets: { accessToken: "do-not-return-this" },
       }],
       events: [],
+      defaultProviders: {},
     });
 
     const stored = await storage.getSystemConfig("notification_providers_v1");
@@ -62,8 +63,8 @@ describe("notification setup", () => {
       enabled: true,
       settings: { endpoint: "https://sms.example.test/send" },
     };
-    await saveNotificationSetup(storage, { providers: [{ ...base, secrets: { apiToken: "keep-me" } }], events: [] });
-    await saveNotificationSetup(storage, { providers: [{ ...base, secrets: { apiToken: "••••••••" } }], events: [] });
+    await saveNotificationSetup(storage, { providers: [{ ...base, secrets: { apiToken: "keep-me" } }], events: [], defaultProviders: {} });
+    await saveNotificationSetup(storage, { providers: [{ ...base, secrets: { apiToken: "••••••••" } }], events: [], defaultProviders: {} });
     const loaded = await loadNotificationSetup(storage);
     expect(loaded.providers.find((provider) => provider.id === "sms-1")?.secrets?.apiToken).toBe("keep-me");
   });

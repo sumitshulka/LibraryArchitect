@@ -160,6 +160,7 @@ export async function loadNotificationSetup(storage: IStorage): Promise<Notifica
 
 export async function saveNotificationSetup(storage: IStorage, setup: NotificationSetup) {
   const existing = await loadNotificationSetup(storage);
+  const configuredDefaults = setup.defaultProviders || {};
   const existingById = new Map(existing.providers.map((provider) => [provider.id, provider]));
   const storedProviders = setup.providers
     .filter((provider) => provider.channel !== "EMAIL")
@@ -196,11 +197,11 @@ export async function saveNotificationSetup(storage: IStorage, setup: Notificati
   const providerIds = new Set(setup.providers.filter((provider) => provider.enabled).map((provider) => provider.id));
   const defaultProviders: Partial<Record<NotificationChannel, string>> = {
     EMAIL: DEFAULT_EMAIL_PROVIDER_ID,
-    WHATSAPP: setup.defaultProviders.WHATSAPP && providerIds.has(setup.defaultProviders.WHATSAPP)
-      ? setup.defaultProviders.WHATSAPP
+    WHATSAPP: configuredDefaults.WHATSAPP && providerIds.has(configuredDefaults.WHATSAPP)
+      ? configuredDefaults.WHATSAPP
       : undefined,
-    SMS: setup.defaultProviders.SMS && providerIds.has(setup.defaultProviders.SMS)
-      ? setup.defaultProviders.SMS
+    SMS: configuredDefaults.SMS && providerIds.has(configuredDefaults.SMS)
+      ? configuredDefaults.SMS
       : undefined,
   };
   await storage.setSystemConfig({
@@ -218,8 +219,8 @@ export function toPublicNotificationSetup(setup: NotificationSetup) {
       secretKeys: Object.keys(secrets || {}),
     })),
     events: setup.events,
-    defaultProviders: setup.defaultProviders,
-    configuredChannels: (Object.keys(setup.defaultProviders) as NotificationChannel[]).filter((channel) => Boolean(setup.defaultProviders[channel])),
+    defaultProviders: setup.defaultProviders || {},
+    configuredChannels: (Object.keys(setup.defaultProviders || {}) as NotificationChannel[]).filter((channel) => Boolean(setup.defaultProviders?.[channel])),
     eventCatalog: NOTIFICATION_EVENT_CATALOG,
     secretMarker: SECRET_MARKER,
   };
