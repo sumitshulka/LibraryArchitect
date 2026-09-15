@@ -79,7 +79,7 @@ function bookToMarcFields(book: MarcEditorBook): MarcField[] {
   return fields;
 }
 
-export function MarcEditor({ book }: { book?: MarcEditorBook | null }) {
+export function MarcEditor({ book, readOnly = false }: { book?: MarcEditorBook | null; readOnly?: boolean }) {
   const [fields, setFields] = useState<MarcField[]>(book ? bookToMarcFields(book) : defaultMarcRecord);
 
   useEffect(() => {
@@ -143,14 +143,14 @@ export function MarcEditor({ book }: { book?: MarcEditorBook | null }) {
       <CardHeader className="px-0 pt-0">
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle>MARC21 Editor{book?.title ? ` — ${book.title}` : ''}</CardTitle>
+            <CardTitle>MARC21 {readOnly ? "Record" : "Editor"}{book?.title ? ` — ${book.title}` : ''}</CardTitle>
             <CardDescription>
               {book
                 ? `Bibliographic record for "${book.title}"${book.author ? ` by ${book.author}` : ''}`
                 : 'Edit bibliographic records in raw MARC format.'}
             </CardDescription>
           </div>
-          <div className="flex gap-2">
+          {!readOnly && <div className="flex gap-2">
             <Button variant="outline" size="sm" className="gap-2">
               <Code className="h-4 w-4" />
               Validate
@@ -159,7 +159,7 @@ export function MarcEditor({ book }: { book?: MarcEditorBook | null }) {
               <Save className="h-4 w-4" />
               Save Record
             </Button>
-          </div>
+          </div>}
         </div>
       </CardHeader>
       <CardContent className="px-0">
@@ -200,6 +200,7 @@ export function MarcEditor({ book }: { book?: MarcEditorBook | null }) {
                           onChange={(e) => updateField(field.id, 'tag', e.target.value)}
                           className="h-8 font-mono" 
                           maxLength={3}
+                          readOnly={readOnly}
                         />
                       </TableCell>
                       <TableCell className="p-2">
@@ -208,6 +209,7 @@ export function MarcEditor({ book }: { book?: MarcEditorBook | null }) {
                           onChange={(e) => updateField(field.id, 'ind1', e.target.value)}
                           className="h-8 font-mono text-center" 
                           maxLength={1}
+                          readOnly={readOnly}
                         />
                       </TableCell>
                       <TableCell className="p-2">
@@ -216,6 +218,7 @@ export function MarcEditor({ book }: { book?: MarcEditorBook | null }) {
                           onChange={(e) => updateField(field.id, 'ind2', e.target.value)}
                           className="h-8 font-mono text-center" 
                           maxLength={1}
+                          readOnly={readOnly}
                         />
                       </TableCell>
                       <TableCell className="p-2">
@@ -223,22 +226,23 @@ export function MarcEditor({ book }: { book?: MarcEditorBook | null }) {
                           value={field.content} 
                           onChange={(e) => updateField(field.id, 'content', e.target.value)}
                           className="h-8 font-mono text-blue-700" 
+                          readOnly={readOnly}
                         />
                       </TableCell>
                       <TableCell className="p-2">
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-red-600" onClick={() => removeField(field.id)}>
+                        {!readOnly && <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-red-600" onClick={() => removeField(field.id)}>
                           <Trash2 className="h-4 w-4" />
-                        </Button>
+                        </Button>}
                       </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
             </div>
-            <Button variant="outline" onClick={addField} className="w-full gap-2 border-dashed">
+            {!readOnly && <Button variant="outline" onClick={addField} className="w-full gap-2 border-dashed">
               <Plus className="h-4 w-4" />
               Add Field
-            </Button>
+            </Button>}
           </TabsContent>
           
           <TabsContent value="raw">

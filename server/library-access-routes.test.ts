@@ -116,6 +116,48 @@ describe("library access authorization and messages", () => {
     expect(storageMock.getLibraryDashboard).not.toHaveBeenCalled();
   });
 
+  it("shows librarians organization-wide patrons but only staff from their libraries", async () => {
+    currentUser = librarian;
+    const otherStaff = { id: 11, name: "Other Staff", username: "other", email: "other@example.com", role: "LIBRARIAN", category: "STAFF" };
+    const patron = { id: 12, name: "A Patron", username: "patron", email: "patron@example.com", role: "STUDENT", category: "PATRON" };
+    storageMock.getMembershipsByUser.mockResolvedValue([membership]);
+    storageMock.getMembershipsByLibrary.mockResolvedValue([membership]);
+    storageMock.getUsersByCategory.mockImplementation(async (category: string) =>
+      category === "STAFF" ? [librarian, otherStaff] : [patron],
+    );
+
+    let response = await request("/api/users?category=STAFF");
+    expect(response.status).toBe(200);
+    expect((await response.json()).map((user: { id: number }) => user.id)).toEqual([librarian.id]);
+
+    response = await request("/api/users?category=PATRON");
+    expect(response.status).toBe(200);
+    expect((await response.json()).map((user: { id: number }) => user.id)).toEqual([patron.id]);
+  });
+
+  it("rejects librarian requests to perform administrator-only collection operations", async () => {
+    currentUser = librarian;
+
+    const requests: Array<[string, RequestInit]> = [
+      ["/api/books", { method: "POST", body: "{}" }],
+      ["/api/books/1/copies", { method: "POST", body: "{}" }],
+      ["/api/allocations/allocate", { method: "POST", body: "{}" }],
+      ["/api/audit-sessions", { method: "POST", body: "{}" }],
+      ["/api/inventory", { method: "POST", body: "{}" }],
+      ["/api/inventory-items", { method: "POST", body: "{}" }],
+      ["/api/book-transfers", { method: "POST", body: "{}" }],
+    ];
+
+    for (const [path, init] of requests) {
+      const response = await request(path, init);
+      expect(response.status, path).toBe(403);
+    }
+
+    expect(storageMock.createBook).not.toHaveBeenCalled();
+    expect(storageMock.allocateCopies).not.toHaveBeenCalled();
+    expect(storageMock.createAuditSession).not.toHaveBeenCalled();
+  });
+
   it("scopes dashboard summaries, fines, and circulation reports to assigned libraries", async () => {
     currentUser = librarian;
     storageMock.getMembershipsByUser.mockResolvedValue([membership]);

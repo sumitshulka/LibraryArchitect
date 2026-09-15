@@ -55,6 +55,7 @@ import {
   Download
 } from "lucide-react";
 import { format } from "date-fns";
+import { useAuth } from "@/lib/auth";
 
 type AuditSession = {
   id: number;
@@ -125,6 +126,8 @@ type Library = {
 };
 
 export default function InventoryPage() {
+  const { user } = useAuth();
+  const canManageAudits = user?.role === "ADMIN" && user.isLocalUser;
   const [searchQuery, setSearchQuery] = useState("");
   const [scanInput, setScanInput] = useState("");
   const [scanNotes, setScanNotes] = useState("");
@@ -332,7 +335,7 @@ export default function InventoryPage() {
           </h1>
           <p className="text-muted-foreground mt-1">Stock verification and asset management.</p>
         </div>
-        <div className="flex gap-2">
+        {canManageAudits && <div className="flex gap-2">
           {currentSessionId && (
             <Button 
               size="sm" 
@@ -422,7 +425,7 @@ export default function InventoryPage() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
-        </div>
+        </div>}
       </div>
 
       <div className="grid gap-6 md:grid-cols-4">
@@ -510,7 +513,7 @@ export default function InventoryPage() {
               </Select>
             )}
           </div>
-          <div className="flex items-center gap-2 w-full sm:w-auto">
+          {canManageAudits && <div className="flex items-center gap-2 w-full sm:w-auto">
             <div className="relative flex-1 sm:w-64">
               <Scan className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input 
@@ -540,14 +543,18 @@ export default function InventoryPage() {
               <CheckCircle className="h-4 w-4 mr-1" />
               Verify
             </Button>
-          </div>
+          </div>}
         </div>
 
         {!currentSession ? (
           <div className="p-12 text-center text-muted-foreground">
             <Package className="h-12 w-12 mx-auto mb-4 opacity-50" />
             <p className="text-lg font-medium">No Active Audit Session</p>
-            <p className="text-sm mt-1">Start a new audit session to begin scanning and verifying inventory.</p>
+            <p className="text-sm mt-1">
+              {canManageAudits
+                ? "Start a new audit session to begin scanning and verifying inventory."
+                : "No inventory audit is currently available to view."}
+            </p>
           </div>
         ) : inventoryItems.length === 0 ? (
           <div className="p-12 text-center text-muted-foreground">

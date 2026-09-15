@@ -40,7 +40,13 @@ import ResourceDetailsPage from "@/modules/digital-resources/ResourceDetailsPage
 import { Loader2 } from "lucide-react";
 import { libraryAccessApi } from "@/lib/api";
 
-function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
+function ProtectedRoute({
+  component: Component,
+  localAdminOnly = false,
+}: {
+  component: React.ComponentType;
+  localAdminOnly?: boolean;
+}) {
   const { user, isAuthenticated, isLoading } = useAuth();
   const [location] = useLocation();
   const isLibrarian = user?.role === "LIBRARIAN";
@@ -61,6 +67,10 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
 
   if (!isAuthenticated) {
     return <Redirect to="/login" />;
+  }
+
+  if (localAdminOnly && (user?.role !== "ADMIN" || !user.isLocalUser)) {
+    return <Redirect to="/" />;
   }
 
   if (isLibrarian && isLoadingLibraryAccess) {
@@ -96,15 +106,15 @@ function AppRouter() {
       <Route path="/dashboard">{() => <ProtectedRoute component={DashboardPage} />}</Route>
       <Route path="/libraries">{() => <ProtectedRoute component={LibrariesPage} />}</Route>
       <Route path="/catalog">{() => <ProtectedRoute component={CatalogPage} />}</Route>
-      <Route path="/catalog/new">{() => <ProtectedRoute component={AddResourcePage} />}</Route>
-      <Route path="/catalog/bulk-upload">{() => <ProtectedRoute component={BulkUploadPage} />}</Route>
-      <Route path="/catalog/search-attributes">{() => <ProtectedRoute component={SearchAttributesPage} />}</Route>
-      <Route path="/catalog/search-attributes/bulk-assign">{() => <ProtectedRoute component={BulkAssignAttributesPage} />}</Route>
+      <Route path="/catalog/new">{() => <ProtectedRoute component={AddResourcePage} localAdminOnly />}</Route>
+      <Route path="/catalog/bulk-upload">{() => <ProtectedRoute component={BulkUploadPage} localAdminOnly />}</Route>
+      <Route path="/catalog/search-attributes">{() => <ProtectedRoute component={SearchAttributesPage} localAdminOnly />}</Route>
+      <Route path="/catalog/search-attributes/bulk-assign">{() => <ProtectedRoute component={BulkAssignAttributesPage} localAdminOnly />}</Route>
       <Route path="/digital-resources">{() => <ProtectedRoute component={DigitalResourcesDashboardPage} />}</Route>
       <Route path="/digital-resources/repository">{() => <ProtectedRoute component={RepositoryPage} />}</Route>
       <Route path="/digital-resources/upload">{() => <ProtectedRoute component={UploadResourcePage} />}</Route>
       <Route path="/digital-resources/:id">{() => <ProtectedRoute component={ResourceDetailsPage} />}</Route>
-      <Route path="/allocations">{() => <ProtectedRoute component={AllocationsPage} />}</Route>
+      <Route path="/allocations">{() => <ProtectedRoute component={AllocationsPage} localAdminOnly />}</Route>
       <Route path="/users">{() => <ProtectedRoute component={UsersPage} />}</Route>
       <Route path="/circulation">{() => <ProtectedRoute component={CirculationPage} />}</Route>
       <Route path="/circulation/waiver-requests">{() => <ProtectedRoute component={WaiverRequestsPage} />}</Route>

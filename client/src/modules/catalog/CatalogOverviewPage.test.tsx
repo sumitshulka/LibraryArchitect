@@ -7,6 +7,16 @@ import { Router } from "wouter";
 import CatalogOverviewPage from "./CatalogOverviewPage";
 import { booksApi, statsApi } from "@/lib/api";
 
+const { authState } = vi.hoisted(() => ({
+  authState: {
+    user: { id: 1, role: "ADMIN", isLocalUser: true } as any,
+  },
+}));
+
+vi.mock("@/lib/auth", () => ({
+  useAuth: () => ({ user: authState.user }),
+}));
+
 vi.mock("@/lib/api", () => ({
   booksApi: {
     getAll: vi.fn(),
@@ -85,6 +95,7 @@ function renderPage() {
 describe("CatalogOverviewPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    authState.user = { id: 1, role: "ADMIN", isLocalUser: true };
     mockedGetBooks.mockResolvedValue([book]);
     mockedGetStats.mockResolvedValue({
       totalBooks: 1,
@@ -141,5 +152,22 @@ describe("CatalogOverviewPage", () => {
     await user.click(await screen.findByRole("button", { name: /open catalog analytics/i }));
 
     expect(screen.getByTestId("catalog-analytics-dialog")).toBeInTheDocument();
+  });
+
+  it("keeps the catalog read-only for librarians", async () => {
+    authState.user = { id: 10, role: "LIBRARIAN", isLocalUser: true };
+    const user = userEvent.setup();
+    renderPage();
+
+    expect(await screen.findByTestId("text-catalog-title")).toBeInTheDocument();
+    expect(screen.queryByTestId("button-add-resource")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-bulk-upload")).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId("button-actions-1"));
+    expect(screen.getByTestId("button-marc-1")).toBeInTheDocument();
+    expect(screen.getByTestId("button-history-1")).toBeInTheDocument();
+    expect(screen.queryByTestId("button-edit-1")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-add-copies-1")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("button-delete-1")).not.toBeInTheDocument();
   });
 });

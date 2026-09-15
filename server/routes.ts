@@ -414,6 +414,40 @@ async function getLibraryScopeForStaff(user: User): Promise<Set<number> | null> 
   return new Set((await getAccessibleLibrariesForUser(user)).map((library) => library.id));
 }
 
+async function getUsersVisibleToStaff(user: User, category?: "STAFF" | "PATRON") {
+  if (user.role === "ADMIN") {
+    return category ? storage.getUsersByCategory(category) : storage.getAllUsers();
+  }
+
+  if (category === "PATRON") {
+    return storage.getUsersByCategory("PATRON");
+  }
+
+  const [staffUsers, patronUsers, libraries] = await Promise.all([
+    storage.getUsersByCategory("STAFF"),
+    category ? Promise.resolve([]) : storage.getUsersByCategory("PATRON"),
+    getAccessibleLibrariesForUser(user),
+  ]);
+  const memberships = (
+    await Promise.all(libraries.map((library) => storage.getMembershipsByLibrary(library.id)))
+  ).flat();
+  const now = new Date();
+  const visibleStaffIds = new Set(
+    memberships
+      .filter((membership) => membership.isActive && (!membership.expiresAt || membership.expiresAt > now))
+      .map((membership) => membership.userId),
+  );
+  const visibleStaff = staffUsers.filter((staffUser) => visibleStaffIds.has(staffUser.id));
+  return category === "STAFF" ? visibleStaff : [...visibleStaff, ...patronUsers];
+}
+
+async function presentUsersToStaff(currentUser: User, users: User[]) {
+  if (currentUser.role === "ADMIN") {
+    return Promise.all(users.map(toAdminUserView));
+  }
+  return users.map(({ password, ...safeUser }) => safeUser);
+}
+
 async function requireLibraryAccess(req: any, res: any, libraryId: number): Promise<User | null> {
   const currentUser = await requireStaff(req, res);
   if (!currentUser) return null;
@@ -824,6 +858,8 @@ export async function registerRoutes(
 
   app.post("/api/books/:id/copies", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const bookId = parseInt(req.params.id);
       if (isNaN(bookId)) {
         return res.status(400).json({ error: "Invalid book ID" });
@@ -890,6 +926,8 @@ export async function registerRoutes(
 
   app.post("/api/books", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const { quantity, acquisitionDate, acquisitionSource, unitPrice, ...bookData } = req.body;
       
       // Convert acquisitionDate string to Date object if provided
@@ -956,6 +994,8 @@ export async function registerRoutes(
 
   app.patch("/api/books/:id", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       const validated = insertBookSchema.partial().parse(req.body);
       
@@ -978,6 +1018,8 @@ export async function registerRoutes(
 
   app.delete("/api/books/:id", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       
       // Check if book has active circulation
@@ -1019,6 +1061,8 @@ export async function registerRoutes(
 
   app.post("/api/books/:id/cover", coverUpload.single("cover"), async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       const book = await storage.getBook(id);
       
@@ -1043,6 +1087,8 @@ export async function registerRoutes(
   // Fetch cover from Open Library by ISBN
   app.post("/api/books/:id/cover/fetch", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       const book = await storage.getBook(id);
       
@@ -1132,16 +1178,16 @@ export async function registerRoutes(
   // ===== Users API =====
   app.get("/api/users", async (req, res) => {
     try {
-      const currentUser = await requireLocalAdmin(req, res);
+      const currentUser = await requireStaff(req, res);
       if (!currentUser) return;
       const { category } = req.query;
       
       if (category && (category === 'STAFF' || category === 'PATRON')) {
-        const users = await storage.getUsersByCategory(category);
-        res.json(await Promise.all(users.map(toAdminUserView)));
+        const users = await getUsersVisibleToStaff(currentUser, category);
+        res.json(await presentUsersToStaff(currentUser, users));
       } else {
-        const users = await storage.getAllUsers();
-        res.json(await Promise.all(users.map(toAdminUserView)));
+        const users = await getUsersVisibleToStaff(currentUser);
+        res.json(await presentUsersToStaff(currentUser, users));
       }
     } catch (error) {
       console.error("Error fetching users:", error);
@@ -1151,7 +1197,7 @@ export async function registerRoutes(
 
   app.get("/api/users/search", async (req, res) => {
     try {
-      const currentUser = await requireLocalAdmin(req, res);
+      const currentUser = await requireStaff(req, res);
       if (!currentUser) return;
       const q = (req.query.q as string || "").trim();
       const role = req.query.role as string;
@@ -1159,7 +1205,7 @@ export async function registerRoutes(
       const status = req.query.status as string || "ACTIVE";
       const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
 
-      const allUsers = await storage.getAllUsers();
+      const allUsers = await getUsersVisibleToStaff(currentUser);
       
       let filtered = allUsers.filter(u => {
         if (status && u.status !== status) return false;
@@ -1194,16 +1240,20 @@ export async function registerRoutes(
 
   app.get("/api/users/:id", async (req, res) => {
     try {
-      const currentUser = await requireLocalAdmin(req, res);
+      const currentUser = await requireStaff(req, res);
       if (!currentUser) return;
       const id = parseInt(req.params.id);
-      const user = await storage.getUser(id);
+      const user = (await getUsersVisibleToStaff(currentUser)).find((candidate) => candidate.id === id);
       
       if (!user) {
         return res.status(404).json({ error: "User not found" });
       }
       
-      res.json(await toAdminUserView(user));
+      if (currentUser.role === "ADMIN") {
+        return res.json(await toAdminUserView(user));
+      }
+      const { password, ...safeUser } = user;
+      res.json(safeUser);
     } catch (error) {
       console.error("Error fetching user:", error);
       res.status(500).json({ error: "Failed to fetch user" });
@@ -2824,6 +2874,8 @@ export async function registerRoutes(
 
   app.post("/api/inventory", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const validated = insertInventorySchema.parse(req.body);
       const inventory = await storage.createInventory(validated);
       res.status(201).json(inventory);
@@ -2838,6 +2890,8 @@ export async function registerRoutes(
 
   app.patch("/api/inventory/:id", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       const validated = insertInventorySchema.partial().parse(req.body);
       
@@ -2915,6 +2969,8 @@ export async function registerRoutes(
 
   app.post("/api/audit-sessions", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const validated = insertAuditSessionSchema.parse(req.body);
       const session = await storage.createAuditSession({
         ...validated,
@@ -2961,6 +3017,8 @@ export async function registerRoutes(
 
   app.patch("/api/audit-sessions/:id", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       const validated = insertAuditSessionSchema.partial().parse(req.body);
       
@@ -2982,6 +3040,8 @@ export async function registerRoutes(
 
   app.post("/api/audit-sessions/:id/complete", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       const session = await storage.getAuditSession(id);
       
@@ -3202,6 +3262,8 @@ export async function registerRoutes(
 
   app.post("/api/inventory-items", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const validated = insertInventoryItemSchema.parse(req.body);
       
       // Check if item already exists for this session and copy
@@ -3229,6 +3291,8 @@ export async function registerRoutes(
 
   app.patch("/api/inventory-items/:id", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       const validated = insertInventoryItemSchema.partial().parse(req.body);
       
@@ -3251,6 +3315,8 @@ export async function registerRoutes(
   // Scan SSN endpoint - verifies a copy during inventory audit
   app.post("/api/audit-sessions/:sessionId/scan", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const sessionId = parseInt(req.params.sessionId);
       const { ssn, shelfLocation, condition, notes } = req.body;
       
@@ -3568,6 +3634,8 @@ export async function registerRoutes(
 
   app.post("/api/resource-types", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const validated = insertResourceTypeSchema.parse(req.body);
       const type = await storage.createResourceType(validated);
       logAudit(req, { category: 'CATALOG', action: 'RESOURCE_TYPE_CREATED', targetType: 'resource_type', targetId: String(type.id), details: { name: validated.name } });
@@ -3583,6 +3651,8 @@ export async function registerRoutes(
 
   app.patch("/api/resource-types/:id", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       const validated = insertResourceTypeSchema.partial().parse(req.body);
       
@@ -3605,6 +3675,8 @@ export async function registerRoutes(
 
   app.delete("/api/resource-types/:id", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       await storage.deleteResourceType(id);
       logAudit(req, { category: 'CATALOG', action: 'RESOURCE_TYPE_DELETED', targetType: 'resource_type', targetId: String(id) });
@@ -3651,6 +3723,8 @@ export async function registerRoutes(
 
   app.post("/api/categories", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const validated = insertCategorySchema.parse(req.body);
       const category = await storage.createCategory(validated);
       logAudit(req, { category: 'CATALOG', action: 'CATEGORY_CREATED', targetType: 'category', targetId: String(category.id), details: { name: validated.name } });
@@ -3666,6 +3740,8 @@ export async function registerRoutes(
 
   app.patch("/api/categories/:id", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       const validated = insertCategorySchema.partial().parse(req.body);
       
@@ -3688,6 +3764,8 @@ export async function registerRoutes(
 
   app.delete("/api/categories/:id", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       await storage.deleteCategory(id);
       logAudit(req, { category: 'CATALOG', action: 'CATEGORY_DELETED', targetType: 'category', targetId: String(id) });
@@ -3922,6 +4000,8 @@ export async function registerRoutes(
 
   app.post("/api/catalog/bulk-upload/preview", upload.single("file"), async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       if (!req.file) {
         return res.status(400).json({ error: "No file uploaded" });
       }
@@ -4071,6 +4151,8 @@ export async function registerRoutes(
 
   app.post("/api/catalog/bulk-upload/commit", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const { rows, idempotencyKey } = req.body;
       
       if (!rows || !Array.isArray(rows) || rows.length === 0) {
@@ -7328,6 +7410,8 @@ export async function registerRoutes(
 
   app.post("/api/book-copies", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const validated = insertBookCopySchema.parse(req.body);
 
       const requestedIdentifiers = [
@@ -7374,6 +7458,8 @@ export async function registerRoutes(
 
   app.patch("/api/book-copies/:id", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       const validated = insertBookCopySchema.partial().parse(req.body);
 
@@ -7433,6 +7519,8 @@ export async function registerRoutes(
 
   app.delete("/api/book-copies/:id", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       const copy = await storage.getBookCopy(id);
       
@@ -7455,6 +7543,8 @@ export async function registerRoutes(
   // ===== Resource Allocations API =====
   app.get("/api/allocations/unallocated", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const unallocatedCopies = await storage.getUnallocatedCopiesWithBookInfo();
       res.json(unallocatedCopies);
     } catch (error) {
@@ -7465,6 +7555,8 @@ export async function registerRoutes(
 
   app.post("/api/allocations/allocate", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const validated = copyAllocationSchema.parse(req.body);
       const { copyIds, libraryId, ssnMode, ssnPrefix } = validated;
       
@@ -7611,6 +7703,8 @@ export async function registerRoutes(
 
   app.post("/api/book-transfers", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const validated = insertBookTransferSchema.parse(req.body);
       
       const copy = await storage.getBookCopy(validated.bookCopyId);
@@ -7645,6 +7739,8 @@ export async function registerRoutes(
 
   app.patch("/api/book-transfers/:id", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       const { status, approvedBy, notes } = req.body;
       
@@ -8211,6 +8307,8 @@ export async function registerRoutes(
 
   app.post("/api/search-attributes/types", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const validated = insertSearchAttributeTypeSchema.parse(req.body);
       const type = await storage.createSearchAttributeType(validated);
       logAudit(req, { category: 'CATALOG', action: 'SEARCH_ATTR_TYPE_CREATED', targetType: 'search_attribute_type', targetId: String(type.id), details: { name: type.name } });
@@ -8226,6 +8324,8 @@ export async function registerRoutes(
 
   app.patch("/api/search-attributes/types/:id", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       const validated = insertSearchAttributeTypeSchema.partial().parse(req.body);
       const type = await storage.updateSearchAttributeType(id, validated);
@@ -8243,6 +8343,8 @@ export async function registerRoutes(
 
   app.delete("/api/search-attributes/types/:id", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       const deleted = await storage.deleteSearchAttributeType(id);
       if (!deleted) return res.status(404).json({ error: "Search attribute type not found" });
@@ -8268,6 +8370,8 @@ export async function registerRoutes(
 
   app.post("/api/search-attributes/types/:typeId/values", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const typeId = parseInt(req.params.typeId);
       const type = await storage.getSearchAttributeType(typeId);
       if (!type) return res.status(404).json({ error: "Search attribute type not found" });
@@ -8290,6 +8394,8 @@ export async function registerRoutes(
 
   app.post("/api/search-attributes/types/:typeId/values/bulk", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const typeId = parseInt(req.params.typeId);
       if (!Number.isInteger(typeId) || typeId <= 0) {
         return res.status(400).json({ error: "Invalid search attribute type" });
@@ -8334,6 +8440,8 @@ export async function registerRoutes(
 
   app.patch("/api/search-attributes/values/:id", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       const validated = insertSearchAttributeValueSchema.partial().parse(req.body);
       const value = await storage.updateSearchAttributeValue(id, validated);
@@ -8350,6 +8458,8 @@ export async function registerRoutes(
 
   app.delete("/api/search-attributes/values/:id", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       const deleted = await storage.deleteSearchAttributeValue(id);
       if (!deleted) return res.status(404).json({ error: "Search attribute value not found" });
@@ -8362,6 +8472,8 @@ export async function registerRoutes(
 
   app.post("/api/search-attributes/bulk-assign", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const arrayOfPositiveIntegers = z.array(z.number().int().positive()).min(1);
       const targetIds = z.array(z.number().int().positive());
       const validated = z.object({
@@ -8440,6 +8552,8 @@ export async function registerRoutes(
 
   app.put("/api/books/:bookId/search-attributes", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const bookId = parseInt(req.params.bookId);
       const book = await storage.getBook(bookId);
       if (!book) return res.status(404).json({ error: "Book not found" });

@@ -44,6 +44,9 @@ describe("POST /api/search-attributes/bulk-assign", () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    const localAdmin = { id: 303, name: "Local Admin", role: "ADMIN" };
+    storageMock.getSession.mockResolvedValue({ userId: localAdmin.id });
+    storageMock.getUser.mockResolvedValue(localAdmin);
     storageMock.getSearchAttributeType.mockResolvedValue({ id: 7, name: "Courses" });
     storageMock.getSearchAttributeValuesByType.mockResolvedValue([{ value: "CS101" }]);
     storageMock.createSearchAttributeValues.mockResolvedValue([
@@ -73,7 +76,7 @@ describe("POST /api/search-attributes/bulk-assign", () => {
     const address = httpServer.address() as AddressInfo;
     return fetch(`http://127.0.0.1:${address.port}/api/search-attributes/bulk-assign`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-session-id": "test-session" },
       body: JSON.stringify(body),
     });
   }
@@ -82,7 +85,7 @@ describe("POST /api/search-attributes/bulk-assign", () => {
     const address = httpServer.address() as AddressInfo;
     return fetch(`http://127.0.0.1:${address.port}/api/search-attributes/types/${typeId}/values/bulk`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-session-id": "test-session" },
       body: JSON.stringify(body),
     });
   }

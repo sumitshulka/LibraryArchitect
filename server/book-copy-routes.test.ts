@@ -334,9 +334,10 @@ describe("book copy identifier validation", () => {
   });
 
   it("allows an edit that retains the same copy's identifier", async () => {
+    currentUser = localAdmin;
     storageMock.getBookCopiesByIdentifiers.mockResolvedValue([copy]);
 
-    const response = await request("/api/book-copies/10", "PATCH", { userDefinedSSN: "lib-10" });
+    const response = await request("/api/book-copies/10", "PATCH", { userDefinedSSN: "lib-10" }, true);
 
     expect(response.status).toBe(200);
     expect(storageMock.updateBookCopy).toHaveBeenCalledWith(10, { userDefinedSSN: "lib-10" });
@@ -347,9 +348,10 @@ describe("book copy identifier validation", () => {
     ["Internal SSN", { id: 20, barcode: "BC-20", internalSSN: "OTHER", userDefinedSSN: null }],
     ["user-defined SSN", { id: 20, barcode: "BC-20", internalSSN: null, userDefinedSSN: "OTHER" }],
   ])("rejects an edit conflicting with another copy's %s", async (_label, conflictingCopy) => {
+    currentUser = localAdmin;
     storageMock.getBookCopiesByIdentifiers.mockResolvedValue([conflictingCopy]);
 
-    const response = await request("/api/book-copies/10", "PATCH", { userDefinedSSN: "other" });
+    const response = await request("/api/book-copies/10", "PATCH", { userDefinedSSN: "other" }, true);
 
     expect(response.status).toBe(409);
     expect(await response.json()).toMatchObject({ conflictingCopyIds: [20] });
@@ -358,6 +360,7 @@ describe("book copy identifier validation", () => {
   });
 
   it("rejects casing-only conflicts before creating a copy", async () => {
+    currentUser = localAdmin;
     storageMock.getBookCopiesByIdentifiers.mockResolvedValue([
       { id: 20, barcode: "BC-20", internalSSN: null, userDefinedSSN: "LIB-20" },
     ]);
@@ -368,7 +371,7 @@ describe("book copy identifier validation", () => {
       barcode: "BC-11",
       userDefinedSSN: "lib-20",
       status: "AVAILABLE",
-    });
+    }, true);
 
     expect(response.status).toBe(409);
     expect(storageMock.createBookCopy).not.toHaveBeenCalled();
@@ -376,12 +379,13 @@ describe("book copy identifier validation", () => {
   });
 
   it("reports every existing conflicting copy without changing data", async () => {
+    currentUser = localAdmin;
     storageMock.getBookCopiesByIdentifiers.mockResolvedValue([
       { id: 20, barcode: "BC-20", internalSSN: null, userDefinedSSN: "DUPLICATE" },
       { id: 21, barcode: "BC-21", internalSSN: "duplicate", userDefinedSSN: null },
     ]);
 
-    const response = await request("/api/book-copies/10", "PATCH", { userDefinedSSN: "Duplicate" });
+    const response = await request("/api/book-copies/10", "PATCH", { userDefinedSSN: "Duplicate" }, true);
 
     expect(response.status).toBe(409);
     expect(await response.json()).toMatchObject({ conflictingCopyIds: [20, 21] });
@@ -389,6 +393,7 @@ describe("book copy identifier validation", () => {
   });
 
   it("returns one conflict when two creates race for the same identifier", async () => {
+    currentUser = localAdmin;
     let created = false;
     storageMock.getBookCopiesByIdentifiers.mockImplementation(async () => []);
     storageMock.createBookCopy.mockImplementation(async (value) => {
@@ -411,8 +416,8 @@ describe("book copy identifier validation", () => {
       status: "AVAILABLE",
     };
     const responses = await Promise.all([
-      request("/api/book-copies", "POST", body),
-      request("/api/book-copies", "POST", body),
+      request("/api/book-copies", "POST", body, true),
+      request("/api/book-copies", "POST", body, true),
     ]);
 
     expect(responses.map((response) => response.status).sort()).toEqual([201, 409]);

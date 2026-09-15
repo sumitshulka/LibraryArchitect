@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { booksApi, statsApi, type BookWithSearchAttributes } from "@/lib/api";
 import type { Book } from "@shared/schema";
+import { useAuth } from "@/lib/auth";
 import { formatIsbn } from "@/lib/isbn";
 import { toast } from "sonner";
 import { useCurrency } from "@/lib/useCurrency";
@@ -231,6 +232,8 @@ function AddCopiesDialog({
 }
 
 export default function CatalogOverviewPage() {
+  const { user } = useAuth();
+  const canManageCatalog = user?.role === "ADMIN" && user.isLocalUser;
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [attributeValueIds, setAttributeValueIds] = useState<number[]>([]);
@@ -256,7 +259,7 @@ export default function CatalogOverviewPage() {
     queryFn: () => booksApi.getAll(),
   });
   const { data: dashboardStats, isLoading: statsLoading } = useQuery({
-    queryKey: ["dashboard-stats"],
+    queryKey: ["dashboard-stats", user?.id],
     queryFn: statsApi.getDashboard,
   });
 
@@ -312,16 +315,20 @@ export default function CatalogOverviewPage() {
               <Button variant="outline" size="sm" onClick={() => flash("Catalog export prepared")} className="gap-2" data-testid="button-export">
                 <Download className="h-4 w-4" />Export
               </Button>
-              <Link href="/catalog/bulk-upload">
-                <Button variant="outline" size="sm" className="gap-2" data-testid="button-bulk-upload">
-                  <Upload className="h-4 w-4" />Bulk upload
-                </Button>
-              </Link>
-              <Link href="/catalog/new">
-                <Button size="sm" className="gap-2" data-testid="button-add-resource">
-                  <Plus className="h-4 w-4" />Add resource
-                </Button>
-              </Link>
+              {canManageCatalog && (
+                <>
+                  <Link href="/catalog/bulk-upload">
+                    <Button variant="outline" size="sm" className="gap-2" data-testid="button-bulk-upload">
+                      <Upload className="h-4 w-4" />Bulk upload
+                    </Button>
+                  </Link>
+                  <Link href="/catalog/new">
+                    <Button size="sm" className="gap-2" data-testid="button-add-resource">
+                      <Plus className="h-4 w-4" />Add resource
+                    </Button>
+                  </Link>
+                </>
+              )}
             </div>
           </div>
 
@@ -400,12 +407,16 @@ export default function CatalogOverviewPage() {
                           <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label={`Actions for ${book.title}`} className="h-8 w-8" data-testid={`button-actions-${book.id}`}><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             <DropdownMenuLabel>Record actions</DropdownMenuLabel>
-                            <DropdownMenuItem onClick={() => { setEditingBook(book); setEditDialogOpen(true); }} data-testid={`button-edit-${book.id}`}><Pencil className="mr-2 h-3.5 w-3.5" />Edit details</DropdownMenuItem>
+                            {canManageCatalog && <DropdownMenuItem onClick={() => { setEditingBook(book); setEditDialogOpen(true); }} data-testid={`button-edit-${book.id}`}><Pencil className="mr-2 h-3.5 w-3.5" />Edit details</DropdownMenuItem>}
                             <DropdownMenuItem onClick={() => setMarcBook(book)} data-testid={`button-marc-${book.id}`}><FileText className="mr-2 h-3.5 w-3.5" />View MARC record</DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleHistoryClick(book.id)} data-testid={`button-history-${book.id}`}><Sparkles className="mr-2 h-3.5 w-3.5" />View history</DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => { setAddCopiesBook(book); setAddCopiesDialogOpen(true); }} data-testid={`button-add-copies-${book.id}`}><ShoppingCart className="mr-2 h-3.5 w-3.5" />Add purchase / copies</DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => handleDelete(book.id)} data-testid={`button-delete-${book.id}`}>Delete record</DropdownMenuItem>
+                            {canManageCatalog && (
+                              <>
+                                <DropdownMenuItem onClick={() => { setAddCopiesBook(book); setAddCopiesDialogOpen(true); }} data-testid={`button-add-copies-${book.id}`}><ShoppingCart className="mr-2 h-3.5 w-3.5" />Add purchase / copies</DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => handleDelete(book.id)} data-testid={`button-delete-${book.id}`}>Delete record</DropdownMenuItem>
+                              </>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </td>
@@ -424,7 +435,7 @@ export default function CatalogOverviewPage() {
 
           <div className="mt-5 flex flex-col justify-between gap-3 border-t pt-4 text-xs text-muted-foreground sm:flex-row">
             <span className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-green-600" />Catalog synced with the latest local records</span>
-            <Link href="/settings?section=catalog" className="flex items-center gap-1.5 font-medium text-primary hover:underline" data-testid="link-catalog-settings">Catalog settings <Settings2 className="h-3.5 w-3.5" /></Link>
+            {canManageCatalog && <Link href="/settings?section=catalog" className="flex items-center gap-1.5 font-medium text-primary hover:underline" data-testid="link-catalog-settings">Catalog settings <Settings2 className="h-3.5 w-3.5" /></Link>}
           </div>
         </div>
 
@@ -442,7 +453,7 @@ export default function CatalogOverviewPage() {
             <DialogTitle>MARC record</DialogTitle>
             <DialogDescription>View and edit the bibliographic record for {marcBook?.title}.</DialogDescription>
           </DialogHeader>
-          {marcBook && <MarcEditor book={marcBook} />}
+          {marcBook && <MarcEditor book={marcBook} readOnly={!canManageCatalog} />}
         </DialogContent>
       </Dialog>
     </MainLayout>

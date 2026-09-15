@@ -63,6 +63,9 @@ describe("POST /api/books partial-save recovery", () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    const localAdmin = { id: 303, name: "Local Admin", role: "ADMIN" };
+    storageMock.getSession.mockResolvedValue({ userId: localAdmin.id });
+    storageMock.getUser.mockResolvedValue(localAdmin);
     storageMock.getBookByIsbn.mockResolvedValue(partialBook);
     storageMock.createBookCopies.mockResolvedValue([{ id: 10, bookId: partialBook.id }]);
 
@@ -83,7 +86,7 @@ describe("POST /api/books partial-save recovery", () => {
     const address = httpServer.address() as AddressInfo;
     return fetch(`http://127.0.0.1:${address.port}/api/books`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-session-id": "test-session" },
       body: JSON.stringify({
         isbn: partialBook.isbn,
         title: partialBook.title,

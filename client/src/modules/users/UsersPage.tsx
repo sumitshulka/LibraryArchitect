@@ -49,6 +49,7 @@ import { useAuth } from "@/lib/auth";
 
 export default function UsersPage() {
   const { user: currentUser } = useAuth();
+  const canManageUsers = currentUser?.role === "ADMIN" && currentUser.isLocalUser;
   const [activeTab, setActiveTab] = useState<'STAFF' | 'PATRON'>('STAFF');
   const [searchQuery, setSearchQuery] = useState("");
   const [addDialogOpen, setAddDialogOpen] = useState(false);
@@ -214,10 +215,12 @@ export default function UsersPage() {
             <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
             {isRefreshing ? "Refreshing…" : "Refresh"}
           </Button>
-          <Button size="sm" className="gap-2" onClick={handleAddUser} data-testid="button-add-user">
-            <Plus className="h-4 w-4" />
-            Add {activeTab === 'STAFF' ? 'Staff Member' : 'Library User'}
-          </Button>
+          {canManageUsers && (
+            <Button size="sm" className="gap-2" onClick={handleAddUser} data-testid="button-add-user">
+              <Plus className="h-4 w-4" />
+              Add {activeTab === 'STAFF' ? 'Staff Member' : 'Library User'}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -262,7 +265,7 @@ export default function UsersPage() {
                   </TableHead>
                   <TableHead className="hidden md:table-cell">Status</TableHead>
                   <TableHead className="hidden lg:table-cell">Joined</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  {canManageUsers && <TableHead className="text-right">Actions</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -302,7 +305,7 @@ export default function UsersPage() {
                           )}
                         </div>
                         <span className="text-xs text-muted-foreground">{user.email}</span>
-                        <div className="mt-1 flex flex-wrap items-center gap-1" data-testid={`user-libraries-${user.id}`}>
+                        {canManageUsers && <div className="mt-1 flex flex-wrap items-center gap-1" data-testid={`user-libraries-${user.id}`}>
                           {getPasswordSetupBadge(user as AdminUser)}
                         {(user.role !== "ADMIN" || Boolean(user.erpIntegrationId)) && (
                             <>
@@ -328,7 +331,7 @@ export default function UsersPage() {
                             )}
                             </>
                           )}
-                        </div>
+                        </div>}
                       </div>
                     </TableCell>
                     <TableCell>
@@ -354,7 +357,7 @@ export default function UsersPage() {
                     <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">
                       {new Date(user.joinedDate).toLocaleDateString()}
                     </TableCell>
-                    <TableCell className="text-right">
+                    {canManageUsers && <TableCell className="text-right">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button variant="ghost" size="icon" data-testid={`button-actions-${user.id}`}>
@@ -394,7 +397,7 @@ export default function UsersPage() {
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
-                    </TableCell>
+                    </TableCell>}
                   </TableRow>
                 ))}
               </TableBody>

@@ -49,6 +49,9 @@ describe("POST /api/allocations/allocate", () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    const localAdmin = { id: 303, name: "Local Admin", role: "ADMIN" };
+    storageMock.getSession.mockResolvedValue({ userId: localAdmin.id });
+    storageMock.getUser.mockResolvedValue(localAdmin);
     storageMock.getLibrary.mockResolvedValue({ id: 3, name: "Central Library" });
     storageMock.getBookCopiesByIds.mockResolvedValue(selectedCopies);
     storageMock.getBookCopiesByIdentifiers.mockResolvedValue([]);
@@ -71,7 +74,7 @@ describe("POST /api/allocations/allocate", () => {
     const address = httpServer.address() as AddressInfo;
     return fetch(`http://127.0.0.1:${address.port}/api/allocations/allocate`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-session-id": "test-session" },
       body: JSON.stringify(body),
     });
   }
