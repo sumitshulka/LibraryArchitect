@@ -44,11 +44,7 @@ type EventConfig = {
 type Setup = { providers: Provider[]; events: EventConfig[]; secretMarker: string };
 
 const PROVIDER_OPTIONS: Record<Channel, Array<{ value: string; label: string }>> = {
-  EMAIL: [
-    { value: "SMTP", label: "Custom SMTP / organization email" },
-    { value: "GOOGLE_WORKSPACE", label: "Google Workspace / Gmail" },
-    { value: "MICROSOFT_365", label: "Microsoft 365 / Outlook" },
-  ],
+  EMAIL: [],
   WHATSAPP: [{ value: "META_WABA", label: "Meta WhatsApp Business" }],
   SMS: [{ value: "HTTP_SMS", label: "Generic HTTP SMS provider" }],
 };
@@ -82,7 +78,7 @@ export function NotificationSettings() {
   });
   const [providers, setProviders] = useState<Provider[]>([]);
   const [events, setEvents] = useState<EventConfig[]>([]);
-  const [selectedChannel, setSelectedChannel] = useState<Channel>("EMAIL");
+  const [selectedChannel, setSelectedChannel] = useState<Channel>("WHATSAPP");
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
@@ -159,14 +155,13 @@ export function NotificationSettings() {
 
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="font-semibold">Provider connections</h3>
-              <p className="text-sm text-muted-foreground">Credentials are encrypted before storage and never returned to the browser.</p>
+              <h3 className="font-semibold">WhatsApp and SMS provider connections</h3>
+              <p className="text-sm text-muted-foreground">Email uses the existing Default Email Provider above. WhatsApp and SMS credentials are encrypted before storage and never returned to the browser.</p>
             </div>
             <div className="flex gap-2">
               <Select value={selectedChannel} onValueChange={(value) => setSelectedChannel(value as Channel)}>
                 <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="EMAIL">Email</SelectItem>
                   <SelectItem value="WHATSAPP">WhatsApp</SelectItem>
                   <SelectItem value="SMS">SMS</SelectItem>
                 </SelectContent>
@@ -189,14 +184,6 @@ export function NotificationSettings() {
                   <div className="grid gap-2"><Label>Connection name</Label><Input value={provider.name} onChange={(event) => updateProvider(provider.id, { name: event.target.value })} placeholder="Organization email" /></div>
                   <div className="grid gap-2"><Label>Provider</Label><Select value={provider.provider} onValueChange={(value) => updateProvider(provider.id, { provider: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PROVIDER_OPTIONS[provider.channel].map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent></Select></div>
                 </div>
-                {provider.channel === "EMAIL" && (
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="grid gap-2"><Label>Host or OAuth sender</Label><Input value={provider.settings.host || ""} onChange={(event) => updateProviderSetting(provider.id, "host", event.target.value)} placeholder="smtp.example.com" /></div>
-                    <div className="grid gap-2"><Label>From address</Label><Input value={provider.settings.from || ""} onChange={(event) => updateProviderSetting(provider.id, "from", event.target.value)} placeholder="library@example.com" /></div>
-                    <div className="grid gap-2"><Label>Username / client ID</Label><Input value={provider.settings.username || ""} onChange={(event) => updateProviderSetting(provider.id, "username", event.target.value)} /></div>
-                    <div className="grid gap-2"><Label>Password / client secret</Label><Input type="password" value={provider.secrets?.password || provider.secrets?.clientSecret || ""} onChange={(event) => updateProviderSecret(provider.id, provider.provider === "SMTP" ? "password" : "clientSecret", event.target.value)} placeholder={provider.secretKeys?.length ? data?.secretMarker : "Stored encrypted"}/></div>
-                  </div>
-                )}
                 {provider.channel === "WHATSAPP" && (
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="grid gap-2"><Label>Graph API base URL</Label><Input value={provider.settings.apiBaseUrl || "https://graph.facebook.com"} onChange={(event) => updateProviderSetting(provider.id, "apiBaseUrl", event.target.value)} /></div>

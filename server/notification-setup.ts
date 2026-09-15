@@ -41,6 +41,7 @@ export interface NotificationSetup {
 const PROVIDERS_KEY = "notification_providers_v1";
 const EVENTS_KEY = "notification_events_v1";
 const SECRET_MARKER = "••••••••";
+export const DEFAULT_EMAIL_PROVIDER_ID = "default-email-provider";
 
 export const NOTIFICATION_EVENT_CATALOG: Omit<NotificationEvent, "routes">[] = [
   { id: "USER_PASSWORD_SETUP", label: "User password setup", description: "Send a one-time link when a local account needs a password.", enabled: true },
@@ -111,15 +112,48 @@ export async function loadNotificationSetup(storage: IStorage): Promise<Notifica
     ...provider,
     secrets: { ...decryptSecrets(encryptedSecrets), ...(secrets || {}) },
   }));
+  const [smtpHost, smtpPort, smtpSecure, smtpUser, smtpPass, smtpFrom] = await Promise.all([
+    storage.getSystemConfig("smtp_host"),
+    storage.getSystemConfig("smtp_port"),
+    storage.getSystemConfig("smtp_secure"),
+    storage.getSystemConfig("smtp_user"),
+    storage.getSystemConfig("smtp_pass"),
+    storage.getSystemConfig("smtp_from"),
+  ]);
+  const defaultEmailProvider: NotificationProvider = {
+    id: DEFAULT_EMAIL_PROVIDER_ID,
+    name: "Default Email Provider",
+    channel: "EMAIL",
+    provider: "SMTP",
+    enabled: Boolean(smtpHost?.value && smtpUser?.value && smtpPass?.value),
+    settings: {
+      host: smtpHost?.value || "",
+      port: smtpPort?.value || "587",
+      secure: smtpSecure?.value || "false",
+      username: smtpUser?.value || "",
+      from: smtpFrom?.value || smtpUser?.value || "",
+    },
+    secrets: smtpPass?.value ? { password: smtpPass.value } : {},
+  };
+  const withoutEmailProviders = providers.filter((provider) => provider.channel !== "EMAIL");
+  const publicProviders = [defaultEmailProvider, ...withoutEmailProviders];
   const storedEvents = parseJson<NotificationEvent[]>(eventsConfig?.value, []);
-  const events = storedEvents.length ? storedEvents : defaultEvents();
-  return { providers, events };
+  const rawEvents = storedEvents.length ? storedEvents : defaultEvents();
+  const events = rawEvents.map((event) => ({
+    ...event,
+    routes: event.routes.map((route) => route.channel === "EMAIL" && route.providerId
+      ? { ...route, providerId: DEFAULT_EMAIL_PROVIDER_ID }
+      : route),
+  }));
+  return { providers: publicProviders, events };
 }
 
 export async function saveNotificationSetup(storage: IStorage, setup: NotificationSetup) {
   const existing = await loadNotificationSetup(storage);
   const existingById = new Map(existing.providers.map((provider) => [provider.id, provider]));
-  const storedProviders = setup.providers.map(({ secrets = {}, ...provider }) => {
+  const storedProviders = setup.providers
+    .filter((provider) => provider.channel !== "EMAIL")
+    .map(({ secrets = {}, ...provider }) => {
     const previous = existingById.get(provider.id);
     const keptSecrets = Object.fromEntries(
       Object.entries(secrets).filter(([, value]) => value && value !== SECRET_MARKER),
@@ -130,6 +164,12 @@ export async function saveNotificationSetup(storage: IStorage, setup: Notificati
       encryptedSecrets: Object.keys(mergedSecrets).length ? encryptSecrets(mergedSecrets) : undefined,
     };
   });
+  const events = setup.events.map((event) => ({
+    ...event,
+    routes: event.routes.map((route) => route.channel === "EMAIL" && route.providerId
+      ? { ...route, providerId: DEFAULT_EMAIL_PROVIDER_ID }
+      : route),
+  }));
 
   await storage.setSystemConfig({
     key: PROVIDERS_KEY,
@@ -139,7 +179,7 @@ export async function saveNotificationSetup(storage: IStorage, setup: Notificati
   });
   await storage.setSystemConfig({
     key: EVENTS_KEY,
-    value: JSON.stringify(setup.events),
+    value: JSON.stringify(events),
     category: "notifications",
     description: "Event-based notification routes",
   });

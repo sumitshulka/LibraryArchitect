@@ -2609,9 +2609,9 @@ function EmailProviderSettings() {
             <div>
               <CardTitle className="flex items-center gap-2">
                 <Mail className="h-5 w-5" />
-                Email Provider
+                Default Email Provider
               </CardTitle>
-              <CardDescription>Configure your SMTP email provider for sending notifications and alerts.</CardDescription>
+              <CardDescription>Configure the Default Email Provider used for notifications and alerts.</CardDescription>
             </div>
             {isConfigured && (
               <Badge variant="outline" className="gap-1 text-green-700 border-green-300 bg-green-50">
