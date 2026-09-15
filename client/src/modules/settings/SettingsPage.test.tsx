@@ -35,8 +35,8 @@ vi.mock("@/lib/api", () => ({
   },
 }));
 
-vi.mock("@/lib/auth", () => ({
-  useAuth: () => ({
+const { authState } = vi.hoisted(() => ({
+  authState: {
     user: {
       id: 1,
       username: "admin",
@@ -46,6 +46,12 @@ vi.mock("@/lib/auth", () => ({
       category: "STAFF",
       isLocalUser: true,
     },
+  },
+}));
+
+vi.mock("@/lib/auth", () => ({
+  useAuth: () => ({
+    user: authState.user,
     isLoading: false,
     isAuthenticated: true,
   }),
@@ -111,6 +117,8 @@ function renderSettingsWithBrowserHistory(path: string) {
 describe("SettingsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    authState.user.role = "ADMIN";
+    authState.user.isLocalUser = true;
     mockedGetCategories.mockResolvedValue([]);
     mockedGetConfig.mockResolvedValue([]);
     mockedGetResourceTypes.mockResolvedValue([]);
@@ -236,6 +244,22 @@ describe("SettingsPage", () => {
       );
       expect(screen.getByText("Resource Types", { exact: true })).toBeInTheDocument();
     });
+  });
+
+  it.each([
+    ["a librarian", "LIBRARIAN", true],
+    ["a remote administrator", "ADMIN", false],
+  ])("hides the identifier collision panel from %s", async (_label, role, isLocalUser) => {
+    authState.user.role = role;
+    authState.user.isLocalUser = isLocalUser;
+
+    renderSettings("/settings?section=catalog");
+
+    expect(await screen.findByText("Resource Types", { exact: true })).toBeInTheDocument();
+    expect(screen.queryByTestId("card-book-copy-identifier-audit")).not.toBeInTheDocument();
+    expect(screen.queryByText("Identifier collisions", { exact: true })).not.toBeInTheDocument();
+    expect(mockedAuditIdentifiers).not.toHaveBeenCalled();
+    expect(mockedIdentifierHistory).not.toHaveBeenCalled();
   });
 
   it("shows collision occurrences and submits a safe clear or replacement", async () => {

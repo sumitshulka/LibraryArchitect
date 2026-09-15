@@ -39,6 +39,25 @@ vi.mock("./erp-extra", () => ({ registerErpExtraRoutes: vi.fn() }));
 vi.mock("./digital-resources", () => ({ registerDigitalResourceRoutes: vi.fn() }));
 vi.mock("./lost-damaged", () => ({ registerLostDamagedRoutes: vi.fn() }));
 
+const librarian = {
+  id: 101,
+  name: "Test Librarian",
+  role: "LIBRARIAN",
+};
+
+const remoteAdmin = {
+  id: 202,
+  name: "Remote Admin",
+  role: "ADMIN",
+  erpIntegrationId: "remote-erp",
+};
+
+const localAdmin = {
+  id: 303,
+  name: "Local Admin",
+  role: "ADMIN",
+};
+
 const copy = {
   id: 10,
   bookId: 5,
@@ -51,15 +70,24 @@ const copy = {
 
 describe("book copy identifier validation", () => {
   let httpServer: Server;
+  let currentUser: typeof librarian | typeof remoteAdmin | typeof localAdmin | undefined;
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    currentUser = undefined;
     storageMock.getBookCopy.mockResolvedValue(copy);
     storageMock.getBookCopiesByIdentifiers.mockResolvedValue([]);
     storageMock.updateBookCopy.mockImplementation(async (_id, updates) => ({ ...copy, ...updates }));
     storageMock.createBookCopy.mockImplementation(async (value) => ({ id: 11, ...value }));
     storageMock.getBook.mockResolvedValue({ id: 5 });
     storageMock.getLibrary.mockResolvedValue({ id: 3 });
+    storageMock.getSession.mockImplementation(async (sessionId: string) =>
+      sessionId === "test-session" && currentUser ? { userId: currentUser.id } : undefined,
+    );
+    storageMock.getUser.mockImplementation(async (userId: number) =>
+      currentUser && userId === currentUser.id ? currentUser : undefined,
+    );
+    storageMock.auditBookCopyIdentifierCollisions.mockResolvedValue([]);
 
     const app = express();
     app.use(express.json());
@@ -74,14 +102,84 @@ describe("book copy identifier validation", () => {
     });
   });
 
-  async function request(path: string, method: "POST" | "PATCH", body: unknown) {
+  async function request(
+    path: string,
+    method: "GET" | "POST" | "PATCH",
+    body?: unknown,
+    authenticated = false,
+  ) {
     const address = httpServer.address() as AddressInfo;
     return fetch(`http://127.0.0.1:${address.port}${path}`, {
       method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      headers: {
+        "Content-Type": "application/json",
+        ...(authenticated ? { "x-session-id": "test-session" } : {}),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
   }
+
+  it.each([
+    ["unauthenticated", undefined, false, 401],
+    ["a librarian", librarian, true, 403],
+    ["a remote administrator", remoteAdmin, true, 403],
+    ["a local administrator", localAdmin, true, 200],
+  ])("controls access to the identifier audit for %s", async (_label, user, authenticated, expectedStatus) => {
+    currentUser = user;
+    storageMock.auditBookCopyIdentifierCollisions.mockResolvedValue([{
+      identifier: "DUPLICATE",
+      copyIds: [10, 20],
+      occurrences: [],
+    }]);
+
+    const response = await request(
+      "/api/book-copy-identifiers/audit",
+      "GET",
+      undefined,
+      authenticated,
+    );
+
+    expect(response.status).toBe(expectedStatus);
+    if (expectedStatus === 200) {
+      expect(await response.json()).toMatchObject({
+        collisionCount: 1,
+        affectedCopyIds: [10, 20],
+      });
+      expect(storageMock.auditBookCopyIdentifierCollisions).toHaveBeenCalledOnce();
+    } else {
+      expect(storageMock.auditBookCopyIdentifierCollisions).not.toHaveBeenCalled();
+    }
+  });
+
+  it.each([
+    ["unauthenticated", undefined, false, 401],
+    ["a librarian", librarian, true, 403],
+    ["a remote administrator", remoteAdmin, true, 403],
+    ["a local administrator", localAdmin, true, 200],
+  ])("controls access to identifier remediation for %s", async (_label, user, authenticated, expectedStatus) => {
+    currentUser = user;
+
+    const response = await request(
+      "/api/book-copy-identifiers/remediate",
+      "POST",
+      {
+        copyId: copy.id,
+        field: "userDefinedSSN",
+        expectedValue: copy.userDefinedSSN,
+        replacement: "LIB-10-REMEDIATED",
+      },
+      authenticated,
+    );
+
+    expect(response.status).toBe(expectedStatus);
+    if (expectedStatus === 200) {
+      expect(storageMock.updateBookCopy).toHaveBeenCalledWith(copy.id, {
+        userDefinedSSN: "LIB-10-REMEDIATED",
+      });
+    } else {
+      expect(storageMock.updateBookCopy).not.toHaveBeenCalled();
+    }
+  });
 
   it("allows an edit that retains the same copy's identifier", async () => {
     storageMock.getBookCopiesByIdentifiers.mockResolvedValue([copy]);
