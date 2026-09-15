@@ -2,6 +2,7 @@ import crypto from "crypto";
 import nodemailer from "nodemailer";
 import type { IStorage } from "./storage";
 import { DEFAULT_EMAIL_PROVIDER_ID, loadNotificationSetup, type NotificationChannel, type NotificationRoute, type NotificationProvider } from "./notification-setup";
+import { getOAuthClient } from "./notification-oauth";
 
 export interface NotificationRequest {
   eventId: string;
@@ -150,18 +151,45 @@ function assertSafeHttpEndpoint(endpoint: string) {
   return url;
 }
 
-async function sendEmail(provider: NotificationProvider, route: NotificationRoute, request: NotificationRequest): Promise<string | undefined> {
+function createEmailTransport(provider: NotificationProvider) {
   const host = provider.settings.host;
-  const password = provider.secrets?.password;
-  if (!host || !provider.settings.username || !password) {
-    throw new Error("Email provider requires host, username, and password/app password");
+  if (!host || !provider.settings.username) {
+    throw new Error("Email provider requires a host and account username");
   }
-  const transporter = nodemailer.createTransport({
+  if (provider.provider === "GOOGLE_GMAIL" || provider.provider === "MICROSOFT_365") {
+    const accessToken = provider.secrets?.accessToken;
+    const refreshToken = provider.secrets?.refreshToken;
+    if (!accessToken || !refreshToken) {
+      throw new Error("Linked email provider is missing its OAuth tokens. Relink the account.");
+    }
+    const oauthClient = getOAuthClient(provider.provider);
+    return nodemailer.createTransport({
+      host,
+      port: Number(provider.settings.port || 587),
+      secure: provider.settings.secure === "true",
+      requireTLS: provider.settings.requireTLS === "true",
+      auth: {
+        type: "OAuth2",
+        user: provider.settings.username,
+        clientId: oauthClient.clientId,
+        clientSecret: oauthClient.clientSecret,
+        accessToken,
+        refreshToken,
+      },
+    });
+  }
+  const password = provider.secrets?.password;
+  if (!password) throw new Error("Email provider requires a password or app password");
+  return nodemailer.createTransport({
     host,
     port: Number(provider.settings.port || 587),
     secure: provider.settings.secure === "true",
     auth: { user: provider.settings.username, pass: password },
   });
+}
+
+async function sendEmail(provider: NotificationProvider, route: NotificationRoute, request: NotificationRequest): Promise<string | undefined> {
+  const transporter = createEmailTransport(provider);
   const body = route.bodyTemplate
     ? render(route.bodyTemplate, request.values)
     : String(request.values.message || "");
@@ -173,6 +201,59 @@ async function sendEmail(provider: NotificationProvider, route: NotificationRout
     html: body,
   });
   return undefined;
+}
+
+export async function verifyNotificationProvider(provider: NotificationProvider) {
+  if (provider.channel === "EMAIL") {
+    const transporter = createEmailTransport(provider);
+    await transporter.verify();
+    return { verified: true, message: "Email provider authenticated successfully" };
+  }
+  if (provider.channel === "WHATSAPP") {
+    const token = provider.secrets?.accessToken;
+    const phoneNumberId = provider.settings.phoneNumberId;
+    if (!token || !phoneNumberId) throw new Error("WhatsApp provider requires an OAuth token and phone number");
+    const baseUrl = (provider.settings.apiBaseUrl || "https://graph.facebook.com").replace(/\/$/, "");
+    const response = await fetch(`${baseUrl}/v20.0/${encodeURIComponent(phoneNumberId)}?fields=display_phone_number,verified_name`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result?.error?.message || "WhatsApp provider authentication failed");
+    return { verified: true, message: `WhatsApp number ${result.display_phone_number || phoneNumberId} is ready` };
+  }
+  const endpoint = provider.settings.endpoint;
+  if (!endpoint) throw new Error("SMS provider requires an HTTPS endpoint");
+  assertSafeHttpEndpoint(endpoint);
+  return { verified: true, message: "SMS endpoint is valid" };
+}
+
+export async function sendProviderTest(provider: NotificationProvider, recipient: string, templateId?: string) {
+  const route: NotificationRoute = {
+    channel: provider.channel,
+    providerId: provider.id,
+    enabled: true,
+    templateId,
+    language: provider.settings.defaultLanguage || "en_US",
+    subject: "LibraTech notification test",
+    bodyTemplate: "<p>This is a test notification from LibraTech.</p>",
+    valueKeys: [],
+    allowOverride: false,
+  };
+  const request: NotificationRequest = {
+    eventId: "NOTIFICATION_PROVIDER_TEST",
+    channel: provider.channel,
+    providerId: provider.id,
+    recipient,
+    values: { message: "This is a test notification from LibraTech." },
+  };
+  if (provider.channel === "EMAIL") {
+    await sendEmail(provider, route, request);
+  } else if (provider.channel === "WHATSAPP") {
+    await sendWhatsApp(provider, route, request);
+  } else {
+    await sendSms(provider, route, request);
+  }
+  return { sent: true };
 }
 
 async function sendWhatsApp(provider: NotificationProvider, route: NotificationRoute, request: NotificationRequest): Promise<string | undefined> {

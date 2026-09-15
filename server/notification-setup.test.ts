@@ -73,4 +73,44 @@ describe("notification setup", () => {
     const loaded = await loadNotificationSetup(storage);
     expect(loaded.providers.find((provider) => provider.id === "sms-1")?.secrets?.apiToken).toBe("keep-me");
   });
+
+  it("persists linked email providers and keeps them selectable as the default", async () => {
+    const storage = createMemoryStorage();
+    const linkedEmail = {
+      id: "google-account",
+      name: "Workspace account",
+      channel: "EMAIL" as const,
+      provider: "GOOGLE_GMAIL",
+      enabled: true,
+      settings: { accountId: "google-user", username: "admin@example.test" },
+      secrets: { accessToken: "access", refreshToken: "refresh" },
+    };
+    await saveNotificationSetup(storage, {
+      providers: [linkedEmail],
+      events: [{
+        id: "TEST",
+        label: "Test",
+        description: "Test",
+        enabled: true,
+        routes: [{
+          channel: "EMAIL",
+          providerId: "default-email-provider",
+          enabled: true,
+          valueKeys: [],
+          allowOverride: true,
+        }],
+      }],
+      defaultProviders: { EMAIL: linkedEmail.id },
+    });
+
+    const loaded = await loadNotificationSetup(storage);
+    expect(loaded.providers.find((provider) => provider.id === linkedEmail.id)).toMatchObject({
+      provider: "GOOGLE_GMAIL",
+      settings: linkedEmail.settings,
+      secrets: linkedEmail.secrets,
+    });
+    expect(loaded.defaultProviders.EMAIL).toBe(linkedEmail.id);
+    expect(loaded.events[0].routes[0].providerId).toBe(linkedEmail.id);
+    expect(toPublicNotificationSetup(loaded).providers.find((provider) => provider.id === linkedEmail.id)).not.toHaveProperty("secrets");
+  });
 });

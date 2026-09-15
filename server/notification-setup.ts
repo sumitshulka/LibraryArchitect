@@ -169,20 +169,20 @@ export async function loadNotificationSetup(storage: IStorage): Promise<Notifica
     },
     secrets: smtpPass?.value ? { password: smtpPass.value } : {},
   };
-  const withoutEmailProviders = providers.filter((provider) => provider.channel !== "EMAIL");
-  const publicProviders = [defaultEmailProvider, ...withoutEmailProviders];
+  const storedEmailProviders = providers.filter((provider) => provider.channel === "EMAIL");
+  const publicProviders = [defaultEmailProvider, ...storedEmailProviders, ...providers.filter((provider) => provider.channel !== "EMAIL")];
   const storedEvents = parseJson<NotificationEvent[]>(eventsConfig?.value, []);
   const rawEvents = storedEvents.length ? storedEvents : defaultEvents();
-  const events = rawEvents.map((event) => ({
-    ...event,
-    routes: event.routes.map((route) => route.channel === "EMAIL" && route.providerId
-      ? { ...route, providerId: DEFAULT_EMAIL_PROVIDER_ID }
-      : route),
-  }));
+  const events = rawEvents.map((event) => ({ ...event, routes: event.routes.map((route) => ({ ...route })) }));
   const storedDefaults = parseJson<Partial<Record<NotificationChannel, string>>>(defaultProvidersConfig?.value, {});
-  const configuredProviderIds = new Set(publicProviders.filter((provider) => provider.enabled).map((provider) => provider.id));
+  const enabledProviders = publicProviders.filter((provider) => provider.enabled);
+  const configuredProviderIds = new Set(enabledProviders.map((provider) => provider.id));
   const defaultProviders: Partial<Record<NotificationChannel, string>> = {
-    EMAIL: defaultEmailProvider.enabled ? DEFAULT_EMAIL_PROVIDER_ID : undefined,
+    EMAIL: storedDefaults.EMAIL && configuredProviderIds.has(storedDefaults.EMAIL)
+      ? storedDefaults.EMAIL
+      : defaultEmailProvider.enabled
+        ? DEFAULT_EMAIL_PROVIDER_ID
+        : enabledProviders.find((provider) => provider.channel === "EMAIL")?.id,
     WHATSAPP: configuredProviderIds.has(storedDefaults.WHATSAPP || "") ? storedDefaults.WHATSAPP : undefined,
     SMS: configuredProviderIds.has(storedDefaults.SMS || "") ? storedDefaults.SMS : undefined,
   };
@@ -199,7 +199,7 @@ export async function saveNotificationSetup(storage: IStorage, setup: Notificati
   const configuredDefaults = setup.defaultProviders || {};
   const existingById = new Map(existing.providers.map((provider) => [provider.id, provider]));
   const storedProviders = setup.providers
-    .filter((provider) => provider.channel !== "EMAIL")
+    .filter((provider) => provider.id !== DEFAULT_EMAIL_PROVIDER_ID)
     .map(({ secrets = {}, ...provider }) => {
     const previous = existingById.get(provider.id);
     const keptSecrets = Object.fromEntries(
@@ -213,8 +213,10 @@ export async function saveNotificationSetup(storage: IStorage, setup: Notificati
   });
   const events = setup.events.map((event) => ({
     ...event,
-    routes: event.routes.map((route) => route.channel === "EMAIL" && route.providerId
-      ? { ...route, providerId: DEFAULT_EMAIL_PROVIDER_ID }
+    routes: event.routes.map((route) => route.channel === "EMAIL"
+      && route.providerId === DEFAULT_EMAIL_PROVIDER_ID
+      && configuredDefaults.EMAIL
+      ? { ...route, providerId: configuredDefaults.EMAIL }
       : route),
   }));
 
@@ -232,7 +234,11 @@ export async function saveNotificationSetup(storage: IStorage, setup: Notificati
   });
   const providerIds = new Set(setup.providers.filter((provider) => provider.enabled).map((provider) => provider.id));
   const defaultProviders: Partial<Record<NotificationChannel, string>> = {
-    EMAIL: DEFAULT_EMAIL_PROVIDER_ID,
+    EMAIL: configuredDefaults.EMAIL && providerIds.has(configuredDefaults.EMAIL)
+      ? configuredDefaults.EMAIL
+      : existing.defaultProviders.EMAIL && providerIds.has(existing.defaultProviders.EMAIL)
+        ? existing.defaultProviders.EMAIL
+        : providerIds.has(DEFAULT_EMAIL_PROVIDER_ID) ? DEFAULT_EMAIL_PROVIDER_ID : undefined,
     WHATSAPP: configuredDefaults.WHATSAPP && providerIds.has(configuredDefaults.WHATSAPP)
       ? configuredDefaults.WHATSAPP
       : undefined,

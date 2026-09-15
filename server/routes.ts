@@ -42,7 +42,17 @@ import { registerErpExtraRoutes } from "./erp-extra";
 import { registerDigitalResourceRoutes } from "./digital-resources";
 import { registerLostDamagedRoutes } from "./lost-damaged";
 import { loadNotificationSetup, saveNotificationSetup, toPublicNotificationSetup, type NotificationSetup } from "./notification-setup";
-import { emitNotification, retryNotificationAttempt, type NotificationAttempt } from "./notification-service";
+import { emitNotification, retryNotificationAttempt, sendProviderTest, verifyNotificationProvider, type NotificationAttempt } from "./notification-service";
+import {
+  completeNotificationOAuth,
+  configureMetaWaba,
+  createNotificationOAuthState,
+  getNotificationOAuthUrl,
+  loadMetaWabaPhones,
+  refreshMetaCatalog,
+  verifyNotificationOAuthState,
+  type NotificationOAuthProvider,
+} from "./notification-oauth";
 
 const MAX_WHITELIST_ENTRIES = 5;
 const Z3950_RATE_LIMIT_WINDOW_MS = 60_000;
@@ -8667,6 +8677,154 @@ export async function registerRoutes(
       routes: z.array(notificationRouteSchema).max(5),
     })).max(50),
     allowErpUserNotifications: z.boolean().optional(),
+  });
+
+  const notificationOAuthProviderSchema = z.enum(["GOOGLE_GMAIL", "MICROSOFT_365", "META_WABA"]);
+
+  app.get("/api/notifications/oauth/:provider/start", async (req, res) => {
+    try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+      const provider = notificationOAuthProviderSchema.parse(req.params.provider) as NotificationOAuthProvider;
+      const state = createNotificationOAuthState(provider, currentUser.id);
+      const redirectUri = `${getPublicOrigin(req)}/api/notifications/oauth/${provider}/callback`;
+      res.cookie("notification_oauth_state", state, {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: req.headers["x-forwarded-proto"] === "https" || req.secure === true,
+        maxAge: 10 * 60 * 1000,
+      });
+      res.redirect(getNotificationOAuthUrl(provider, redirectUri, state));
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: "Unsupported notification OAuth provider" });
+      console.error("Error starting notification OAuth:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Unable to start provider authorization" });
+    }
+  });
+
+  app.get("/api/notifications/oauth/:provider/callback", async (req, res) => {
+    const settingsUrl = `${getPublicOrigin(req)}/settings?section=notifications`;
+    try {
+      const provider = notificationOAuthProviderSchema.parse(req.params.provider) as NotificationOAuthProvider;
+      const state = typeof req.query.state === "string" ? req.query.state : "";
+      const code = typeof req.query.code === "string" ? req.query.code : "";
+      const oauthError = typeof req.query.error_description === "string"
+        ? req.query.error_description
+        : typeof req.query.error === "string" ? req.query.error : "";
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+      if (oauthError) throw new Error(oauthError);
+      if (!state || !code || req.cookies?.notification_oauth_state !== state) {
+        throw new Error("OAuth authorization could not be verified");
+      }
+      verifyNotificationOAuthState(state, provider, currentUser.id);
+      await completeNotificationOAuth(
+        storage,
+        provider,
+        code,
+        `${getPublicOrigin(req)}/api/notifications/oauth/${provider}/callback`,
+      );
+      res.clearCookie("notification_oauth_state");
+      res.redirect(`${settingsUrl}&notificationOAuth=success&provider=${provider}`);
+    } catch (error) {
+      res.clearCookie("notification_oauth_state");
+      const message = error instanceof Error ? error.message : "Provider authorization failed";
+      res.redirect(`${settingsUrl}&notificationOAuth=error&message=${encodeURIComponent(message.slice(0, 240))}`);
+    }
+  });
+
+  app.post("/api/notifications/providers/:providerId/meta-configure", async (req, res) => {
+    try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+      const validated = z.object({
+        wabaId: z.string().min(1).max(100),
+        phoneNumberId: z.string().min(1).max(100),
+      }).parse(req.body);
+      await configureMetaWaba(storage, req.params.providerId, validated.wabaId, validated.phoneNumberId);
+      res.json({ success: true, setup: toPublicNotificationSetup(await loadNotificationSetup(storage)) });
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: fromZodError(error).message });
+      console.error("Error configuring Meta WhatsApp:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to configure Meta WhatsApp" });
+    }
+  });
+
+  app.post("/api/notifications/providers/:providerId/meta-phones", async (req, res) => {
+    try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+      const validated = z.object({ wabaId: z.string().min(1).max(100) }).parse(req.body);
+      await loadMetaWabaPhones(storage, req.params.providerId, validated.wabaId);
+      res.json({ success: true, setup: toPublicNotificationSetup(await loadNotificationSetup(storage)) });
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: fromZodError(error).message });
+      console.error("Error loading Meta WhatsApp phones:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to load WhatsApp phone numbers" });
+    }
+  });
+
+  app.post("/api/notifications/providers/:providerId/meta-refresh", async (req, res) => {
+    try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+      await refreshMetaCatalog(storage, req.params.providerId);
+      res.json({ success: true, setup: toPublicNotificationSetup(await loadNotificationSetup(storage)) });
+    } catch (error) {
+      console.error("Error refreshing Meta WhatsApp templates:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to refresh WhatsApp templates" });
+    }
+  });
+
+  app.post("/api/notifications/providers/:providerId/verify", async (req, res) => {
+    try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+      const setup = await loadNotificationSetup(storage);
+      const provider = setup.providers.find((item) => item.id === req.params.providerId);
+      if (!provider) return res.status(404).json({ error: "Notification provider was not found" });
+      const result = await verifyNotificationProvider(provider);
+      await logAudit(req, {
+        userId: currentUser.id,
+        userName: currentUser.username,
+        action: "Notification provider verified",
+        category: "SYSTEM_CONFIG",
+        status: "SUCCESS",
+        details: { providerId: provider.id, provider: provider.provider },
+      });
+      res.json(result);
+    } catch (error) {
+      console.error("Error verifying notification provider:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Provider verification failed" });
+    }
+  });
+
+  app.post("/api/notifications/providers/:providerId/test", async (req, res) => {
+    try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+      const validated = z.object({
+        recipient: z.string().min(1).max(320),
+        templateId: z.string().max(200).optional(),
+      }).parse(req.body);
+      const setup = await loadNotificationSetup(storage);
+      const provider = setup.providers.find((item) => item.id === req.params.providerId);
+      if (!provider) return res.status(404).json({ error: "Notification provider was not found" });
+      const result = await sendProviderTest(provider, validated.recipient, validated.templateId);
+      await logAudit(req, {
+        userId: currentUser.id,
+        userName: currentUser.username,
+        action: "Notification provider test sent",
+        category: "SYSTEM_CONFIG",
+        status: "SUCCESS",
+        details: { providerId: provider.id, provider: provider.provider, channel: provider.channel },
+      });
+      res.json(result);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: fromZodError(error).message });
+      console.error("Error sending notification provider test:", error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Provider test failed" });
+    }
   });
 
   app.get("/api/notifications/setup", async (req, res) => {

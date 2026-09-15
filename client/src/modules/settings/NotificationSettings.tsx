@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, CheckCircle2, Mail, MessageCircle, Plus, RefreshCw, RotateCcw, Save, Smartphone, Trash2 } from "lucide-react";
+import { Bell, CheckCircle2, Link2, Mail, MessageCircle, Plus, RefreshCw, RotateCcw, Save, Send, Smartphone, Trash2 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -75,7 +75,10 @@ type DeliveryHistoryFilters = {
 };
 
 const PROVIDER_OPTIONS: Record<Channel, Array<{ value: string; label: string }>> = {
-  EMAIL: [],
+  EMAIL: [
+    { value: "GOOGLE_GMAIL", label: "Google Workspace / Gmail" },
+    { value: "MICROSOFT_365", label: "Microsoft 365" },
+  ],
   WHATSAPP: [{ value: "META_WABA", label: "Meta WhatsApp Business" }],
   SMS: [{ value: "HTTP_SMS", label: "Generic HTTP SMS provider" }],
 };
@@ -95,6 +98,15 @@ function newProvider(channel: Channel, index: number): Provider {
     settings: {},
     secrets: {},
   };
+}
+
+function parseSettingsList<T>(provider: Provider, key: string): T[] {
+  try {
+    const value = JSON.parse(provider.settings[key] || "[]");
+    return Array.isArray(value) ? value : [];
+  } catch {
+    return [];
+  }
 }
 
 function NotificationDeliveryHistory({ providers, events }: { providers: Provider[]; events: EventConfig[] }) {
@@ -216,6 +228,18 @@ export function NotificationSettings() {
     }
   }, [data]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const result = params.get("notificationOAuth");
+    if (!result) return;
+    if (result === "success") {
+      toast.success(`${params.get("provider") === "META_WABA" ? "Meta WhatsApp" : "Email"} account linked`);
+    } else {
+      toast.error(params.get("message") || "Provider authorization failed");
+    }
+    window.history.replaceState({}, "", `${window.location.pathname}?section=notifications`);
+  }, []);
+
   const save = async () => {
     setIsSaving(true);
     try {
@@ -253,6 +277,94 @@ export function NotificationSettings() {
       ...event,
       routes: event.routes.map((route) => route.channel === channel ? { ...route, ...update } : route),
     }));
+  };
+
+  const startOAuth = (provider: "GOOGLE_GMAIL" | "MICROSOFT_365" | "META_WABA") => {
+    window.location.assign(`/api/notifications/oauth/${provider}/start`);
+  };
+
+  const providerAction = async (providerId: string, action: "verify" | "test") => {
+    try {
+      if (action === "verify") {
+        const response = await fetch(`/api/notifications/providers/${providerId}/verify`, { method: "POST" });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Provider verification failed");
+        toast.success(result.message || "Provider verified");
+        return;
+      }
+      const recipient = window.prompt("Enter a recipient for the test notification");
+      if (!recipient) return;
+      const provider = providers.find((item) => item.id === providerId);
+      const templateId = provider?.channel === "WHATSAPP"
+        ? window.prompt("WhatsApp template name", parseSettingsList<{ name?: string }>(provider, "templates")[0]?.name || "") || undefined
+        : undefined;
+      const response = await fetch(`/api/notifications/providers/${providerId}/test`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recipient, templateId }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Provider test failed");
+      toast.success("Test notification sent");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Provider action failed");
+    }
+  };
+
+  const configureMeta = async (provider: Provider) => {
+    const wabaId = provider.settings.wabaId;
+    const phoneNumberId = provider.settings.phoneNumberId;
+    if (!wabaId || !phoneNumberId) {
+      toast.error("Select a WhatsApp Business Account and phone number first");
+      return;
+    }
+    try {
+      const response = await fetch(`/api/notifications/providers/${provider.id}/meta-configure`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ wabaId, phoneNumberId }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Failed to configure WhatsApp");
+      setProviders(result.setup.providers || []);
+      setDefaultProviders(result.setup.defaultProviders || {});
+      toast.success("WhatsApp account configured and templates loaded");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to configure WhatsApp");
+    }
+  };
+
+  const loadMetaPhones = async (provider: Provider) => {
+    const wabaId = provider.settings.wabaId;
+    if (!wabaId) {
+      toast.error("Select a WhatsApp Business Account first");
+      return;
+    }
+    try {
+      const response = await fetch(`/api/notifications/providers/${provider.id}/meta-phones`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ wabaId }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Failed to load phone numbers");
+      setProviders(result.setup.providers || []);
+      toast.success("Phone numbers loaded");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to load phone numbers");
+    }
+  };
+
+  const refreshMeta = async (provider: Provider) => {
+    try {
+      const response = await fetch(`/api/notifications/providers/${provider.id}/meta-refresh`, { method: "POST" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Failed to refresh WhatsApp templates");
+      setProviders(result.setup.providers || []);
+      toast.success("WhatsApp templates refreshed");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to refresh WhatsApp templates");
+    }
   };
 
   const visibleProviders = useMemo(
@@ -305,22 +417,37 @@ export function NotificationSettings() {
 
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="font-semibold">WhatsApp and SMS provider connections</h3>
-              <p className="text-sm text-muted-foreground">Email uses the existing Default Email Provider above. WhatsApp and SMS credentials are encrypted before storage and never returned to the browser.</p>
+              <h3 className="font-semibold">Provider connections</h3>
+              <p className="text-sm text-muted-foreground">Link Google, Microsoft, or Meta accounts with OAuth. Access and refresh tokens are encrypted on the server and never returned to the browser.</p>
             </div>
             <div className="flex gap-2">
               <Select value={selectedChannel} onValueChange={(value) => setSelectedChannel(value as Channel)}>
                 <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="EMAIL">Email</SelectItem>
                   <SelectItem value="WHATSAPP">WhatsApp</SelectItem>
                   <SelectItem value="SMS">SMS</SelectItem>
                 </SelectContent>
               </Select>
-              <Button variant="outline" size="sm" className="gap-2" onClick={() => setProviders((current) => [...current, newProvider(selectedChannel, current.length)])}>
+              <Button variant="outline" size="sm" className="gap-2" onClick={() => setProviders((current) => [...current, newProvider(selectedChannel, current.length)])} disabled={selectedChannel === "EMAIL"}>
                 <Plus className="h-4 w-4" /> Add
               </Button>
             </div>
           </div>
+
+          {selectedChannel === "EMAIL" && (
+            <div className="flex flex-wrap gap-2 rounded-md border bg-muted/30 p-4">
+              <span className="mr-2 self-center text-sm text-muted-foreground">Link an account:</span>
+              <Button variant="outline" size="sm" className="gap-2" onClick={() => startOAuth("GOOGLE_GMAIL")}><Link2 className="h-4 w-4" /> Google Workspace / Gmail</Button>
+              <Button variant="outline" size="sm" className="gap-2" onClick={() => startOAuth("MICROSOFT_365")}><Link2 className="h-4 w-4" /> Microsoft 365</Button>
+            </div>
+          )}
+          {selectedChannel === "WHATSAPP" && (
+            <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 p-4">
+              <span className="mr-2 text-sm text-muted-foreground">Use OAuth to authorize a WABA, phone number, and templates.</span>
+              <Button variant="outline" size="sm" className="gap-2" onClick={() => startOAuth("META_WABA")}><Link2 className="h-4 w-4" /> Link Meta WhatsApp</Button>
+            </div>
+          )}
 
           {visibleProviders.length === 0 && <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">No {selectedChannel.toLowerCase()} provider configured.</p>}
           {visibleProviders.map((provider) => (
@@ -328,18 +455,38 @@ export function NotificationSettings() {
               <CardContent className="space-y-4 pt-6">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 font-medium">{channelIcon(provider.channel)} {provider.name || "Unnamed provider"} <Badge variant="outline">{provider.provider}</Badge></div>
-                  <div className="flex items-center gap-3"><Switch checked={provider.enabled} onCheckedChange={(enabled) => updateProvider(provider.id, { enabled })} /><Button variant="ghost" size="icon" onClick={() => setProviders((current) => current.filter((item) => item.id !== provider.id))}><Trash2 className="h-4 w-4 text-destructive" /></Button></div>
+                  <div className="flex items-center gap-3">
+                    <Button variant="outline" size="sm" className="gap-2" onClick={() => providerAction(provider.id, "verify")}><CheckCircle2 className="h-4 w-4" /> Verify</Button>
+                    <Button variant="outline" size="sm" className="gap-2" onClick={() => providerAction(provider.id, "test")}><Send className="h-4 w-4" /> Test send</Button>
+                    <Switch checked={provider.enabled} onCheckedChange={(enabled) => updateProvider(provider.id, { enabled })} disabled={provider.id === "default-email-provider"} />
+                    {provider.id !== "default-email-provider" && <Button variant="ghost" size="icon" onClick={() => setProviders((current) => current.filter((item) => item.id !== provider.id))}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
+                  </div>
                 </div>
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="grid gap-2"><Label>Connection name</Label><Input value={provider.name} onChange={(event) => updateProvider(provider.id, { name: event.target.value })} placeholder="Organization email" /></div>
-                  <div className="grid gap-2"><Label>Provider</Label><Select value={provider.provider} onValueChange={(value) => updateProvider(provider.id, { provider: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PROVIDER_OPTIONS[provider.channel].map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent></Select></div>
+                  <div className="grid gap-2"><Label>Provider</Label>{provider.id === "default-email-provider" ? <div className="flex h-10 items-center rounded-md border bg-muted/30 px-3 text-sm">SMTP</div> : <Select value={provider.provider} onValueChange={(value) => updateProvider(provider.id, { provider: value })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PROVIDER_OPTIONS[provider.channel].map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent></Select>}</div>
                 </div>
+                {provider.channel === "EMAIL" && provider.id !== "default-email-provider" && (
+                  <p className="text-sm text-muted-foreground">Linked account: {provider.settings.username || "account unavailable"}. Relink the account to replace its OAuth credentials.</p>
+                )}
                 {provider.channel === "WHATSAPP" && (
-                  <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-4">
+                    <div className="grid gap-4 md:grid-cols-2">
                     <div className="grid gap-2"><Label>Graph API base URL</Label><Input value={provider.settings.apiBaseUrl || "https://graph.facebook.com"} onChange={(event) => updateProviderSetting(provider.id, "apiBaseUrl", event.target.value)} /></div>
                     <div className="grid gap-2"><Label>Phone number ID</Label><Input value={provider.settings.phoneNumberId || ""} onChange={(event) => updateProviderSetting(provider.id, "phoneNumberId", event.target.value)} /></div>
                     <div className="grid gap-2"><Label>WABA ID</Label><Input value={provider.settings.wabaId || ""} onChange={(event) => updateProviderSetting(provider.id, "wabaId", event.target.value)} /></div>
                     <div className="grid gap-2"><Label>Access token</Label><Input type="password" value={provider.secrets?.accessToken || ""} onChange={(event) => updateProviderSecret(provider.id, "accessToken", event.target.value)} placeholder={provider.secretKeys?.length ? data?.secretMarker : "Stored encrypted"} /></div>
+                    </div>
+                    {provider.provider === "META_WABA" && (
+                      <div className="space-y-4 rounded-md border bg-muted/20 p-4">
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div className="grid gap-2"><Label>WhatsApp Business Account</Label><Select value={provider.settings.wabaId || ""} onValueChange={(value) => updateProviderSetting(provider.id, "wabaId", value)}><SelectTrigger><SelectValue placeholder="Select WABA" /></SelectTrigger><SelectContent>{parseSettingsList<{ id: string; name: string }>(provider, "wabaOptions").map((option) => <SelectItem key={option.id} value={option.id}>{option.name || option.id}</SelectItem>)}</SelectContent></Select></div>
+                          <div className="grid gap-2"><Label>Phone number</Label><Select value={provider.settings.phoneNumberId || ""} onValueChange={(value) => updateProviderSetting(provider.id, "phoneNumberId", value)}><SelectTrigger><SelectValue placeholder="Select phone number" /></SelectTrigger><SelectContent>{parseSettingsList<{ id: string; display_phone_number?: string; verified_name?: string }>(provider, "phoneOptions").map((option) => <SelectItem key={option.id} value={option.id}>{option.display_phone_number || option.verified_name || option.id}</SelectItem>)}</SelectContent></Select></div>
+                        </div>
+                        <div className="flex flex-wrap gap-2"><Button variant="outline" size="sm" onClick={() => loadMetaPhones(provider)}>Load phone numbers</Button><Button size="sm" onClick={() => configureMeta(provider)}>Save WABA selection</Button><Button variant="outline" size="sm" onClick={() => refreshMeta(provider)}><RefreshCw className="mr-2 h-4 w-4" /> Refresh templates</Button></div>
+                        {!!parseSettingsList(provider, "templates").length && <div className="grid gap-2"><Label>Available templates</Label><div className="flex flex-wrap gap-2">{parseSettingsList<{ name?: string; language?: string; status?: string }>(provider, "templates").map((template) => <Badge key={`${template.name}-${template.language}`} variant="secondary">{template.name} · {template.language} · {template.status}</Badge>)}</div></div>}
+                      </div>
+                    )}
                   </div>
                 )}
                 {provider.channel === "SMS" && (
@@ -370,8 +517,19 @@ export function NotificationSettings() {
                     <div className="flex items-center gap-2 font-medium">{channelIcon(channel)} {channel}</div>
                     {channel === "EMAIL" ? (
                       <div className="rounded-md border bg-muted/30 p-3 text-sm">
-                        <div className="font-medium">Default Email Provider</div>
-                        <div className="text-xs text-muted-foreground">Managed by the SMTP setup above.</div>
+                        <Select
+                          value={defaultProviders.EMAIL || "none"}
+                          onValueChange={(value) => setDefaultProviders((current) => ({ ...current, EMAIL: value === "none" ? undefined : value }))}
+                        >
+                          <SelectTrigger><SelectValue placeholder="Select default email provider" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">No default provider</SelectItem>
+                            {providers.filter((provider) => provider.channel === "EMAIL" && provider.enabled).map((provider) => (
+                              <SelectItem key={provider.id} value={provider.id}>{provider.name || provider.provider}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <div className="mt-2 text-xs text-muted-foreground">SMTP and linked OAuth accounts can both be selected.</div>
                       </div>
                     ) : (
                       <Select
@@ -387,7 +545,7 @@ export function NotificationSettings() {
                         </SelectContent>
                       </Select>
                     )}
-                    {channel !== "EMAIL" && defaultProvider && <p className="text-xs text-muted-foreground">Current default: {defaultProvider.name || defaultProvider.provider}</p>}
+                    {defaultProvider && <p className="text-xs text-muted-foreground">Current default: {defaultProvider.name || defaultProvider.provider}</p>}
                   </CardContent>
                 </Card>
               );
@@ -412,7 +570,7 @@ export function NotificationSettings() {
                   {notificationEvent.routes.filter((route) => configuredChannels.includes(route.channel)).map((route) => (
                     <div key={route.channel} className="grid gap-3 rounded-md border p-3 md:grid-cols-[auto_1fr_1fr_auto] md:items-end">
                       <div className="flex items-center gap-2 pb-2 text-sm font-medium">{channelIcon(route.channel)} {route.channel}</div>
-                      <div className="grid gap-1"><Label className="text-xs">Default provider</Label><div className="flex h-10 items-center rounded-md border bg-muted/30 px-3 text-sm">{route.channel === "EMAIL" ? "Default Email Provider" : (providers.find((provider) => provider.id === defaultProviders[route.channel])?.name || "No default provider selected")}</div></div>
+                      <div className="grid gap-1"><Label className="text-xs">Default provider</Label><div className="flex h-10 items-center rounded-md border bg-muted/30 px-3 text-sm">{providers.find((provider) => provider.id === defaultProviders[route.channel])?.name || "No default provider selected"}</div></div>
                       <div className="grid gap-1"><Label className="text-xs">Provider template ID</Label><Input value={route.templateId || ""} onChange={(inputEvent) => updateRoute(notificationEvent.id, route.channel, { templateId: inputEvent.target.value })} placeholder={route.channel === "EMAIL" ? "Optional application template" : "Required by provider"} /></div>
                       <div className="grid gap-1"><Label className="text-xs">Value keys</Label><Input value={route.valueKeys.join(", ")} onChange={(inputEvent) => updateRoute(notificationEvent.id, route.channel, { valueKeys: inputEvent.target.value.split(",").map((value) => value.trim()).filter(Boolean) })} placeholder="firstName, setupLink" /></div>
                       <div className="flex items-center gap-2 pb-2"><Switch checked={route.enabled} onCheckedChange={(enabled) => updateRoute(notificationEvent.id, route.channel, { enabled })} /><span className="text-xs">Active</span></div>
