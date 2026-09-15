@@ -173,4 +173,93 @@ describe("library access authorization and messages", () => {
     expect(response.status).toBe(200);
     expect(storageMock.resolveLibraryAccessRequest).toHaveBeenCalledWith(55, admin.id, "Assigned Central Library");
   });
+
+  it("allocates the selected library directly from a pending message", async () => {
+    currentUser = admin;
+    const pending = {
+      id: 56,
+      requesterId: librarian.id,
+      status: "PENDING",
+      message: "Please assign me a library.",
+      createdAt: new Date(),
+      resolvedAt: null,
+      resolvedBy: null,
+      resolutionNote: null,
+      resolutionAction: null,
+      requesterName: librarian.name,
+      requesterEmail: "librarian@example.com",
+      requesterRole: librarian.role,
+      resolvedByName: null,
+    };
+    storageMock.getLibraryAccessRequests.mockResolvedValue([pending]);
+    storageMock.getLibrary.mockResolvedValue({ ...libraries[0], name: "Central Library", isActive: true });
+    storageMock.allocateStaffToLibrary.mockResolvedValue(membership);
+    storageMock.resolveLibraryAccessRequest.mockResolvedValue({
+      ...pending,
+      status: "RESOLVED",
+      resolvedBy: admin.id,
+      resolvedAt: new Date(),
+      resolutionAction: "ALLOCATED",
+    });
+
+    const response = await request("/api/admin/messages/56/allocate", {
+      method: "PATCH",
+      body: JSON.stringify({ libraryId: 1, resolutionNote: "Assigned Central Library" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(storageMock.allocateStaffToLibrary).toHaveBeenCalledWith(
+      librarian.id,
+      1,
+      admin.id,
+      "Assigned Central Library",
+    );
+    expect(storageMock.resolveLibraryAccessRequest).toHaveBeenCalledWith(
+      56,
+      admin.id,
+      "Assigned Central Library",
+      "ALLOCATED",
+    );
+  });
+
+  it("rejects a pending message without creating a library assignment", async () => {
+    currentUser = admin;
+    const pending = {
+      id: 57,
+      requesterId: librarian.id,
+      status: "PENDING",
+      message: "Please assign me a library.",
+      createdAt: new Date(),
+      resolvedAt: null,
+      resolvedBy: null,
+      resolutionNote: null,
+      resolutionAction: null,
+      requesterName: librarian.name,
+      requesterEmail: "librarian@example.com",
+      requesterRole: librarian.role,
+      resolvedByName: null,
+    };
+    storageMock.getLibraryAccessRequests.mockResolvedValue([pending]);
+    storageMock.resolveLibraryAccessRequest.mockResolvedValue({
+      ...pending,
+      status: "RESOLVED",
+      resolvedBy: admin.id,
+      resolvedAt: new Date(),
+      resolutionAction: "REJECTED",
+    });
+
+    const response = await request("/api/admin/messages/57/reject", {
+      method: "PATCH",
+      body: JSON.stringify({ resolutionNote: "Library assignment is not available yet" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(storageMock.allocateStaffToLibrary).not.toHaveBeenCalled();
+    expect(storageMock.resolveLibraryAccessRequest).toHaveBeenCalledWith(
+      57,
+      admin.id,
+      "Library assignment is not available yet",
+      "REJECTED",
+    );
+  });
 });

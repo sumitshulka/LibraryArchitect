@@ -606,6 +606,7 @@ export const staffAllocationLogs = pgTable("staff_allocation_logs", {
 });
 
 export const libraryAccessRequestStatusEnum = pgEnum('library_access_request_status', ['PENDING', 'RESOLVED']);
+export const libraryAccessRequestResolutionEnum = pgEnum('library_access_request_resolution', ['ALLOCATED', 'REJECTED']);
 
 export const libraryAccessRequests = pgTable("library_access_requests", {
   id: serial("id").primaryKey(),
@@ -616,6 +617,7 @@ export const libraryAccessRequests = pgTable("library_access_requests", {
   resolvedAt: timestamp("resolved_at"),
   resolvedBy: integer("resolved_by").references(() => users.id),
   resolutionNote: text("resolution_note"),
+  resolutionAction: libraryAccessRequestResolutionEnum("resolution_action"),
 });
 
 export const insertUserSchema = createInsertSchema(users).omit({

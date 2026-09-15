@@ -7703,6 +7703,98 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/admin/messages/:id/allocate", async (req, res) => {
+    try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+      const id = parseInt(req.params.id);
+      const { libraryId, resolutionNote } = z.object({
+        libraryId: z.coerce.number().int().positive(),
+        resolutionNote: z.string().max(1000).optional(),
+      }).parse(req.body || {});
+      const request = (await storage.getLibraryAccessRequests("PENDING")).find((item) => item.id === id);
+      if (!request) {
+        return res.status(404).json({ error: "Message not found or already resolved" });
+      }
+      const library = await storage.getLibrary(libraryId);
+      if (!library || !library.isActive) {
+        return res.status(404).json({ error: "Active library not found" });
+      }
+      const membership = await storage.allocateStaffToLibrary(
+        request.requesterId,
+        libraryId,
+        currentUser.id,
+        resolutionNote || "Allocated from library access request",
+      );
+      const resolved = await storage.resolveLibraryAccessRequest(
+        id,
+        currentUser.id,
+        resolutionNote || `Allocated to ${library.name}`,
+        "ALLOCATED",
+      );
+      if (!resolved) {
+        return res.status(409).json({ error: "Library was allocated, but the request was already resolved" });
+      }
+      await logAudit(req, {
+        category: "STAFF_ALLOCATION",
+        action: "LIBRARY_ACCESS_REQUEST_ALLOCATED",
+        userId: currentUser.id,
+        userName: currentUser.username,
+        targetType: "library_access_request",
+        targetId: String(id),
+        details: { requesterId: request.requesterId, libraryId, libraryName: library.name, resolutionNote },
+      });
+      res.json({ success: true, membership, request: resolved });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error allocating library from administrator message:", error);
+      res.status(500).json({ error: "Failed to allocate library from message" });
+    }
+  });
+
+  app.patch("/api/admin/messages/:id/reject", async (req, res) => {
+    try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+      const id = parseInt(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) {
+        return res.status(400).json({ error: "Invalid message ID" });
+      }
+      const request = (await storage.getLibraryAccessRequests("PENDING")).find((item) => item.id === id);
+      if (!request) {
+        return res.status(404).json({ error: "Message not found or already resolved" });
+      }
+      const resolutionNote = z.object({ resolutionNote: z.string().max(1000).optional() }).parse(req.body || {}).resolutionNote;
+      const rejected = await storage.resolveLibraryAccessRequest(
+        id,
+        currentUser.id,
+        resolutionNote || "Request rejected by administrator",
+        "REJECTED",
+      );
+      if (!rejected) {
+        return res.status(404).json({ error: "Message not found or already resolved" });
+      }
+      await logAudit(req, {
+        category: "STAFF_ALLOCATION",
+        action: "LIBRARY_ACCESS_REQUEST_REJECTED",
+        userId: currentUser.id,
+        userName: currentUser.username,
+        targetType: "library_access_request",
+        targetId: String(id),
+        details: { requesterId: request.requesterId, resolutionNote },
+      });
+      res.json({ success: true, request: rejected });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).toString() });
+      }
+      console.error("Error rejecting administrator message:", error);
+      res.status(500).json({ error: "Failed to reject library access request" });
+    }
+  });
+
   app.post("/api/library-access-requests", async (req, res) => {
     try {
       const currentUser = await requireStaff(req, res);

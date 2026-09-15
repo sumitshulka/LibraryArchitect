@@ -44,6 +44,7 @@ export interface LibraryAccessRequest {
   requesterEmail: string;
   requesterRole: string;
   resolvedByName: string | null;
+  resolutionAction: "ALLOCATED" | "REJECTED" | null;
 }
 
 // Books API
@@ -320,6 +321,24 @@ export const libraryAccessApi = {
       body: JSON.stringify({ resolutionNote }),
     });
     if (!res.ok) throw new Error(await readError(res, "Failed to resolve message"));
+    return res.json();
+  },
+  allocateMessage: async (id: number, libraryId: number, resolutionNote?: string): Promise<{ success: boolean; request: LibraryAccessRequest }> => {
+    const res = await fetch(`${API_BASE}/admin/messages/${id}/allocate`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ libraryId, resolutionNote }),
+    });
+    if (!res.ok) throw new Error(await readError(res, "Failed to allocate library"));
+    return res.json();
+  },
+  rejectMessage: async (id: number, resolutionNote?: string): Promise<{ success: boolean; request: LibraryAccessRequest }> => {
+    const res = await fetch(`${API_BASE}/admin/messages/${id}/reject`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resolutionNote }),
+    });
+    if (!res.ok) throw new Error(await readError(res, "Failed to reject request"));
     return res.json();
   },
 };

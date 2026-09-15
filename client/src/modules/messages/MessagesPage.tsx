@@ -1,33 +1,37 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Clock3, ExternalLink, Inbox, Loader2, MessageSquare, RefreshCw, UserRound } from "lucide-react";
-import { Link } from "wouter";
+import { CheckCircle2, Clock3, Inbox, Loader2, MessageSquare, RefreshCw, UserRound, XCircle } from "lucide-react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { libraryAccessApi, type LibraryAccessRequest } from "@/lib/api";
+import { Textarea } from "@/components/ui/textarea";
+import { libraryAccessApi, librariesApi, type LibraryAccessRequest } from "@/lib/api";
 import { toast } from "sonner";
 
-function MessageCard({ request, onResolve, resolving }: {
+function MessageCard({ request, onAllocate, onReject, resolving }: {
   request: LibraryAccessRequest;
-  onResolve: (id: number) => void;
+  onAllocate: (request: LibraryAccessRequest) => void;
+  onReject: (request: LibraryAccessRequest) => void;
   resolving: boolean;
 }) {
   const isPending = request.status === "PENDING";
+  const isRejected = request.resolutionAction === "REJECTED";
   return (
     <Card className={isPending ? "border-blue-200" : ""} data-testid={`message-${request.id}`}>
       <CardContent className="space-y-4 p-5">
         <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
           <div className="flex items-start gap-3">
             <div className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${isPending ? "bg-blue-50 text-blue-600" : "bg-emerald-50 text-emerald-600"}`}>
-              {isPending ? <Inbox className="h-5 w-5" /> : <CheckCircle2 className="h-5 w-5" />}
+              {isPending ? <Inbox className="h-5 w-5" /> : isRejected ? <XCircle className="h-5 w-5 text-rose-600" /> : <CheckCircle2 className="h-5 w-5" />}
             </div>
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="font-semibold">Library access request</h3>
-                <Badge variant={isPending ? "default" : "secondary"}>{isPending ? "Pending" : "Resolved"}</Badge>
+                <Badge variant={isPending ? "default" : "secondary"}>{isPending ? "Pending" : isRejected ? "Rejected" : "Allocated"}</Badge>
               </div>
               <p className="mt-1 text-sm text-muted-foreground">
                 {request.requesterName} · {request.requesterRole}
@@ -35,9 +39,14 @@ function MessageCard({ request, onResolve, resolving }: {
             </div>
           </div>
           {isPending && (
-            <Button size="sm" onClick={() => onResolve(request.id)} disabled={resolving} data-testid={`button-resolve-message-${request.id}`}>
-              {resolving ? "Saving…" : "Mark as resolved"}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" onClick={() => onAllocate(request)} disabled={resolving} data-testid={`button-allocate-message-${request.id}`}>
+                {resolving ? "Saving…" : "Allocate library"}
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => onReject(request)} disabled={resolving} data-testid={`button-reject-message-${request.id}`}>
+                Reject
+              </Button>
+            </div>
           )}
         </div>
         <div className="rounded-lg bg-muted/40 p-4 text-sm leading-6">{request.message}</div>
@@ -56,6 +65,9 @@ function MessageCard({ request, onResolve, resolving }: {
 
 export default function MessagesPage() {
   const [status, setStatus] = useState<"PENDING" | "RESOLVED">("PENDING");
+  const [action, setAction] = useState<{ type: "ALLOCATE" | "REJECT"; request: LibraryAccessRequest } | null>(null);
+  const [selectedLibraryId, setSelectedLibraryId] = useState("");
+  const [resolutionNote, setResolutionNote] = useState("");
   const queryClient = useQueryClient();
   const { data: messages = [], isLoading, isFetching, error, refetch } = useQuery({
     queryKey: ["admin-messages", status],
@@ -64,13 +76,29 @@ export default function MessagesPage() {
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
   });
-  const resolveMutation = useMutation({
-    mutationFn: (id: number) => libraryAccessApi.resolveMessage(id),
+  const { data: libraries = [], isLoading: isLoadingLibraries } = useQuery({
+    queryKey: ["libraries", "active"],
+    queryFn: librariesApi.getActive,
+    enabled: action?.type === "ALLOCATE",
+  });
+  const actionMutation = useMutation({
+    mutationFn: async () => {
+      if (!action) throw new Error("Choose an action");
+      if (action.type === "ALLOCATE") {
+        const libraryId = Number(selectedLibraryId);
+        if (!libraryId) throw new Error("Select a library");
+        return libraryAccessApi.allocateMessage(action.request.id, libraryId, resolutionNote || undefined);
+      }
+      return libraryAccessApi.rejectMessage(action.request.id, resolutionNote || undefined);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-messages"] });
-      toast.success("Message marked as resolved");
+      setAction(null);
+      setSelectedLibraryId("");
+      setResolutionNote("");
+      toast.success("Library access request updated");
     },
-    onError: (resolveError: Error) => toast.error(resolveError.message),
+    onError: (actionError: Error) => toast.error(actionError.message),
   });
 
   return (
@@ -86,16 +114,13 @@ export default function MessagesPage() {
               </div>
             </div>
           </div>
-          <Link href="/users">
-            <Button variant="outline" className="gap-2"><ExternalLink className="h-4 w-4" /> Manage library assignments</Button>
-          </Link>
         </div>
         <Card>
           <CardHeader>
             <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
               <div>
                 <CardTitle>Administrator inbox</CardTitle>
-                <CardDescription className="mt-1">Assign a library in User Management before resolving an access request.</CardDescription>
+                <CardDescription className="mt-1">Allocate a library or reject each librarian request directly from this inbox.</CardDescription>
               </div>
               <Button
                 variant="ghost"
@@ -132,8 +157,16 @@ export default function MessagesPage() {
                     <MessageCard
                       key={message.id}
                       request={message}
-                      onResolve={(id) => resolveMutation.mutate(id)}
-                      resolving={resolveMutation.isPending && resolveMutation.variables === message.id}
+                      onAllocate={(request) => {
+                        setAction({ type: "ALLOCATE", request });
+                        setSelectedLibraryId("");
+                        setResolutionNote("");
+                      }}
+                      onReject={(request) => {
+                        setAction({ type: "REJECT", request });
+                        setResolutionNote("");
+                      }}
+                      resolving={actionMutation.isPending && action?.request.id === message.id}
                     />
                   ))
                 )}
@@ -142,6 +175,55 @@ export default function MessagesPage() {
           </CardContent>
         </Card>
       </div>
+      <Dialog open={!!action} onOpenChange={(open) => !open && !actionMutation.isPending && setAction(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{action?.type === "ALLOCATE" ? "Allocate library access" : "Reject library access request"}</DialogTitle>
+            <DialogDescription>
+              {action?.type === "ALLOCATE"
+                ? `Choose the library to assign to ${action.request.requesterName}. The request will be marked allocated after the assignment succeeds.`
+                : `Reject ${action?.request.requesterName}'s request. You can add a note explaining the decision.`}
+            </DialogDescription>
+          </DialogHeader>
+          {action?.type === "ALLOCATE" && (
+            <div className="space-y-2">
+              <Label htmlFor="message-library">Library</Label>
+              <select
+                id="message-library"
+                value={selectedLibraryId}
+                onChange={(event) => setSelectedLibraryId(event.target.value)}
+                disabled={isLoadingLibraries || actionMutation.isPending}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                data-testid="select-message-library"
+              >
+                <option value="">{isLoadingLibraries ? "Loading libraries…" : "Select a library"}</option>
+                {libraries.map((library) => <option key={library.id} value={library.id}>{library.name} ({library.code})</option>)}
+              </select>
+            </div>
+          )}
+          <div className="space-y-2">
+            <Label htmlFor="message-resolution-note">Note (optional)</Label>
+            <Textarea
+              id="message-resolution-note"
+              value={resolutionNote}
+              onChange={(event) => setResolutionNote(event.target.value)}
+              placeholder={action?.type === "ALLOCATE" ? "Add context about the assignment…" : "Explain why the request was rejected…"}
+              maxLength={1000}
+              disabled={actionMutation.isPending}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAction(null)} disabled={actionMutation.isPending}>Cancel</Button>
+            <Button
+              variant={action?.type === "REJECT" ? "destructive" : "default"}
+              onClick={() => actionMutation.mutate()}
+              disabled={actionMutation.isPending || (action?.type === "ALLOCATE" && !selectedLibraryId)}
+            >
+              {actionMutation.isPending ? "Saving…" : action?.type === "ALLOCATE" ? "Allocate and close" : "Reject request"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </MainLayout>
   );
 }

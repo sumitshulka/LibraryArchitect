@@ -523,6 +523,10 @@ export interface IStorage {
   getStaffAllocationLogs(staffUserId?: number): Promise<StaffAllocationLog[]>;
   getStaffAllocationLogsWithDetails(staffUserId?: number): Promise<StaffAllocationLogWithDetails[]>;
   getLibraryStaff(libraryId: number): Promise<LibraryStaffMember[]>;
+  getPendingLibraryAccessRequest(userId: number): Promise<LibraryAccessRequest | undefined>;
+  createLibraryAccessRequest(request: InsertLibraryAccessRequest): Promise<LibraryAccessRequest>;
+  getLibraryAccessRequests(status?: "PENDING" | "RESOLVED"): Promise<LibraryAccessRequestWithDetails[]>;
+  resolveLibraryAccessRequest(id: number, resolvedBy: number, resolutionNote?: string, resolutionAction?: "ALLOCATED" | "REJECTED"): Promise<LibraryAccessRequest | undefined>;
   
   // Audit Logs
   createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
@@ -2063,7 +2067,12 @@ export class DBStorage implements IStorage {
     }));
   }
 
-  async resolveLibraryAccessRequest(id: number, resolvedBy: number, resolutionNote?: string): Promise<LibraryAccessRequest | undefined> {
+  async resolveLibraryAccessRequest(
+    id: number,
+    resolvedBy: number,
+    resolutionNote?: string,
+    resolutionAction: "ALLOCATED" | "REJECTED" = "ALLOCATED",
+  ): Promise<LibraryAccessRequest | undefined> {
     const [resolved] = await returningViaCte<LibraryAccessRequest>(
       db.update(libraryAccessRequests)
         .set({
@@ -2071,6 +2080,7 @@ export class DBStorage implements IStorage {
           resolvedAt: new Date(),
           resolvedBy,
           resolutionNote: resolutionNote || null,
+          resolutionAction,
         })
         .where(and(
           eq(libraryAccessRequests.id, id),
