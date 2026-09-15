@@ -1557,6 +1557,17 @@ export interface BookCopyIdentifierAudit {
   affectedCopyIds: number[];
 }
 
+export interface BookCopyIdentifierRemediationEvent {
+  id: number;
+  copyId: number;
+  field: BookCopyIdentifierField;
+  previousValue: string | null;
+  replacement: string | null;
+  actor: string;
+  actorId: number | null;
+  timestamp: string;
+}
+
 export interface BookCopyIdentifierRemediation {
   copyId: number;
   field: BookCopyIdentifierField;
@@ -1596,6 +1607,16 @@ export const bookCopyIdentifiersApi = {
       throw new Error(error.error || "Failed to audit book copy identifiers");
     }
     return res.json();
+  },
+
+  history: async (limit = 50): Promise<BookCopyIdentifierRemediationEvent[]> => {
+    const res = await fetch(`${API_BASE}/book-copy-identifiers/remediation-history?limit=${limit}`);
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || "Failed to fetch identifier remediation history");
+    }
+    const result: { events: BookCopyIdentifierRemediationEvent[] } = await res.json();
+    return result.events;
   },
 
   remediate: async (data: BookCopyIdentifierRemediation): Promise<BookCopy> => {

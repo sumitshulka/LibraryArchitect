@@ -3091,6 +3091,15 @@ function BookCopyIdentifierAuditCard() {
     queryKey: ["book-copy-identifier-audit"],
     queryFn: bookCopyIdentifiersApi.audit,
   });
+  const {
+    data: remediationHistory = [],
+    error: remediationHistoryError,
+    isLoading: isRemediationHistoryLoading,
+    refetch: refetchRemediationHistory,
+  } = useQuery({
+    queryKey: ["book-copy-identifier-remediation-history"],
+    queryFn: () => bookCopyIdentifiersApi.history(50),
+  });
   const [replacementValues, setReplacementValues] = useState<Record<string, string>>({});
   const [feedback, setFeedback] = useState<{
     kind: "stale" | "conflict" | "error";
@@ -3102,6 +3111,7 @@ function BookCopyIdentifierAuditCard() {
     onSuccess: () => {
       setFeedback(null);
       queryClient.invalidateQueries({ queryKey: ["book-copy-identifier-audit"] });
+      queryClient.invalidateQueries({ queryKey: ["book-copy-identifier-remediation-history"] });
       toast.success("Identifier updated. The collision audit was refreshed.");
     },
     onError: (error: unknown) => {
@@ -3155,6 +3165,7 @@ function BookCopyIdentifierAuditCard() {
   const refreshAudit = () => {
     setFeedback(null);
     void refetch();
+    void refetchRemediationHistory();
   };
 
   return (
@@ -3305,6 +3316,73 @@ function BookCopyIdentifierAuditCard() {
             ))}
           </div>
         )}
+
+        <Separator />
+        <div className="space-y-3" data-testid="section-identifier-remediation-history">
+          <div>
+            <h3 className="font-medium">Recent remediation history</h3>
+            <p className="text-sm text-muted-foreground">
+              Administrators can review identifier changes even after a collision has been cleared.
+            </p>
+          </div>
+          {isRemediationHistoryLoading ? (
+            <div className="flex items-center py-4 text-sm text-muted-foreground">
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Loading remediation history...
+            </div>
+          ) : remediationHistoryError ? (
+            <Alert variant="destructive" data-testid="alert-identifier-remediation-history-error">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>Could not load remediation history</AlertTitle>
+              <AlertDescription>
+                {remediationHistoryError instanceof Error
+                  ? remediationHistoryError.message
+                  : "Try refreshing the page."}
+              </AlertDescription>
+            </Alert>
+          ) : remediationHistory.length === 0 ? (
+            <p className="text-sm text-muted-foreground" data-testid="text-no-identifier-remediation-history">
+              No identifier remediation events recorded.
+            </p>
+          ) : (
+            <div className="overflow-x-auto rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Copy</TableHead>
+                    <TableHead>Field</TableHead>
+                    <TableHead>Previous value</TableHead>
+                    <TableHead>Replacement</TableHead>
+                    <TableHead>Administrator</TableHead>
+                    <TableHead>Timestamp</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {remediationHistory.map((event) => (
+                    <TableRow key={event.id} data-testid={`identifier-remediation-event-${event.id}`}>
+                      <TableCell className="font-medium">{event.copyId}</TableCell>
+                      <TableCell>{IDENTIFIER_FIELD_LABELS[event.field]}</TableCell>
+                      <TableCell>
+                        <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
+                          {event.previousValue ?? "(empty)"}
+                        </code>
+                      </TableCell>
+                      <TableCell>
+                        <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
+                          {event.replacement ?? "(cleared)"}
+                        </code>
+                      </TableCell>
+                      <TableCell>{event.actor}</TableCell>
+                      <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                        {new Date(event.timestamp).toLocaleString()}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   );

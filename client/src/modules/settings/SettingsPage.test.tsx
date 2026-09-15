@@ -30,6 +30,7 @@ vi.mock("@/lib/api", () => ({
   fineCalculationModeApi: {},
   bookCopyIdentifiersApi: {
     audit: vi.fn(),
+    history: vi.fn(),
     remediate: vi.fn(),
   },
 }));
@@ -69,6 +70,7 @@ const mockedGetCategories = vi.mocked(categoriesApi.getAll);
 const mockedGetConfig = vi.mocked(configApi.getAll);
 const mockedGetResourceTypes = vi.mocked(resourceTypesApi.getAll);
 const mockedAuditIdentifiers = vi.mocked(bookCopyIdentifiersApi.audit);
+const mockedIdentifierHistory = vi.mocked(bookCopyIdentifiersApi.history);
 const mockedRemediateIdentifier = vi.mocked(bookCopyIdentifiersApi.remediate);
 
 function renderSettings(path: string) {
@@ -117,6 +119,7 @@ describe("SettingsPage", () => {
       collisionCount: 0,
       affectedCopyIds: [],
     });
+    mockedIdentifierHistory.mockResolvedValue([]);
     mockedRemediateIdentifier.mockResolvedValue({} as never);
   });
 
@@ -281,6 +284,27 @@ describe("SettingsPage", () => {
         replacement: "new-barcode",
       });
     });
+  });
+
+  it("shows identifier remediation history after collisions are cleared", async () => {
+    mockedIdentifierHistory.mockResolvedValue([{
+      id: 7,
+      copyId: 102,
+      field: "internalSSN",
+      previousValue: "SHARED-ID",
+      replacement: null,
+      actor: "Admin",
+      actorId: 1,
+      timestamp: "2026-09-15T12:34:56.000Z",
+    }]);
+
+    renderSettings("/settings?section=catalog");
+
+    expect(await screen.findByTestId("identifier-remediation-event-7")).toHaveTextContent("102");
+    expect(screen.getByTestId("identifier-remediation-event-7")).toHaveTextContent("Internal SSN");
+    expect(screen.getByTestId("identifier-remediation-event-7")).toHaveTextContent("SHARED-ID");
+    expect(screen.getByTestId("identifier-remediation-event-7")).toHaveTextContent("(cleared)");
+    expect(screen.getByTestId("identifier-remediation-event-7")).toHaveTextContent("Admin");
   });
 
   it("explains identifier conflicts and stale audits", async () => {

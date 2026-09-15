@@ -6761,6 +6761,58 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/book-copy-identifiers/remediation-history", async (req, res) => {
+    try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+
+      const requestedLimit = Number.parseInt(String(req.query.limit ?? "50"), 10);
+      const limit = Number.isFinite(requestedLimit)
+        ? Math.min(Math.max(requestedLimit, 1), 100)
+        : 50;
+      const result = await storage.queryAuditLogs({
+        category: "CATALOG",
+        action: "BOOK_COPY_IDENTIFIER_REMEDIATED",
+        limit,
+      });
+      const validFields = new Set(["barcode", "internalSSN", "userDefinedSSN"]);
+      const events = result.logs.flatMap((log) => {
+        const details = log.details as {
+          field?: unknown;
+          previousValue?: unknown;
+          replacement?: unknown;
+        } | null;
+        const copyId = Number.parseInt(log.targetId ?? "", 10);
+        if (
+          !Number.isInteger(copyId)
+          || !details
+          || typeof details.field !== "string"
+          || !validFields.has(details.field)
+          || (details.previousValue !== null && typeof details.previousValue !== "string")
+          || (details.replacement !== null && typeof details.replacement !== "string")
+        ) {
+          return [];
+        }
+
+        return [{
+          id: log.id,
+          copyId,
+          field: details.field,
+          previousValue: details.previousValue as string | null,
+          replacement: details.replacement as string | null,
+          actor: log.userName || (log.userId ? `Administrator ${log.userId}` : "Unknown administrator"),
+          actorId: log.userId ?? null,
+          timestamp: log.timestamp,
+        }];
+      });
+
+      res.json({ events });
+    } catch (error) {
+      console.error("Error fetching book copy identifier remediation history:", error);
+      res.status(500).json({ error: "Failed to fetch identifier remediation history" });
+    }
+  });
+
   app.post("/api/book-copy-identifiers/remediate", async (req, res) => {
     try {
       const currentUser = await requireLocalAdmin(req, res);
@@ -6788,9 +6840,11 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Book copy not found" });
       }
 
-      logAudit(req, {
+      await logAudit(req, {
         category: "CATALOG",
         action: "BOOK_COPY_IDENTIFIER_REMEDIATED",
+        userId: currentUser.id,
+        userName: currentUser.name,
         targetType: "book_copy",
         targetId: String(validated.copyId),
         details: {
