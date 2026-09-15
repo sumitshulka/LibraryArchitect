@@ -5,3 +5,4 @@
 - [Radix Select in jsdom](jsdom-radix-select.md) — shared tests need pointer-capture and scrollIntoView compatibility methods for real Select interactions.
 - [Wouter search strings in jsdom](wouter-jsdom-search.md) — custom test routers need an explicit searchHook; ssrPath search is not used by client-side jsdom snapshots.
 - [Copy identity during SSN migration](copy-ssn-migration.md) — preserve imported library SSNs separately from system barcodes; barcode labels prefer the imported SSN.
+- [Deterministic PostgreSQL race tests](deterministic-postgres-race-tests.md) — use a secondary advisory lock gate to force one Neon HTTP transaction to reach the contested lock first.

@@ -61,6 +61,28 @@ async function rowsForIdentifier(identifier: string) {
   return result.rows as DatabaseRow[];
 }
 
+async function holdIdentifierLock(identifier: string, seconds: number) {
+  return db.execute(sql`
+    WITH lock_acquired AS (
+      SELECT pg_advisory_xact_lock(hashtextextended(lower(${identifier}), 0))
+    )
+    SELECT pg_sleep(${seconds})
+    FROM lock_acquired
+  `);
+}
+
+async function waitForIdentifierLock(identifier: string) {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const result = await db.execute(sql`
+      SELECT pg_try_advisory_xact_lock(hashtextextended(lower(${identifier}), 0)) AS acquired
+    `);
+    const acquired = (result.rows as DatabaseRow[])[0]?.acquired;
+    if (acquired === false || acquired === "f") return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Timed out waiting for the test lock on ${identifier}`);
+}
+
 async function removeTestCopies() {
   await db.execute(sql`DELETE FROM book_copies WHERE barcode LIKE ${`${runId}%`}`);
 }
@@ -129,6 +151,53 @@ describe.skipIf(!testDatabaseUrl)("book copy identifiers against PostgreSQL", ()
           || matchingRows[0].user_defined_ssn === identifier,
       ).toBe(true);
     },
+  );
+
+  it.each([
+    ["Internal SSN", "internalSSN", "userDefinedSSN"],
+    ["user-defined SSN", "userDefinedSSN", "internalSSN"],
+  ] as const)(
+    "allows the update to win when it acquires the %s identifier lock first",
+    async (_label, updateField, gateField) => {
+      const targetIdentifier = `${runId}-${updateField}-update-winner`;
+      const gateIdentifier = `${runId}-${updateField}-create-gate`;
+      const existingBarcode = `${runId}-${updateField}-update-winner-existing`;
+      const existingCopyId = await insertBookCopy({ barcode: existingBarcode });
+      const createInput: InsertBookCopy = {
+        bookId,
+        libraryId: null,
+        barcode: targetIdentifier,
+        internalSSN: gateField === "internalSSN" ? gateIdentifier : null,
+        userDefinedSSN: gateField === "userDefinedSSN" ? gateIdentifier : null,
+        status: "AVAILABLE",
+        condition: "GOOD",
+      };
+
+      const gatePromise = holdIdentifierLock(gateIdentifier, 3);
+      await waitForIdentifierLock(gateIdentifier);
+      const createPromise = storage.createBookCopy(createInput);
+      const updated = await storage.updateBookCopy(existingCopyId, {
+        [updateField]: targetIdentifier,
+      });
+
+      expect(updated?.id).toBe(existingCopyId);
+      expect(updated?.[updateField]).toBe(targetIdentifier);
+
+      await gatePromise;
+      await expect(createPromise).rejects.toMatchObject({
+        conflictingCopyIds: [existingCopyId],
+      });
+
+      const matchingRows = await rowsForIdentifier(targetIdentifier);
+      expect(matchingRows).toEqual([
+        expect.objectContaining({
+          id: existingCopyId,
+          barcode: existingBarcode,
+          [updateField === "internalSSN" ? "internal_ssn" : "user_defined_ssn"]: targetIdentifier,
+        }),
+      ]);
+    },
+    10000,
   );
 
   it("keeps a same-copy identifier edit valid", async () => {
