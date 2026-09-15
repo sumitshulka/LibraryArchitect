@@ -38,6 +38,7 @@ import { registerReservationRoutes } from "./reservations";
 import { registerErpExtraRoutes } from "./erp-extra";
 import { registerDigitalResourceRoutes } from "./digital-resources";
 import { registerLostDamagedRoutes } from "./lost-damaged";
+import { loadNotificationSetup, saveNotificationSetup, toPublicNotificationSetup, type NotificationSetup } from "./notification-setup";
 
 const MAX_WHITELIST_ENTRIES = 5;
 const Z3950_RATE_LIMIT_WINDOW_MS = 60_000;
@@ -8116,6 +8117,82 @@ export async function registerRoutes(
       }
 
       res.status(400).json({ error: errorMessage });
+    }
+  });
+
+  const notificationRouteSchema = z.object({
+    channel: z.enum(["EMAIL", "WHATSAPP", "SMS"]),
+    providerId: z.string().max(100),
+    enabled: z.boolean(),
+    templateId: z.string().max(200).optional(),
+    language: z.string().max(50).optional(),
+    valueKeys: z.array(z.string().max(100)).max(50),
+    allowOverride: z.boolean(),
+  });
+  const notificationSetupSchema = z.object({
+    providers: z.array(z.object({
+      id: z.string().min(1).max(100),
+      name: z.string().max(200),
+      channel: z.enum(["EMAIL", "WHATSAPP", "SMS"]),
+      provider: z.string().min(1).max(100),
+      enabled: z.boolean(),
+      settings: z.record(z.string(), z.string()).default({}),
+      secrets: z.record(z.string(), z.string()).optional(),
+    })).max(20),
+    events: z.array(z.object({
+      id: z.string().min(1).max(100),
+      label: z.string().max(200),
+      description: z.string().max(500),
+      enabled: z.boolean(),
+      routes: z.array(notificationRouteSchema).max(5),
+    })).max(50),
+  });
+
+  app.get("/api/notifications/setup", async (req, res) => {
+    try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+      const setup = await loadNotificationSetup(storage);
+      res.json(toPublicNotificationSetup(setup));
+    } catch (error) {
+      console.error("Error loading notification setup:", error);
+      res.status(500).json({ error: "Failed to load notification setup" });
+    }
+  });
+
+  app.put("/api/notifications/setup", async (req, res) => {
+    try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+      const setup = notificationSetupSchema.parse(req.body) as NotificationSetup;
+      const providerIds = new Set(setup.providers.map((provider) => provider.id));
+      for (const event of setup.events) {
+        for (const route of event.routes) {
+          if (route.providerId && !providerIds.has(route.providerId)) {
+            return res.status(400).json({ error: `Unknown provider "${route.providerId}" in event ${event.id}` });
+          }
+        }
+      }
+      await saveNotificationSetup(storage, setup);
+      await logAudit(req, {
+        userId: currentUser.id,
+        userName: currentUser.username,
+        action: "Notification setup updated",
+        category: "SYSTEM_CONFIG",
+        status: "SUCCESS",
+        details: {
+          providerCount: setup.providers.length,
+          eventCount: setup.events.length,
+          enabledRoutes: setup.events.flatMap((event) => event.routes).filter((route) => route.enabled).length,
+        },
+      });
+      res.json({ success: true, setup: toPublicNotificationSetup(await loadNotificationSetup(storage)) });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: fromZodError(error).message });
+      }
+      console.error("Error saving notification setup:", error);
+      res.status(500).json({ error: "Failed to save notification setup" });
     }
   });
 
