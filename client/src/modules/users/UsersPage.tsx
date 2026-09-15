@@ -60,11 +60,13 @@ export default function UsersPage() {
   const { data: staffUsers = [], isLoading: loadingStaff, refetch: refetchStaff } = useQuery({
     queryKey: ["users", "STAFF"],
     queryFn: () => usersApi.getByCategory('STAFF'),
+    refetchInterval: 15_000,
   });
 
   const { data: patronUsers = [], isLoading: loadingPatrons, refetch: refetchPatrons } = useQuery({
     queryKey: ["users", "PATRON"],
     queryFn: () => usersApi.getByCategory('PATRON'),
+    refetchInterval: 15_000,
   });
 
   const [isRefreshing, setIsRefreshing] = useState(false);

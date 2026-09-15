@@ -22,6 +22,7 @@ import {
   insertSearchAttributeValueSchema,
   insertPaymentMethodSchema,
   type User,
+  users,
 } from "@shared/schema";
 import { calculateAccruedFine, computeAccruedFine, getCirculationFineSummary, loadGlobalCirculationDefaults, loadFineCalculationMode, invalidateCirculationPolicyCache, CIRCULATION_POLICY_KEY, FINE_CALCULATION_MODE_KEY, type FineCalculationMode } from "./fines";
 import { z } from "zod";
@@ -31,7 +32,7 @@ import nodemailer from "nodemailer";
 import * as XLSX from "xlsx";
 import { passwordResetOtps, passwordSetupTokens } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, gt, desc } from "drizzle-orm";
+import { eq, and, gt, desc, isNull } from "drizzle-orm";
 import multer from "multer";
 import { setupSwagger } from "./swagger";
 import { logAudit, invalidateAuditConfigCache } from "./audit";
@@ -4587,20 +4588,20 @@ export async function registerRoutes(
         return res.status(400).json({ error: "This password setup link is no longer available." });
       }
 
-      const [claimedToken] = await db.update(passwordSetupTokens)
+      const { hashPassword } = await import("./sso");
+      const passwordUpdate = await db.update(users)
+        .set({ password: hashPassword(newPassword) })
+        .where(and(eq(users.id, user.id), isNull(users.password)));
+      if ((passwordUpdate.rowCount ?? 0) === 0) {
+        return res.status(400).json({ error: "This password setup link is no longer available." });
+      }
+      await db.update(passwordSetupTokens)
         .set({ used: true })
         .where(and(
           eq(passwordSetupTokens.id, setupRecord.id),
           eq(passwordSetupTokens.used, false),
           gt(passwordSetupTokens.expiresAt, new Date()),
-        ))
-        .returning();
-      if (!claimedToken) {
-        return res.status(400).json({ error: "This password setup link is invalid or has already been used." });
-      }
-
-      const { hashPassword } = await import("./sso");
-      await storage.updateUser(user.id, { password: hashPassword(newPassword) });
+        ));
       await logAudit(req, {
         userId: user.id,
         userName: user.username,
