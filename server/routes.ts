@@ -6767,6 +6767,7 @@ export async function registerRoutes(
       const currentValue = copy[validated.field];
       if (currentValue !== validated.expectedValue) {
         return res.status(409).json({
+          code: "STALE_AUDIT",
           error: "Book copy changed since the audit; refresh the audit before remediating",
           currentValue,
         });
@@ -6797,6 +6798,7 @@ export async function registerRoutes(
       }
       if (isBookCopyIdentifierConflict(error)) {
         return res.status(409).json({
+          code: "IDENTIFIER_CONFLICT",
           error: "Replacement identifier is already used by another copy",
           conflictingCopyIds: error.conflictingCopyIds,
         });

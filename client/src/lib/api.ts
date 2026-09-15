@@ -1537,6 +1537,89 @@ export interface LibraryDashboardStats {
   totalMembers: number;
 }
 
+export type BookCopyIdentifierField = "barcode" | "internalSSN" | "userDefinedSSN";
+
+export interface BookCopyIdentifierCollisionOccurrence {
+  copyId: number;
+  field: BookCopyIdentifierField;
+  value: string;
+}
+
+export interface BookCopyIdentifierCollision {
+  identifier: string;
+  copyIds: number[];
+  occurrences: BookCopyIdentifierCollisionOccurrence[];
+}
+
+export interface BookCopyIdentifierAudit {
+  collisions: BookCopyIdentifierCollision[];
+  collisionCount: number;
+  affectedCopyIds: number[];
+}
+
+export interface BookCopyIdentifierRemediation {
+  copyId: number;
+  field: BookCopyIdentifierField;
+  expectedValue: string | null;
+  replacement: string | null;
+}
+
+export class BookCopyIdentifierRemediationError extends Error {
+  readonly status: number;
+  readonly code?: string;
+  readonly currentValue?: string | null;
+  readonly conflictingCopyIds?: number[];
+
+  constructor(
+    message: string,
+    details: {
+      status: number;
+      code?: string;
+      currentValue?: string | null;
+      conflictingCopyIds?: number[];
+    },
+  ) {
+    super(message);
+    this.name = "BookCopyIdentifierRemediationError";
+    this.status = details.status;
+    this.code = details.code;
+    this.currentValue = details.currentValue;
+    this.conflictingCopyIds = details.conflictingCopyIds;
+  }
+}
+
+export const bookCopyIdentifiersApi = {
+  audit: async (): Promise<BookCopyIdentifierAudit> => {
+    const res = await fetch(`${API_BASE}/book-copy-identifiers/audit`);
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || "Failed to audit book copy identifiers");
+    }
+    return res.json();
+  },
+
+  remediate: async (data: BookCopyIdentifierRemediation): Promise<BookCopy> => {
+    const res = await fetch(`${API_BASE}/book-copy-identifiers/remediate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new BookCopyIdentifierRemediationError(
+        error.error || "Failed to remediate book copy identifier",
+        {
+          status: res.status,
+          code: error.code,
+          currentValue: error.currentValue,
+          conflictingCopyIds: error.conflictingCopyIds,
+        },
+      );
+    }
+    return res.json();
+  },
+};
+
 export interface LibraryStaffMember {
   id: number;
   userId: number;

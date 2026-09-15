@@ -50,12 +50,13 @@ import {
   Users, Repeat, Layers, PieChart, Loader2
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { resourceTypesApi, categoriesApi, erpIntegrationsApi, configApi, paymentMethodsApi, resourceTypeSettingsApi, type ErpIntegrationPublic, type ErpCredentials, type ErpPullEndpoint, type PaymentMethodApi, type ResourceTypeSettingApi } from "@/lib/api";
+import { resourceTypesApi, categoriesApi, erpIntegrationsApi, configApi, paymentMethodsApi, resourceTypeSettingsApi, bookCopyIdentifiersApi, type ErpIntegrationPublic, type ErpCredentials, type ErpPullEndpoint, type PaymentMethodApi, type ResourceTypeSettingApi, type BookCopyIdentifierCollisionOccurrence, type BookCopyIdentifierField } from "@/lib/api";
 import { toast } from "sonner";
 import type { ResourceType, Category, ErpWhitelist } from "@shared/schema";
 import { useLocation, useSearch } from "wouter";
 import { CURRENCIES, getCurrencyByCode } from "@/lib/currency";
 import { useCurrency } from "@/lib/useCurrency";
+import { useAuth } from "@/lib/auth";
 
 import { circulationPolicyApi, fineCalculationModeApi, type CirculationPolicy, type FineCalculationMode } from "@/lib/api";
 import { PolicyChangeDialog, PolicyHistoryList } from "@/components/PolicyChangeDialog";
@@ -3068,8 +3069,250 @@ function PaymentMethodsSettings() {
   );
 }
 
+const IDENTIFIER_FIELD_LABELS: Record<BookCopyIdentifierField, string> = {
+  barcode: "Barcode",
+  internalSSN: "Internal SSN",
+  userDefinedSSN: "User-defined SSN",
+};
+
+const NULLABLE_IDENTIFIER_FIELDS = new Set<BookCopyIdentifierField>([
+  "internalSSN",
+  "userDefinedSSN",
+]);
+
+function identifierOccurrenceKey(occurrence: BookCopyIdentifierCollisionOccurrence): string {
+  return `${occurrence.copyId}-${occurrence.field}`;
+}
+
+function BookCopyIdentifierAuditCard() {
+  const queryClient = useQueryClient();
+  const { data, error, isLoading, isFetching, refetch } = useQuery({
+    queryKey: ["book-copy-identifier-audit"],
+    queryFn: bookCopyIdentifiersApi.audit,
+  });
+  const [replacementValues, setReplacementValues] = useState<Record<string, string>>({});
+  const [feedback, setFeedback] = useState<{
+    kind: "stale" | "conflict" | "error";
+    message: string;
+  } | null>(null);
+
+  const remediationMutation = useMutation({
+    mutationFn: bookCopyIdentifiersApi.remediate,
+    onSuccess: () => {
+      setFeedback(null);
+      queryClient.invalidateQueries({ queryKey: ["book-copy-identifier-audit"] });
+      toast.success("Identifier updated. The collision audit was refreshed.");
+    },
+    onError: (error: unknown) => {
+      const details = error as {
+        status?: number;
+        code?: string;
+        conflictingCopyIds?: number[];
+        message?: string;
+      };
+      if (details.code === "STALE_AUDIT") {
+        setFeedback({
+          kind: "stale",
+          message: "This copy changed after the audit was loaded. Refresh the audit and review the current value before trying again.",
+        });
+      } else if (details.code === "IDENTIFIER_CONFLICT") {
+        const copyIds = details.conflictingCopyIds?.join(", ");
+        setFeedback({
+          kind: "conflict",
+          message: `That identifier is already used by another copy${copyIds ? ` (copy${details.conflictingCopyIds!.length === 1 ? "" : "ies"} ${copyIds})` : ""}. Choose a different value or refresh the audit.`,
+        });
+      } else {
+        setFeedback({
+          kind: "error",
+          message: details.message || "The identifier could not be updated. Refresh the audit and try again.",
+        });
+      }
+    },
+  });
+
+  const submitRemediation = (
+    occurrence: BookCopyIdentifierCollisionOccurrence,
+    replacement: string | null,
+  ) => {
+    if (replacement !== null && replacement.trim().length === 0) {
+      setFeedback({
+        kind: "error",
+        message: "Enter a replacement identifier before saving, or use Clear for a nullable SSN field.",
+      });
+      return;
+    }
+
+    setFeedback(null);
+    remediationMutation.mutate({
+      copyId: occurrence.copyId,
+      field: occurrence.field,
+      expectedValue: occurrence.value,
+      replacement: replacement === null ? null : replacement.trim(),
+    });
+  };
+
+  const refreshAudit = () => {
+    setFeedback(null);
+    void refetch();
+  };
+
+  return (
+    <Card data-testid="card-book-copy-identifier-audit">
+      <CardHeader>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5" />
+              Identifier collisions
+            </CardTitle>
+            <CardDescription>
+              Review duplicate book-copy barcodes and SSNs, then make one safe change at a time.
+              The saved value is checked again before each update.
+            </CardDescription>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0 gap-2"
+            onClick={refreshAudit}
+            disabled={isFetching || remediationMutation.isPending}
+            data-testid="button-refresh-identifier-audit"
+          >
+            <RefreshCw className={isFetching ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+            Refresh
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {feedback && (
+          <Alert variant={feedback.kind === "error" ? "destructive" : "default"} data-testid={`alert-identifier-${feedback.kind}`}>
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>
+              {feedback.kind === "stale"
+                ? "Audit is out of date"
+                : feedback.kind === "conflict"
+                  ? "Identifier is already in use"
+                  : "Identifier update failed"}
+            </AlertTitle>
+            <AlertDescription className="flex flex-wrap items-center gap-2">
+              <span>{feedback.message}</span>
+              {feedback.kind !== "error" && (
+                <Button type="button" variant="outline" size="sm" onClick={refreshAudit}>
+                  Refresh audit
+                </Button>
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8 text-muted-foreground">
+            <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+            Checking book-copy identifiers...
+          </div>
+        ) : error ? (
+          <Alert variant="destructive" data-testid="alert-identifier-audit-error">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Could not load the identifier audit</AlertTitle>
+            <AlertDescription className="flex flex-wrap items-center gap-2">
+              <span>{error instanceof Error ? error.message : "Try refreshing the audit."}</span>
+              <Button type="button" variant="outline" size="sm" onClick={refreshAudit}>
+                Try again
+              </Button>
+            </AlertDescription>
+          </Alert>
+        ) : data?.collisions.length === 0 ? (
+          <Alert data-testid="alert-no-identifier-collisions">
+            <CheckCircle2 className="h-4 w-4 text-green-600" />
+            <AlertTitle>No identifier collisions found</AlertTitle>
+            <AlertDescription>
+              All stored barcodes and SSNs are currently unique across book copies.
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              {data?.collisionCount} collision{data?.collisionCount === 1 ? "" : "s"} across{" "}
+              {data?.affectedCopyIds.length} affected book cop{data?.affectedCopyIds.length === 1 ? "y" : "ies"}.
+            </p>
+            {data?.collisions.map((collision) => (
+              <div key={collision.identifier} className="rounded-md border p-4" data-testid={`identifier-collision-${collision.identifier}`}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">Stored identifier</span>
+                  <code className="rounded bg-muted px-2 py-1 text-sm">{collision.identifier}</code>
+                  <Badge variant="secondary">
+                    Copies {collision.copyIds.join(", ")}
+                  </Badge>
+                </div>
+                <div className="mt-3 space-y-3">
+                  {collision.occurrences.map((occurrence) => {
+                    const key = identifierOccurrenceKey(occurrence);
+                    const isNullable = NULLABLE_IDENTIFIER_FIELDS.has(occurrence.field);
+                    return (
+                      <div key={key} className="grid gap-3 rounded-md bg-muted/40 p-3 md:grid-cols-[minmax(0,1fr)_minmax(260px,1fr)] md:items-center">
+                        <div className="min-w-0">
+                          <div className="font-medium">
+                            Copy {occurrence.copyId} · {IDENTIFIER_FIELD_LABELS[occurrence.field]}
+                          </div>
+                          <div className="text-sm text-muted-foreground">
+                            Stored value: <code className="rounded bg-background px-1">{occurrence.value}</code>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Input
+                            aria-label={`Replacement for ${IDENTIFIER_FIELD_LABELS[occurrence.field]} on copy ${occurrence.copyId}`}
+                            value={replacementValues[key] ?? occurrence.value}
+                            onChange={(event) => setReplacementValues((values) => ({
+                              ...values,
+                              [key]: event.target.value,
+                            }))}
+                            disabled={remediationMutation.isPending}
+                            className="min-w-[180px] flex-1"
+                          />
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => submitRemediation(
+                              occurrence,
+                              replacementValues[key] ?? occurrence.value,
+                            )}
+                            disabled={remediationMutation.isPending}
+                            data-testid={`button-replace-identifier-${occurrence.copyId}-${occurrence.field}`}
+                          >
+                            {remediationMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                            Replace
+                          </Button>
+                          {isNullable && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => submitRemediation(occurrence, null)}
+                              disabled={remediationMutation.isPending}
+                              data-testid={`button-clear-identifier-${occurrence.copyId}-${occurrence.field}`}
+                            >
+                              Clear
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function SettingsPage() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const isLocalAdmin = user?.role === "ADMIN" && user.isLocalUser;
   const searchString = useSearch();
   const [, setLocation] = useLocation();
   const sectionFromQuery = new URLSearchParams(searchString).get("section");
@@ -3601,6 +3844,8 @@ export default function SettingsPage() {
                   </p>
                 </CardContent>
               </Card>
+
+              {isLocalAdmin && <BookCopyIdentifierAuditCard />}
 
               <Card data-testid="card-z3950-search">
                 <CardHeader>

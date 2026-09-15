@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Router } from "wouter";
 import SettingsPage from "./SettingsPage";
 import {
+  bookCopyIdentifiersApi,
   categoriesApi,
   configApi,
   resourceTypesApi,
@@ -27,6 +28,26 @@ vi.mock("@/lib/api", () => ({
   resourceTypeSettingsApi: {},
   circulationPolicyApi: {},
   fineCalculationModeApi: {},
+  bookCopyIdentifiersApi: {
+    audit: vi.fn(),
+    remediate: vi.fn(),
+  },
+}));
+
+vi.mock("@/lib/auth", () => ({
+  useAuth: () => ({
+    user: {
+      id: 1,
+      username: "admin",
+      name: "Admin",
+      email: "admin@example.com",
+      role: "ADMIN",
+      category: "STAFF",
+      isLocalUser: true,
+    },
+    isLoading: false,
+    isAuthenticated: true,
+  }),
 }));
 
 vi.mock("@/components/layout/MainLayout", () => ({
@@ -47,6 +68,8 @@ vi.mock("@/modules/catalog/Z3950Search", () => ({
 const mockedGetCategories = vi.mocked(categoriesApi.getAll);
 const mockedGetConfig = vi.mocked(configApi.getAll);
 const mockedGetResourceTypes = vi.mocked(resourceTypesApi.getAll);
+const mockedAuditIdentifiers = vi.mocked(bookCopyIdentifiersApi.audit);
+const mockedRemediateIdentifier = vi.mocked(bookCopyIdentifiersApi.remediate);
 
 function renderSettings(path: string) {
   const queryClient = new QueryClient({
@@ -89,6 +112,12 @@ describe("SettingsPage", () => {
     mockedGetCategories.mockResolvedValue([]);
     mockedGetConfig.mockResolvedValue([]);
     mockedGetResourceTypes.mockResolvedValue([]);
+    mockedAuditIdentifiers.mockResolvedValue({
+      collisions: [],
+      collisionCount: 0,
+      affectedCopyIds: [],
+    });
+    mockedRemediateIdentifier.mockResolvedValue({} as never);
   });
 
   afterEach(() => {
@@ -204,5 +233,93 @@ describe("SettingsPage", () => {
       );
       expect(screen.getByText("Resource Types", { exact: true })).toBeInTheDocument();
     });
+  });
+
+  it("shows collision occurrences and submits a safe clear or replacement", async () => {
+    const user = userEvent.setup();
+    mockedAuditIdentifiers.mockResolvedValue({
+      collisionCount: 1,
+      affectedCopyIds: [101, 102],
+      collisions: [{
+        identifier: "shared-id",
+        copyIds: [101, 102],
+        occurrences: [
+          { copyId: 101, field: "barcode", value: "shared-id" },
+          { copyId: 102, field: "internalSSN", value: "SHARED-ID" },
+        ],
+      }],
+    });
+
+    renderSettings("/settings?section=catalog");
+
+    expect((await screen.findAllByText("Stored value:", { exact: false })).length).toBe(2);
+    expect(screen.getByText("Copies 101, 102")).toBeInTheDocument();
+    expect(screen.getByText("SHARED-ID")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("button-clear-identifier-102-internalSSN"));
+    await waitFor(() => {
+      expect(mockedRemediateIdentifier).toHaveBeenCalledWith({
+        copyId: 102,
+        field: "internalSSN",
+        expectedValue: "SHARED-ID",
+        replacement: null,
+      });
+    });
+
+    const replacementInput = screen.getByRole("textbox", {
+      name: "Replacement for Barcode on copy 101",
+    });
+    await user.clear(replacementInput);
+    await user.type(replacementInput, "new-barcode");
+    await user.click(screen.getByTestId("button-replace-identifier-101-barcode"));
+
+    await waitFor(() => {
+      expect(mockedRemediateIdentifier).toHaveBeenCalledWith({
+        copyId: 101,
+        field: "barcode",
+        expectedValue: "shared-id",
+        replacement: "new-barcode",
+      });
+    });
+  });
+
+  it("explains identifier conflicts and stale audits", async () => {
+    const user = userEvent.setup();
+    mockedAuditIdentifiers.mockResolvedValue({
+      collisionCount: 1,
+      affectedCopyIds: [101, 102],
+      collisions: [{
+        identifier: "shared-id",
+        copyIds: [101, 102],
+        occurrences: [
+          { copyId: 101, field: "barcode", value: "shared-id" },
+          { copyId: 102, field: "userDefinedSSN", value: "SHARED-ID" },
+        ],
+      }],
+    });
+    mockedRemediateIdentifier.mockRejectedValueOnce(Object.assign(
+      new Error("Replacement identifier is already used by another copy"),
+      { code: "IDENTIFIER_CONFLICT", conflictingCopyIds: [203] },
+    ));
+
+    renderSettings("/settings?section=catalog");
+    await screen.findAllByText("Stored value:", { exact: false });
+
+    await user.click(screen.getByTestId("button-replace-identifier-101-barcode"));
+
+    expect(await screen.findByTestId("alert-identifier-conflict")).toHaveTextContent(
+      "already used by another copy",
+    );
+    expect(screen.getByTestId("alert-identifier-conflict")).toHaveTextContent("203");
+
+    mockedRemediateIdentifier.mockRejectedValueOnce(Object.assign(
+      new Error("Book copy changed since the audit"),
+      { code: "STALE_AUDIT" },
+    ));
+    await user.click(screen.getByTestId("button-replace-identifier-101-barcode"));
+
+    expect(await screen.findByTestId("alert-identifier-stale")).toHaveTextContent(
+      "Audit is out of date",
+    );
   });
 });
