@@ -1,4 +1,4 @@
-import { Switch, Route, Router as WouterRouter, Redirect } from "wouter";
+import { Switch, Route, Router as WouterRouter, Redirect, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -42,6 +42,7 @@ import { libraryAccessApi } from "@/lib/api";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const { user, isAuthenticated, isLoading } = useAuth();
+  const [location] = useLocation();
   const isLibrarian = user?.role === "LIBRARIAN";
   const { data: libraryAccess, isLoading: isLoadingLibraryAccess } = useQuery({
     queryKey: ["library-access"],
@@ -72,6 +73,14 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
 
   if (isLibrarian && libraryAccess && !libraryAccess.hasAccess) {
     return <NoLibraryAccessPage />;
+  }
+
+  if (
+    isLibrarian &&
+    libraryAccess?.libraries.length === 1 &&
+    (location === "/" || location === "/dashboard")
+  ) {
+    return <Redirect to={`/organizations/libraries/${libraryAccess.libraries[0].id}`} />;
   }
 
   return <Component />;
