@@ -69,6 +69,16 @@ export default function UsersPage() {
 
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  const { data: notificationPolicy } = useQuery({
+    queryKey: ["notification-policy"],
+    queryFn: async () => {
+      const response = await fetch("/api/notifications/policy");
+      if (!response.ok) throw new Error("Failed to load notification policy");
+      return response.json() as Promise<{ allowErpUserNotifications: boolean }>;
+    },
+  });
+  const allowErpUserNotifications = notificationPolicy?.allowErpUserNotifications === true;
+
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
@@ -311,13 +321,15 @@ export default function UsersPage() {
                           <DropdownMenuItem onClick={() => handleEditUser(user)}>
                             <Pencil className="mr-2 h-4 w-4" /> Edit
                           </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => handleEmailUser(user as AdminUser)}
-                            disabled={sendPasswordSetupMutation.isPending}
-                          >
-                            <Mail className="mr-2 h-4 w-4" />
-                            {!user.erpIntegrationId && (user as AdminUser).passwordSetupStatus !== "SET" ? "Resend setup email" : "Email"}
-                          </DropdownMenuItem>
+                          {(!user.erpIntegrationId || allowErpUserNotifications) && (
+                            <DropdownMenuItem
+                              onClick={() => handleEmailUser(user as AdminUser)}
+                              disabled={sendPasswordSetupMutation.isPending}
+                            >
+                              <Mail className="mr-2 h-4 w-4" />
+                              {!user.erpIntegrationId && (user as AdminUser).passwordSetupStatus !== "SET" ? "Resend setup email" : "Email"}
+                            </DropdownMenuItem>
+                          )}
                           {activeTab === 'STAFF' && currentUser?.role === 'ADMIN' && (
                             <>
                               <DropdownMenuItem onClick={() => setAllocatingUser(user)}>

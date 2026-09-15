@@ -8441,6 +8441,7 @@ export async function registerRoutes(
       enabled: z.boolean(),
       routes: z.array(notificationRouteSchema).max(5),
     })).max(50),
+    allowErpUserNotifications: z.boolean().optional(),
   });
 
   app.get("/api/notifications/setup", async (req, res) => {
@@ -8455,11 +8456,28 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/notifications/policy", async (req, res) => {
+    try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+      const setup = await loadNotificationSetup(storage);
+      res.json({ allowErpUserNotifications: setup.allowErpUserNotifications });
+    } catch (error) {
+      console.error("Error loading notification policy:", error);
+      res.status(500).json({ error: "Failed to load notification policy" });
+    }
+  });
+
   app.put("/api/notifications/setup", async (req, res) => {
     try {
       const currentUser = await requireLocalAdmin(req, res);
       if (!currentUser) return;
-      const setup = notificationSetupSchema.parse(req.body) as NotificationSetup;
+      const parsedSetup = notificationSetupSchema.parse(req.body);
+      const existingSetup = await loadNotificationSetup(storage);
+      const setup = {
+        ...parsedSetup,
+        allowErpUserNotifications: parsedSetup.allowErpUserNotifications ?? existingSetup.allowErpUserNotifications,
+      } as NotificationSetup;
       const providerIds = new Set(setup.providers.map((provider) => provider.id));
       for (const event of setup.events) {
         for (const route of event.routes) {

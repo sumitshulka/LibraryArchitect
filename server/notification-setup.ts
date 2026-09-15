@@ -37,6 +37,7 @@ export interface NotificationSetup {
   providers: NotificationProvider[];
   events: NotificationEvent[];
   defaultProviders: Partial<Record<NotificationChannel, string>>;
+  allowErpUserNotifications: boolean;
 }
 
 const PROVIDERS_KEY = "notification_providers_v1";
@@ -125,6 +126,7 @@ export async function loadNotificationSetup(storage: IStorage): Promise<Notifica
   const providersConfig = await storage.getSystemConfig(PROVIDERS_KEY);
   const eventsConfig = await storage.getSystemConfig(EVENTS_KEY);
   const defaultProvidersConfig = await storage.getSystemConfig(DEFAULT_PROVIDERS_KEY);
+  const erpUserNotificationsConfig = await storage.getSystemConfig("allow_erp_user_notifications");
   const storedProviders = parseJson<Array<NotificationProvider & { encryptedSecrets?: string }>>(providersConfig?.value, []);
   const providers = storedProviders.map(({ encryptedSecrets, secrets, ...provider }) => ({
     ...provider,
@@ -170,7 +172,12 @@ export async function loadNotificationSetup(storage: IStorage): Promise<Notifica
     WHATSAPP: configuredProviderIds.has(storedDefaults.WHATSAPP || "") ? storedDefaults.WHATSAPP : undefined,
     SMS: configuredProviderIds.has(storedDefaults.SMS || "") ? storedDefaults.SMS : undefined,
   };
-  return { providers: publicProviders, events, defaultProviders };
+  return {
+    providers: publicProviders,
+    events,
+    defaultProviders,
+    allowErpUserNotifications: erpUserNotificationsConfig?.value === "true",
+  };
 }
 
 export async function saveNotificationSetup(storage: IStorage, setup: NotificationSetup) {
@@ -225,6 +232,12 @@ export async function saveNotificationSetup(storage: IStorage, setup: Notificati
     category: "notifications",
     description: "Default notification providers by channel",
   });
+  await storage.setSystemConfig({
+    key: "allow_erp_user_notifications",
+    value: String(setup.allowErpUserNotifications ?? existing.allowErpUserNotifications),
+    category: "notifications",
+    description: "Allow local staff to send notifications to ERP-managed users",
+  });
 }
 
 export function toPublicNotificationSetup(setup: NotificationSetup) {
@@ -235,6 +248,7 @@ export function toPublicNotificationSetup(setup: NotificationSetup) {
     })),
     events: setup.events,
     defaultProviders: setup.defaultProviders || {},
+    allowErpUserNotifications: setup.allowErpUserNotifications,
     configuredChannels: (Object.keys(setup.defaultProviders || {}) as NotificationChannel[]).filter((channel) => Boolean(setup.defaultProviders?.[channel])),
     eventCatalog: NOTIFICATION_EVENT_CATALOG,
     secretMarker: SECRET_MARKER,

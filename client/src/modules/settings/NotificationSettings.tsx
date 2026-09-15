@@ -47,6 +47,7 @@ type Setup = {
   defaultProviders: Partial<Record<Channel, string>>;
   configuredChannels: Channel[];
   secretMarker: string;
+  allowErpUserNotifications: boolean;
 };
 
 const PROVIDER_OPTIONS: Record<Channel, Array<{ value: string; label: string }>> = {
@@ -87,12 +88,14 @@ export function NotificationSettings() {
   const [defaultProviders, setDefaultProviders] = useState<Partial<Record<Channel, string>>>({});
   const [selectedChannel, setSelectedChannel] = useState<Channel>("WHATSAPP");
   const [isSaving, setIsSaving] = useState(false);
+  const [allowErpUserNotifications, setAllowErpUserNotifications] = useState(false);
 
   useEffect(() => {
     if (data) {
       setProviders(data.providers || []);
       setEvents(data.events || []);
       setDefaultProviders(data.defaultProviders || {});
+      setAllowErpUserNotifications(data.allowErpUserNotifications === true);
     }
   }, [data]);
 
@@ -102,7 +105,7 @@ export function NotificationSettings() {
       const response = await fetch("/api/notifications/setup", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ providers, events, defaultProviders }),
+        body: JSON.stringify({ providers, events, defaultProviders, allowErpUserNotifications }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Failed to save notification setup");
@@ -167,6 +170,20 @@ export function NotificationSettings() {
         <CardContent className="space-y-6">
           <div className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
             WhatsApp and SMS routes can require provider template IDs and ordered or named values. Configure those mappings per event below.
+          </div>
+
+          <div className="flex items-start justify-between gap-4 rounded-lg border p-4">
+            <div>
+              <h3 className="font-semibold">Allow notifications for ERP-managed users</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Local users can always use notification actions. ERP users are hidden from those actions by default because their ERP/SSO system owns communication. Enable this only when local staff should also be able to contact ERP users.
+              </p>
+            </div>
+            <Switch
+              checked={allowErpUserNotifications}
+              onCheckedChange={setAllowErpUserNotifications}
+              aria-label="Allow notifications for ERP-managed users"
+            />
           </div>
 
           <div className="flex items-center justify-between">
