@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Clock3, ExternalLink, Inbox, MessageSquare, UserRound } from "lucide-react";
+import { CheckCircle2, Clock3, ExternalLink, Inbox, Loader2, MessageSquare, RefreshCw, UserRound } from "lucide-react";
 import { Link } from "wouter";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Badge } from "@/components/ui/badge";
@@ -57,10 +57,12 @@ function MessageCard({ request, onResolve, resolving }: {
 export default function MessagesPage() {
   const [status, setStatus] = useState<"PENDING" | "RESOLVED">("PENDING");
   const queryClient = useQueryClient();
-  const { data: messages = [], isLoading, error } = useQuery({
+  const { data: messages = [], isLoading, isFetching, error, refetch } = useQuery({
     queryKey: ["admin-messages", status],
     queryFn: () => libraryAccessApi.getAdminMessages(status),
     refetchInterval: 15_000,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
   const resolveMutation = useMutation({
     mutationFn: (id: number) => libraryAccessApi.resolveMessage(id),
@@ -90,8 +92,23 @@ export default function MessagesPage() {
         </div>
         <Card>
           <CardHeader>
-            <CardTitle>Administrator inbox</CardTitle>
-            <CardDescription>Assign a library in User Management before resolving an access request.</CardDescription>
+            <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+              <div>
+                <CardTitle>Administrator inbox</CardTitle>
+                <CardDescription className="mt-1">Assign a library in User Management before resolving an access request.</CardDescription>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-fit gap-2"
+                onClick={() => refetch()}
+                disabled={isFetching}
+                data-testid="button-refresh-messages"
+              >
+                {isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                Refresh
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             <Tabs value={status} onValueChange={(value) => setStatus(value as "PENDING" | "RESOLVED")}>
