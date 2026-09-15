@@ -706,7 +706,14 @@ export class DBStorage implements IStorage {
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const [user] = await db.insert(users).values(insertUser).returning();
+    const [user] = await returningViaCte<User>(
+      db.insert(users)
+        .values(nullifyForInsert(insertUser))
+        .returning()
+    );
+    if (!user) {
+      throw new Error("User insert completed without returning the created user");
+    }
     return user;
   }
 
