@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { usersApi, librariesApi, staffAllocationsApi, type StaffAllocationLogWithDetails, type StaffAllocationWithLibrary } from "@/lib/api";
+import { usersApi, librariesApi, staffAllocationsApi, type StaffAllocationLogWithDetails, type StaffAllocationWithLibrary, type AdminUser } from "@/lib/api";
 import type { User, Library } from "@shared/schema";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
@@ -44,7 +44,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Plus, Search, MoreHorizontal, Mail, Shield, Users, UserCog, Pencil, Trash2, Building2, RefreshCw, Library as LibraryIcon, X, History, PlusCircle, MinusCircle } from "lucide-react";
+import { Plus, Search, MoreHorizontal, Mail, Shield, Users, UserCog, Pencil, Trash2, Building2, RefreshCw, Library as LibraryIcon, X, History, PlusCircle, MinusCircle, CheckCircle2, Clock3, AlertCircle, KeyRound } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 
 export default function UsersPage() {
@@ -89,6 +89,17 @@ export default function UsersPage() {
     },
   });
 
+  const sendPasswordSetupMutation = useMutation({
+    mutationFn: usersApi.sendPasswordSetup,
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      toast.success(`Password setup email sent to ${result.email}`);
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+
   const users = activeTab === 'STAFF' ? staffUsers : patronUsers;
   const isLoading = activeTab === 'STAFF' ? loadingStaff : loadingPatrons;
 
@@ -123,6 +134,36 @@ export default function UsersPage() {
     if (confirm("Are you sure you want to delete this user? This action cannot be undone.")) {
       deleteMutation.mutate(id);
     }
+  };
+
+  const getPasswordSetupBadge = (user: AdminUser) => {
+    const details = user.passwordSetupSentAt
+      ? `Sent ${new Date(user.passwordSetupSentAt).toLocaleString()}`
+      : undefined;
+    switch (user.passwordSetupStatus) {
+      case "SET":
+        return <Badge title="This account has a local password" className="gap-1 border-none bg-emerald-100 text-emerald-800 hover:bg-emerald-100"><CheckCircle2 className="h-3 w-3" /> Password set</Badge>;
+      case "ERP_MANAGED":
+        return <Badge title="Authentication is managed by the ERP/SSO integration" variant="secondary" className="gap-1"><KeyRound className="h-3 w-3" /> ERP managed</Badge>;
+      case "INVITATION_SENT":
+        return <Badge title={details || "SMTP accepted the setup email; inbox delivery is not guaranteed"} className="gap-1 border-none bg-blue-100 text-blue-800 hover:bg-blue-100"><Mail className="h-3 w-3" /> Email sent</Badge>;
+      case "INVITATION_EXPIRED":
+        return <Badge title="The previous setup link expired" className="gap-1 border-none bg-amber-100 text-amber-800 hover:bg-amber-100"><Clock3 className="h-3 w-3" /> Email expired</Badge>;
+      case "DELIVERY_FAILED":
+        return <Badge title={user.passwordSetupDeliveryError || "The setup email could not be sent"} className="gap-1 border-none bg-red-100 text-red-800 hover:bg-red-100"><AlertCircle className="h-3 w-3" /> Email failed</Badge>;
+      case "LINK_USED":
+        return <Badge title="The setup link was used, but no password is currently stored" className="gap-1 border-none bg-amber-100 text-amber-800 hover:bg-amber-100"><AlertCircle className="h-3 w-3" /> Link used</Badge>;
+      default:
+        return <Badge title="No password setup email has been sent" variant="outline" className="gap-1"><Mail className="h-3 w-3" /> Not sent</Badge>;
+    }
+  };
+
+  const handleEmailUser = (user: AdminUser) => {
+    if (!user.erpIntegrationId && user.passwordSetupStatus !== "SET") {
+      sendPasswordSetupMutation.mutate(user.id);
+      return;
+    }
+    window.location.href = `mailto:${user.email}`;
   };
 
   return (
@@ -232,6 +273,7 @@ export default function UsersPage() {
                           )}
                         </div>
                         <span className="text-xs text-muted-foreground">{user.email}</span>
+                        <div className="mt-1">{getPasswordSetupBadge(user as AdminUser)}</div>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -269,8 +311,12 @@ export default function UsersPage() {
                           <DropdownMenuItem onClick={() => handleEditUser(user)}>
                             <Pencil className="mr-2 h-4 w-4" /> Edit
                           </DropdownMenuItem>
-                          <DropdownMenuItem>
-                            <Mail className="mr-2 h-4 w-4" /> Email
+                          <DropdownMenuItem
+                            onClick={() => handleEmailUser(user as AdminUser)}
+                            disabled={sendPasswordSetupMutation.isPending}
+                          >
+                            <Mail className="mr-2 h-4 w-4" />
+                            {!user.erpIntegrationId && (user as AdminUser).passwordSetupStatus !== "SET" ? "Resend setup email" : "Email"}
                           </DropdownMenuItem>
                           {activeTab === 'STAFF' && currentUser?.role === 'ADMIN' && (
                             <>

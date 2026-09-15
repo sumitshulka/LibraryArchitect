@@ -251,6 +251,8 @@ export const passwordSetupTokens = pgTable("password_setup_tokens", {
   userId: integer("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
   tokenHash: text("token_hash").notNull().unique(),
   expiresAt: timestamp("expires_at").notNull(),
+  sentAt: timestamp("sent_at"),
+  deliveryError: text("delivery_error"),
   used: boolean("used").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });

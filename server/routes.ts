@@ -21,6 +21,7 @@ import {
   insertSearchAttributeTypeSchema,
   insertSearchAttributeValueSchema,
   insertPaymentMethodSchema,
+  type User,
 } from "@shared/schema";
 import { calculateAccruedFine, computeAccruedFine, getCirculationFineSummary, loadGlobalCirculationDefaults, loadFineCalculationMode, invalidateCirculationPolicyCache, CIRCULATION_POLICY_KEY, FINE_CALCULATION_MODE_KEY, type FineCalculationMode } from "./fines";
 import { z } from "zod";
@@ -30,7 +31,7 @@ import nodemailer from "nodemailer";
 import * as XLSX from "xlsx";
 import { passwordResetOtps, passwordSetupTokens } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, gt } from "drizzle-orm";
+import { eq, and, gt, desc } from "drizzle-orm";
 import multer from "multer";
 import { setupSwagger } from "./swagger";
 import { logAudit, invalidateAuditConfigCache } from "./audit";
@@ -39,7 +40,7 @@ import { registerErpExtraRoutes } from "./erp-extra";
 import { registerDigitalResourceRoutes } from "./digital-resources";
 import { registerLostDamagedRoutes } from "./lost-damaged";
 import { loadNotificationSetup, saveNotificationSetup, toPublicNotificationSetup, type NotificationSetup } from "./notification-setup";
-import { emitNotification } from "./notification-service";
+import { emitNotification, type NotificationAttempt } from "./notification-service";
 
 const MAX_WHITELIST_ENTRIES = 5;
 const Z3950_RATE_LIMIT_WINDOW_MS = 60_000;
@@ -253,6 +254,85 @@ function getPublicOrigin(req: any): string {
   const forwardedProto = req.headers?.["x-forwarded-proto"];
   const protocol = (typeof forwardedProto === "string" ? forwardedProto.split(",")[0].trim() : req.protocol) || "http";
   return `${protocol}://${host}`;
+}
+
+async function sendPasswordSetupInvitation(req: any, user: User): Promise<{
+  sent: boolean;
+  attempts: NotificationAttempt[];
+  expiresAt: Date;
+  error?: string;
+}> {
+  const setupToken = crypto.randomBytes(32).toString("base64url");
+  const tokenHash = crypto.createHash("sha256").update(setupToken).digest("hex");
+  const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
+
+  await db.update(passwordSetupTokens)
+    .set({ used: true })
+    .where(and(eq(passwordSetupTokens.userId, user.id), eq(passwordSetupTokens.used, false)));
+  await db.insert(passwordSetupTokens).values({
+    userId: user.id,
+    tokenHash,
+    expiresAt,
+  });
+
+  const setupLink = `${getPublicOrigin(req)}/setup-password?token=${encodeURIComponent(setupToken)}`;
+  let attempts: NotificationAttempt[] = [];
+  let error: string | undefined;
+  try {
+    attempts = await emitNotification(storage, {
+      eventId: "USER_PASSWORD_SETUP",
+      recipient: user.email,
+      values: {
+        name: user.name,
+        firstName: user.name.trim().split(/\s+/)[0] || user.name,
+        username: user.username,
+        setupLink,
+        setupUrl: setupLink,
+        expiresAt: expiresAt.toISOString(),
+        message: `Welcome ${user.name}. Set your password using this link: ${setupLink}`,
+      },
+    });
+  } catch (notificationError) {
+    error = notificationError instanceof Error ? notificationError.message : "Notification delivery failed";
+  }
+
+  const sent = attempts.some((attempt) => attempt.status === "SENT");
+  if (sent) {
+    await db.update(passwordSetupTokens)
+      .set({ sentAt: new Date() })
+      .where(eq(passwordSetupTokens.tokenHash, tokenHash));
+  } else {
+    error = error || attempts.map((attempt) => attempt.error).filter(Boolean).join("; ") || "No active email route is configured";
+    await db.update(passwordSetupTokens)
+      .set({ deliveryError: error })
+      .where(eq(passwordSetupTokens.tokenHash, tokenHash));
+  }
+
+  return { sent, attempts, expiresAt, error };
+}
+
+async function toAdminUserView(user: User) {
+  const [latestToken] = await db.select().from(passwordSetupTokens)
+    .where(eq(passwordSetupTokens.userId, user.id))
+    .orderBy(desc(passwordSetupTokens.createdAt))
+    .limit(1);
+  const passwordSet = Boolean(user.password && user.password.trim());
+  let passwordSetupStatus: "SET" | "ERP_MANAGED" | "INVITATION_SENT" | "INVITATION_EXPIRED" | "DELIVERY_FAILED" | "NOT_SENT" | "LINK_USED" = "NOT_SENT";
+  if (user.erpIntegrationId) passwordSetupStatus = "ERP_MANAGED";
+  else if (passwordSet) passwordSetupStatus = "SET";
+  else if (latestToken?.used) passwordSetupStatus = "LINK_USED";
+  else if (latestToken?.sentAt && latestToken.expiresAt <= new Date()) passwordSetupStatus = "INVITATION_EXPIRED";
+  else if (latestToken?.sentAt) passwordSetupStatus = "INVITATION_SENT";
+  else if (latestToken) passwordSetupStatus = "DELIVERY_FAILED";
+
+  const { password, ...safeUser } = user;
+  return {
+    ...safeUser,
+    passwordSetupStatus,
+    passwordSetupSentAt: latestToken?.sentAt || null,
+    passwordSetupExpiresAt: latestToken?.expiresAt || null,
+    passwordSetupDeliveryError: latestToken?.deliveryError || null,
+  };
 }
 
 async function requireStaff(req: any, res: any): Promise<any | null> {
@@ -997,10 +1077,10 @@ export async function registerRoutes(
       
       if (category && (category === 'STAFF' || category === 'PATRON')) {
         const users = await storage.getUsersByCategory(category);
-        res.json(users);
+        res.json(await Promise.all(users.map(toAdminUserView)));
       } else {
         const users = await storage.getAllUsers();
-        res.json(users);
+        res.json(await Promise.all(users.map(toAdminUserView)));
       }
     } catch (error) {
       console.error("Error fetching users:", error);
@@ -1062,7 +1142,7 @@ export async function registerRoutes(
         return res.status(404).json({ error: "User not found" });
       }
       
-      res.json(user);
+      res.json(await toAdminUserView(user));
     } catch (error) {
       console.error("Error fetching user:", error);
       res.status(500).json({ error: "Failed to fetch user" });
@@ -1089,41 +1169,15 @@ export async function registerRoutes(
       
       const user = await storage.createUser({ ...validated, password: null });
       createdUserId = user.id;
-      const setupToken = crypto.randomBytes(32).toString("base64url");
-      const tokenHash = crypto.createHash("sha256").update(setupToken).digest("hex");
-      const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
-      await db.update(passwordSetupTokens)
-        .set({ used: true })
-        .where(and(eq(passwordSetupTokens.userId, user.id), eq(passwordSetupTokens.used, false)));
-      await db.insert(passwordSetupTokens).values({
-        userId: user.id,
-        tokenHash,
-        expiresAt,
-      });
-
-      const setupLink = `${getPublicOrigin(req)}/setup-password?token=${encodeURIComponent(setupToken)}`;
-      const attempts = await emitNotification(storage, {
-        eventId: "USER_PASSWORD_SETUP",
-        recipient: user.email,
-        values: {
-          name: user.name,
-          firstName: user.name.trim().split(/\s+/)[0] || user.name,
-          username: user.username,
-          setupLink,
-          setupUrl: setupLink,
-          expiresAt: expiresAt.toISOString(),
-          message: `Welcome ${user.name}. Set your password using this link: ${setupLink}`,
-        },
-      });
-      if (!attempts.some((attempt) => attempt.status === "SENT")) {
+      const invitation = await sendPasswordSetupInvitation(req, user);
+      if (!invitation.sent) {
         await storage.deleteUser(user.id);
         createdUserId = undefined;
-        return res.status(502).json({ error: "User was not created because the password setup email could not be sent." });
+        return res.status(502).json({ error: `User was not created because the password setup email could not be sent: ${invitation.error || "delivery failed"}` });
       }
 
       logAudit(req, { category: 'USER_MANAGEMENT', action: 'USER_CREATED', targetType: 'user', targetId: String(user.id), details: { username: user.username, email: user.email, role: user.role, category: user.category, passwordSetupInvitationSent: true } });
-      const { password, ...safeUser } = user;
-      res.status(201).json({ ...safeUser, invitationSent: true });
+      res.status(201).json({ ...(await toAdminUserView(user)), invitationSent: true });
     } catch (error) {
       if (createdUserId) {
         await storage.deleteUser(createdUserId).catch(() => undefined);
@@ -1133,6 +1187,40 @@ export async function registerRoutes(
       }
       console.error("Error creating user:", error);
       res.status(500).json({ error: "Failed to create user" });
+    }
+  });
+
+  app.post("/api/users/:id/password-setup", async (req, res) => {
+    try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+      const id = parseInt(req.params.id);
+      const user = await storage.getUser(id);
+      if (!user) return res.status(404).json({ error: "User not found" });
+      if (user.erpIntegrationId) return res.status(400).json({ error: "ERP-managed users do not use local password setup." });
+      if (user.password && user.password.trim()) return res.status(409).json({ error: "This user already has a password. No setup email is needed." });
+
+      const invitation = await sendPasswordSetupInvitation(req, user);
+      if (!invitation.sent) {
+        return res.status(502).json({ error: `Password setup email could not be sent: ${invitation.error || "delivery failed"}` });
+      }
+      logAudit(req, {
+        category: "USER_MANAGEMENT",
+        action: "PASSWORD_SETUP_INVITATION_RESENT",
+        targetType: "user",
+        targetId: String(user.id),
+        details: { email: user.email },
+      });
+      res.json({
+        success: true,
+        email: user.email,
+        sentAt: new Date().toISOString(),
+        expiresAt: invitation.expiresAt.toISOString(),
+        message: `Password setup email sent to ${user.email}`,
+      });
+    } catch (error) {
+      console.error("Error sending password setup email:", error);
+      res.status(500).json({ error: "Failed to send password setup email" });
     }
   });
 
@@ -1150,7 +1238,7 @@ export async function registerRoutes(
       }
       
       logAudit(req, { category: 'USER_MANAGEMENT', action: 'USER_UPDATED', targetType: 'user', targetId: String(id), details: { changedFields: Object.keys(validated) } });
-      res.json(user);
+      res.json(await toAdminUserView(user));
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: fromZodError(error).toString() });

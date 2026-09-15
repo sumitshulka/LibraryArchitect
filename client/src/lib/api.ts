@@ -6,6 +6,22 @@ export type BookWithSearchAttributes = Book & {
   searchAttributes: { attributeValueId: number; attributeValue: string; attributeTypeName: string; attributeTypeId: number }[];
 };
 
+export type UserPasswordSetupStatus =
+  | "SET"
+  | "ERP_MANAGED"
+  | "INVITATION_SENT"
+  | "INVITATION_EXPIRED"
+  | "DELIVERY_FAILED"
+  | "NOT_SENT"
+  | "LINK_USED";
+
+export type AdminUser = User & {
+  passwordSetupStatus: UserPasswordSetupStatus;
+  passwordSetupSentAt: string | null;
+  passwordSetupExpiresAt: string | null;
+  passwordSetupDeliveryError: string | null;
+};
+
 // Books API
 export const booksApi = {
   getAll: async (search?: string, attributeValueIds?: number[]): Promise<BookWithSearchAttributes[]> => {
@@ -240,6 +256,16 @@ export const usersApi = {
       method: "DELETE",
     });
     if (!res.ok) throw new Error("Failed to delete user");
+  },
+
+  sendPasswordSetup: async (id: number): Promise<{ success: boolean; email: string; sentAt: string; expiresAt: string; message: string }> => {
+    const res = await fetch(`${API_BASE}/users/${id}/password-setup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to send password setup email");
+    return data;
   },
 };
 
