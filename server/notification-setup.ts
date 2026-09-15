@@ -36,10 +36,12 @@ export interface NotificationEvent {
 export interface NotificationSetup {
   providers: NotificationProvider[];
   events: NotificationEvent[];
+  defaultProviders: Partial<Record<NotificationChannel, string>>;
 }
 
 const PROVIDERS_KEY = "notification_providers_v1";
 const EVENTS_KEY = "notification_events_v1";
+const DEFAULT_PROVIDERS_KEY = "notification_default_providers_v1";
 const SECRET_MARKER = "••••••••";
 export const DEFAULT_EMAIL_PROVIDER_ID = "default-email-provider";
 
@@ -107,6 +109,7 @@ function parseJson<T>(value: string | undefined, fallback: T): T {
 export async function loadNotificationSetup(storage: IStorage): Promise<NotificationSetup> {
   const providersConfig = await storage.getSystemConfig(PROVIDERS_KEY);
   const eventsConfig = await storage.getSystemConfig(EVENTS_KEY);
+  const defaultProvidersConfig = await storage.getSystemConfig(DEFAULT_PROVIDERS_KEY);
   const storedProviders = parseJson<Array<NotificationProvider & { encryptedSecrets?: string }>>(providersConfig?.value, []);
   const providers = storedProviders.map(({ encryptedSecrets, secrets, ...provider }) => ({
     ...provider,
@@ -145,7 +148,14 @@ export async function loadNotificationSetup(storage: IStorage): Promise<Notifica
       ? { ...route, providerId: DEFAULT_EMAIL_PROVIDER_ID }
       : route),
   }));
-  return { providers: publicProviders, events };
+  const storedDefaults = parseJson<Partial<Record<NotificationChannel, string>>>(defaultProvidersConfig?.value, {});
+  const configuredProviderIds = new Set(publicProviders.filter((provider) => provider.enabled).map((provider) => provider.id));
+  const defaultProviders: Partial<Record<NotificationChannel, string>> = {
+    EMAIL: defaultEmailProvider.enabled ? DEFAULT_EMAIL_PROVIDER_ID : undefined,
+    WHATSAPP: configuredProviderIds.has(storedDefaults.WHATSAPP || "") ? storedDefaults.WHATSAPP : undefined,
+    SMS: configuredProviderIds.has(storedDefaults.SMS || "") ? storedDefaults.SMS : undefined,
+  };
+  return { providers: publicProviders, events, defaultProviders };
 }
 
 export async function saveNotificationSetup(storage: IStorage, setup: NotificationSetup) {
@@ -183,6 +193,22 @@ export async function saveNotificationSetup(storage: IStorage, setup: Notificati
     category: "notifications",
     description: "Event-based notification routes",
   });
+  const providerIds = new Set(setup.providers.filter((provider) => provider.enabled).map((provider) => provider.id));
+  const defaultProviders: Partial<Record<NotificationChannel, string>> = {
+    EMAIL: DEFAULT_EMAIL_PROVIDER_ID,
+    WHATSAPP: setup.defaultProviders.WHATSAPP && providerIds.has(setup.defaultProviders.WHATSAPP)
+      ? setup.defaultProviders.WHATSAPP
+      : undefined,
+    SMS: setup.defaultProviders.SMS && providerIds.has(setup.defaultProviders.SMS)
+      ? setup.defaultProviders.SMS
+      : undefined,
+  };
+  await storage.setSystemConfig({
+    key: DEFAULT_PROVIDERS_KEY,
+    value: JSON.stringify(defaultProviders),
+    category: "notifications",
+    description: "Default notification providers by channel",
+  });
 }
 
 export function toPublicNotificationSetup(setup: NotificationSetup) {
@@ -192,6 +218,8 @@ export function toPublicNotificationSetup(setup: NotificationSetup) {
       secretKeys: Object.keys(secrets || {}),
     })),
     events: setup.events,
+    defaultProviders: setup.defaultProviders,
+    configuredChannels: (Object.keys(setup.defaultProviders) as NotificationChannel[]).filter((channel) => Boolean(setup.defaultProviders[channel])),
     eventCatalog: NOTIFICATION_EVENT_CATALOG,
     secretMarker: SECRET_MARKER,
   };

@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import nodemailer from "nodemailer";
 import type { IStorage } from "./storage";
-import { loadNotificationSetup, type NotificationChannel, type NotificationRoute, type NotificationProvider } from "./notification-setup";
+import { DEFAULT_EMAIL_PROVIDER_ID, loadNotificationSetup, type NotificationChannel, type NotificationRoute, type NotificationProvider } from "./notification-setup";
 
 export interface NotificationRequest {
   eventId: string;
@@ -138,15 +138,16 @@ export async function emitNotification(storage: IStorage, request: NotificationR
   const routes = event.routes.filter((route) =>
     route.enabled
     && (!request.channel || route.channel === request.channel)
-    && (!request.providerId || route.providerId === request.providerId)
+    && (!request.providerId || (route.providerId || setup.defaultProviders[route.channel]) === request.providerId)
   );
   if (!routes.length) throw new Error(`No active notification route is configured for "${request.eventId}"`);
 
   const attempts: NotificationAttempt[] = [];
   for (const route of routes) {
-    const provider = providers.get(route.providerId);
+    const providerId = route.providerId || setup.defaultProviders[route.channel] || (route.channel === "EMAIL" ? DEFAULT_EMAIL_PROVIDER_ID : "");
+    const provider = providers.get(providerId);
     if (!provider || !provider.enabled) {
-      attempts.push({ channel: route.channel, providerId: route.providerId, status: "FAILED", error: "Provider is missing or disabled" });
+      attempts.push({ channel: route.channel, providerId, status: "FAILED", error: "Provider is missing or disabled" });
       continue;
     }
     try {

@@ -8148,6 +8148,11 @@ export async function registerRoutes(
       settings: z.record(z.string(), z.string()).default({}),
       secrets: z.record(z.string(), z.string()).optional(),
     })).max(20),
+    defaultProviders: z.object({
+      EMAIL: z.string().optional(),
+      WHATSAPP: z.string().optional(),
+      SMS: z.string().optional(),
+    }).default({}),
     events: z.array(z.object({
       id: z.string().min(1).max(100),
       label: z.string().max(200),
