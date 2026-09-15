@@ -38,3 +38,10 @@ Any new code doing INSERT/UPDATE with nullable non-text columns or that needs th
 **Why:** the neon-http driver explicitly throws for interactive transaction callbacks, while its underlying client supports ordered HTTP transaction batches.
 
 **How to apply:** keep transaction steps independent and construct all SQL before calling `db.batch`; do not rely on results from an earlier statement to build a later statement.
+
+## 6. Concurrency behavior needs a real Neon integration check
+Mocked route tests cannot validate advisory-lock batches, cross-column identifier races, or legacy collision audits. Keep a separately tagged integration suite against an isolated `NEON_DATABASE_URL` and clean all fixtures by a unique run prefix.
+
+**Why:** these behaviors depend on PostgreSQL transaction ordering and the HTTP driver's result mapping, which local mocks do not exercise.
+
+**How to apply:** run the database-backed suite when changing identifier locking, collision queries, or remediation behavior; never point it at the normal development database.

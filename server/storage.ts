@@ -207,8 +207,11 @@ async function getLockedIdentifierWriteResults(
 ) {
   const identifierValues = sqlIdentifierValues(getLockIdentifiers(identifiers));
   const lockQuery = sql`
-    SELECT pg_advisory_xact_lock(hashtextextended(lower(identifier), 0))
-    FROM (VALUES ${identifierValues}) AS requested(identifier)
+    SELECT count(*)
+    FROM (
+      SELECT pg_advisory_xact_lock(hashtextextended(lower(identifier), 0))
+      FROM (VALUES ${identifierValues}) AS requested(identifier)
+    ) AS locks
   `;
   return await db.batch([
     db.execute(lockQuery),
@@ -227,13 +230,19 @@ async function runLockedBookCopyWrite(
   identifiers: string[],
   mutation: ReturnType<typeof sql>,
   conflicts: ReturnType<typeof sql>,
+  ignoreCopyId?: number,
 ) {
   const results = await getLockedIdentifierWriteResults(identifiers, mutation, conflicts);
   const insertedRows = ((results[1] as any)?.rows || []) as Array<{ id?: number }>;
   if (insertedRows.length > 0 && insertedRows[0].id !== undefined) {
     return { rowId: Number(insertedRows[0].id), conflictingCopyIds: [] };
   }
-  return { rowId: undefined, conflictingCopyIds: getConflictIds(results[2] as any) };
+  const conflictingCopyIds = getConflictIds(results[2] as any)
+    .filter((conflictingCopyId) => conflictingCopyId !== ignoreCopyId);
+  if (ignoreCopyId !== undefined && conflictingCopyIds.length === 0 && (results[2] as any)?.rows?.length) {
+    return { rowId: ignoreCopyId, conflictingCopyIds: [] };
+  }
+  return { rowId: undefined, conflictingCopyIds };
 }
 
 function assertNoConflictingIdentifierValues(
@@ -1427,9 +1436,9 @@ export class DBStorage implements IStorage {
           CROSS JOIN (VALUES ${requestedValues}) AS requested(identifier)
           WHERE ${identifierCollisionPredicate()}
         )
-        RETURNING *
+        RETURNING id
       )
-      SELECT * FROM inserted
+      SELECT id FROM inserted
     `;
     const conflicts = sql`
       SELECT DISTINCT existing.id AS "copyId"
@@ -1506,19 +1515,19 @@ export class DBStorage implements IStorage {
       setValues.push(sql`updated_at = NOW()`);
       const mutation = sql`
         WITH updated AS (
-          UPDATE book_copies
+          UPDATE book_copies AS target
           SET ${sql.join(setValues, sql`, `)}
-          WHERE id = ${id}
+          WHERE target.id = ${id}
             AND NOT EXISTS (
               SELECT 1
               FROM book_copies existing
               CROSS JOIN (VALUES ${requestedValues}) AS requested(identifier)
-              WHERE existing.id <> ${id}
+              WHERE existing.id <> target.id
                 AND ${identifierCollisionPredicate()}
             )
-          RETURNING *
+          RETURNING id
         )
-        SELECT * FROM updated
+        SELECT id FROM updated
       `;
       const conflicts = sql`
         SELECT DISTINCT existing.id AS "copyId"
@@ -1528,7 +1537,7 @@ export class DBStorage implements IStorage {
           AND ${identifierCollisionPredicate()}
         ORDER BY existing.id
       `;
-      const result = await runLockedBookCopyWrite(identifiers, mutation, conflicts);
+      const result = await runLockedBookCopyWrite(identifiers, mutation, conflicts, id);
       if (result.rowId === undefined) {
         if (result.conflictingCopyIds.length > 0) {
           throw new BookCopyIdentifierConflictError(result.conflictingCopyIds);
