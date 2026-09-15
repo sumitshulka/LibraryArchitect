@@ -8,6 +8,7 @@ export interface NotificationRequest {
   channel?: NotificationChannel;
   providerId?: string;
   recipient: string;
+  recipientsByChannel?: Partial<Record<NotificationChannel, string>>;
   values: Record<string, string | number>;
   templateIdOverride?: string;
 }
@@ -151,12 +152,15 @@ export async function emitNotification(storage: IStorage, request: NotificationR
       continue;
     }
     try {
+      const recipient = request.recipientsByChannel?.[route.channel] ?? request.recipient;
+      if (!recipient) throw new Error(`No recipient is configured for ${route.channel}`);
+      const routeRequest = { ...request, recipient };
       requiredValues(route, request.values);
       const providerMessageId = route.channel === "EMAIL"
-        ? await sendEmail(provider, route, request)
+        ? await sendEmail(provider, route, routeRequest)
         : route.channel === "WHATSAPP"
-          ? await sendWhatsApp(provider, route, request)
-          : await sendSms(provider, route, request);
+          ? await sendWhatsApp(provider, route, routeRequest)
+          : await sendSms(provider, route, routeRequest);
       attempts.push({ channel: route.channel, providerId: provider.id, providerMessageId, status: "SENT" });
     } catch (error) {
       attempts.push({ channel: route.channel, providerId: provider.id, status: "FAILED", error: error instanceof Error ? error.message : "Notification failed" });

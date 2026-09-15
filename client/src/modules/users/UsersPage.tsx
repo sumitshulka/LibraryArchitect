@@ -105,7 +105,7 @@ export default function UsersPage() {
     mutationFn: usersApi.sendPasswordSetup,
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["users"] });
-      toast.success(`Password setup email sent to ${result.email}`);
+      toast.success(result.message || "Password setup invitation sent");
     },
     onError: (error: Error) => {
       toast.error(error.message);
@@ -158,15 +158,17 @@ export default function UsersPage() {
       case "ERP_MANAGED":
         return <Badge title="Authentication is managed by the ERP/SSO integration" variant="secondary" className="gap-1"><KeyRound className="h-3 w-3" /> ERP managed</Badge>;
       case "INVITATION_SENT":
-        return <Badge title={details || "SMTP accepted the setup email; inbox delivery is not guaranteed"} className="gap-1 border-none bg-blue-100 text-blue-800 hover:bg-blue-100"><Mail className="h-3 w-3" /> Email sent</Badge>;
+        return <Badge title={details || "The configured notification route accepted the setup invitation"} className="gap-1 border-none bg-blue-100 text-blue-800 hover:bg-blue-100"><Mail className="h-3 w-3" /> Invitation sent</Badge>;
+      case "INVITATION_PARTIAL":
+        return <Badge title={user.passwordSetupDeliveryError || "Some configured notification routes could not send the invitation"} className="gap-1 border-none bg-amber-100 text-amber-800 hover:bg-amber-100"><AlertCircle className="h-3 w-3" /> Partially delivered</Badge>;
       case "INVITATION_EXPIRED":
-        return <Badge title="The previous setup link expired" className="gap-1 border-none bg-amber-100 text-amber-800 hover:bg-amber-100"><Clock3 className="h-3 w-3" /> Email expired</Badge>;
+        return <Badge title="The previous setup link expired" className="gap-1 border-none bg-amber-100 text-amber-800 hover:bg-amber-100"><Clock3 className="h-3 w-3" /> Invitation expired</Badge>;
       case "DELIVERY_FAILED":
-        return <Badge title={user.passwordSetupDeliveryError || "The setup email could not be sent"} className="gap-1 border-none bg-red-100 text-red-800 hover:bg-red-100"><AlertCircle className="h-3 w-3" /> Email failed</Badge>;
+        return <Badge title={user.passwordSetupDeliveryError || "The configured notification route could not send the invitation"} className="gap-1 border-none bg-red-100 text-red-800 hover:bg-red-100"><AlertCircle className="h-3 w-3" /> Delivery failed</Badge>;
       case "LINK_USED":
         return <Badge title="The setup link was used, but no password is currently stored" className="gap-1 border-none bg-amber-100 text-amber-800 hover:bg-amber-100"><AlertCircle className="h-3 w-3" /> Link used</Badge>;
       default:
-        return <Badge title="No password setup email has been sent" variant="outline" className="gap-1"><Mail className="h-3 w-3" /> Not sent</Badge>;
+        return <Badge title="No password setup invitation has been sent" variant="outline" className="gap-1"><Mail className="h-3 w-3" /> Not sent</Badge>;
     }
   };
 
@@ -329,7 +331,7 @@ export default function UsersPage() {
                               disabled={sendPasswordSetupMutation.isPending}
                             >
                               <Mail className="mr-2 h-4 w-4" />
-                              {!user.erpIntegrationId && (user as AdminUser).passwordSetupStatus !== "SET" ? "Resend setup email" : "Email"}
+                              {!user.erpIntegrationId && (user as AdminUser).passwordSetupStatus !== "SET" ? "Resend setup invitation" : "Email"}
                             </DropdownMenuItem>
                           )}
                           {activeTab === 'STAFF' && currentUser?.role === 'ADMIN' && (
@@ -411,7 +413,7 @@ function UserDialog({
     mutationFn: usersApi.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["users"] });
-      toast.success("User created and password setup email sent");
+      toast.success("User created and password setup invitation sent");
       onClose();
     },
     onError: (error: Error) => {

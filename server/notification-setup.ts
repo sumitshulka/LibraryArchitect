@@ -108,6 +108,20 @@ function defaultEvents(): NotificationEvent[] {
         ].join(""),
         valueKeys: ["firstName", "setupLink", "expiresAt"],
       };
+    } else if (event.id === "PASSWORD_RESET_OTP") {
+      routes[0] = {
+        ...routes[0],
+        providerId: DEFAULT_EMAIL_PROVIDER_ID,
+        enabled: true,
+        subject: "Your SC24Lib password reset code",
+        bodyTemplate: [
+          "<p>Hello {{firstName}},</p>",
+          "<p>Use this one-time code to reset your SC24Lib password:</p>",
+          "<p style=\"font-size: 28px; font-weight: bold; letter-spacing: 8px;\">{{otp}}</p>",
+          "<p>This code expires at {{expiresAt}} and can only be used once.</p>",
+        ].join(""),
+        valueKeys: ["firstName", "otp", "expiresAt"],
+      };
     }
     return { ...event, routes };
   });

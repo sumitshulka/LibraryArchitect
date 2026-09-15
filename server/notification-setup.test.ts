@@ -24,6 +24,11 @@ describe("notification setup", () => {
     const setup = await loadNotificationSetup(createMemoryStorage());
     expect(setup.events.length).toBeGreaterThan(0);
     expect(setup.events[0].routes.map((route) => route.channel)).toEqual(["EMAIL", "WHATSAPP", "SMS"]);
+    const resetEvent = setup.events.find((event) => event.id === "PASSWORD_RESET_OTP");
+    expect(resetEvent?.routes.find((route) => route.channel === "EMAIL")).toMatchObject({
+      enabled: true,
+      valueKeys: ["firstName", "otp", "expiresAt"],
+    });
   });
 
   it("encrypts provider secrets and redacts them from the public setup", async () => {

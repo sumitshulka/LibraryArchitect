@@ -284,6 +284,11 @@ async function sendPasswordSetupInvitation(req: any, user: User): Promise<{
     attempts = await emitNotification(storage, {
       eventId: "USER_PASSWORD_SETUP",
       recipient: user.email,
+      recipientsByChannel: {
+        EMAIL: user.email,
+        SMS: user.phone || "",
+        WHATSAPP: user.phone || "",
+      },
       values: {
         name: user.name,
         firstName: user.name.trim().split(/\s+/)[0] || user.name,
@@ -299,12 +304,16 @@ async function sendPasswordSetupInvitation(req: any, user: User): Promise<{
   }
 
   const sent = attempts.some((attempt) => attempt.status === "SENT");
+  const deliveryError = attempts
+    .filter((attempt) => attempt.status === "FAILED")
+    .map((attempt) => `${attempt.channel}: ${attempt.error || "delivery failed"}`)
+    .join("; ");
   if (sent) {
     await db.update(passwordSetupTokens)
-      .set({ sentAt: new Date() })
+      .set({ sentAt: new Date(), deliveryError: deliveryError || null })
       .where(eq(passwordSetupTokens.tokenHash, tokenHash));
   } else {
-    error = error || attempts.map((attempt) => attempt.error).filter(Boolean).join("; ") || "No active email route is configured";
+    error = error || attempts.map((attempt) => attempt.error).filter(Boolean).join("; ") || "No active notification route is configured";
     await db.update(passwordSetupTokens)
       .set({ deliveryError: error })
       .where(eq(passwordSetupTokens.tokenHash, tokenHash));
@@ -319,11 +328,12 @@ async function toAdminUserView(user: User) {
     .orderBy(desc(passwordSetupTokens.createdAt))
     .limit(1);
   const passwordSet = Boolean(user.password && user.password.trim());
-  let passwordSetupStatus: "SET" | "ERP_MANAGED" | "INVITATION_SENT" | "INVITATION_EXPIRED" | "DELIVERY_FAILED" | "NOT_SENT" | "LINK_USED" = "NOT_SENT";
+  let passwordSetupStatus: "SET" | "ERP_MANAGED" | "INVITATION_SENT" | "INVITATION_PARTIAL" | "INVITATION_EXPIRED" | "DELIVERY_FAILED" | "NOT_SENT" | "LINK_USED" = "NOT_SENT";
   if (user.erpIntegrationId) passwordSetupStatus = "ERP_MANAGED";
   else if (passwordSet) passwordSetupStatus = "SET";
   else if (latestToken?.used) passwordSetupStatus = "LINK_USED";
   else if (latestToken?.sentAt && latestToken.expiresAt <= new Date()) passwordSetupStatus = "INVITATION_EXPIRED";
+  else if (latestToken?.sentAt && latestToken.deliveryError) passwordSetupStatus = "INVITATION_PARTIAL";
   else if (latestToken?.sentAt) passwordSetupStatus = "INVITATION_SENT";
   else if (latestToken) passwordSetupStatus = "DELIVERY_FAILED";
 
@@ -1209,7 +1219,7 @@ export async function registerRoutes(
       if (!invitation.sent) {
         await storage.deleteUser(user.id);
         createdUserId = undefined;
-        return res.status(502).json({ error: `User was not created because the password setup email could not be sent: ${invitation.error || "delivery failed"}` });
+        return res.status(502).json({ error: `User was not created because the password setup invitation could not be delivered: ${invitation.error || "delivery failed"}` });
       }
 
       logAudit(req, { category: 'USER_MANAGEMENT', action: 'USER_CREATED', targetType: 'user', targetId: String(user.id), details: { username: user.username, email: user.email, role: user.role, category: user.category, passwordSetupInvitationSent: true } });
@@ -1234,11 +1244,11 @@ export async function registerRoutes(
       const user = await storage.getUser(id);
       if (!user) return res.status(404).json({ error: "User not found" });
       if (user.erpIntegrationId) return res.status(400).json({ error: "ERP-managed users do not use local password setup." });
-      if (user.password && user.password.trim()) return res.status(409).json({ error: "This user already has a password. No setup email is needed." });
+      if (user.password && user.password.trim()) return res.status(409).json({ error: "This user already has a password. No setup invitation is needed." });
 
       const invitation = await sendPasswordSetupInvitation(req, user);
       if (!invitation.sent) {
-        return res.status(502).json({ error: `Password setup email could not be sent: ${invitation.error || "delivery failed"}` });
+        return res.status(502).json({ error: `Password setup invitation could not be delivered: ${invitation.error || "delivery failed"}` });
       }
       logAudit(req, {
         category: "USER_MANAGEMENT",
@@ -1250,13 +1260,14 @@ export async function registerRoutes(
       res.json({
         success: true,
         email: user.email,
+        channels: invitation.attempts.filter((attempt) => attempt.status === "SENT").map((attempt) => attempt.channel),
         sentAt: new Date().toISOString(),
         expiresAt: invitation.expiresAt.toISOString(),
-        message: `Password setup email sent to ${user.email}`,
+        message: "Password setup invitation sent through the configured notification route",
       });
     } catch (error) {
-      console.error("Error sending password setup email:", error);
-      res.status(500).json({ error: "Failed to send password setup email" });
+      console.error("Error sending password setup invitation:", error);
+      res.status(500).json({ error: "Failed to send password setup invitation" });
     }
   });
 
@@ -4449,17 +4460,6 @@ export async function registerRoutes(
         return res.status(403).json({ error: "This account has been deactivated" });
       }
 
-      const hostConfig = await storage.getSystemConfig("smtp_host");
-      const portConfig = await storage.getSystemConfig("smtp_port");
-      const secureConfig = await storage.getSystemConfig("smtp_secure");
-      const userConfig = await storage.getSystemConfig("smtp_user");
-      const passConfig = await storage.getSystemConfig("smtp_pass");
-      const fromConfig = await storage.getSystemConfig("smtp_from");
-
-      if (!hostConfig || !userConfig || !passConfig) {
-        return res.status(500).json({ error: "Email is not configured. Please contact the administrator." });
-      }
-
       const otp = Math.floor(100000 + Math.random() * 900000).toString();
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
@@ -4473,42 +4473,41 @@ export async function registerRoutes(
         expiresAt,
       });
 
-      const transporter = nodemailer.createTransport({
-        host: hostConfig.value,
-        port: parseInt(portConfig?.value || "587"),
-        secure: secureConfig?.value === "true",
-        auth: {
-          user: userConfig.value,
-          pass: passConfig.value,
-        },
-      });
+      let attempts: NotificationAttempt[] = [];
+      try {
+        attempts = await emitNotification(storage, {
+          eventId: "PASSWORD_RESET_OTP",
+          recipient: user.email,
+          recipientsByChannel: {
+            EMAIL: user.email,
+            SMS: user.phone || "",
+            WHATSAPP: user.phone || "",
+          },
+          values: {
+            name: user.name,
+            firstName: user.name.trim().split(/\s+/)[0] || user.name,
+            username: user.username,
+            otp,
+            expiresAt: expiresAt.toISOString(),
+            message: `Your password reset code is ${otp}. It expires at ${expiresAt.toISOString()}.`,
+          },
+        });
+      } catch (notificationError) {
+        await db.update(passwordResetOtps)
+          .set({ used: true })
+          .where(and(eq(passwordResetOtps.userId, user.id), eq(passwordResetOtps.used, false)));
+        const reason = notificationError instanceof Error ? notificationError.message : "Notification delivery failed";
+        return res.status(502).json({ error: `Password reset notification could not be sent: ${reason}` });
+      }
 
-      await transporter.sendMail({
-        from: fromConfig?.value || userConfig.value,
-        to: user.email,
-        subject: "LibraTech - Password Reset OTP",
-        html: `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <div style="background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%); color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0;">
-              <h1 style="margin: 0; font-size: 28px;">LibraTech</h1>
-              <p style="margin: 5px 0 0; opacity: 0.9; font-size: 14px;">Library Management System</p>
-            </div>
-            <div style="padding: 30px; background: #ffffff; border: 1px solid #e5e7eb; border-top: none;">
-              <h2 style="color: #1e293b; margin-top: 0;">Password Reset Request</h2>
-              <p style="color: #475569;">Hello <strong>${user.name}</strong>,</p>
-              <p style="color: #475569;">We received a request to reset your password. Use the OTP below to proceed:</p>
-              <div style="background: #f1f5f9; border: 2px dashed #3b82f6; border-radius: 12px; padding: 24px; text-align: center; margin: 24px 0;">
-                <span style="font-size: 36px; font-weight: bold; letter-spacing: 8px; color: #1e40af; font-family: 'Courier New', monospace;">${otp}</span>
-              </div>
-              <p style="color: #ef4444; font-size: 14px; font-weight: 500;">This OTP expires in 10 minutes.</p>
-              <p style="color: #94a3b8; font-size: 13px;">If you did not request this reset, please ignore this email. Your password will remain unchanged.</p>
-            </div>
-            <div style="background: #f8fafc; padding: 16px; text-align: center; font-size: 12px; color: #94a3b8; border-radius: 0 0 8px 8px; border: 1px solid #e5e7eb; border-top: none;">
-              <p style="margin: 0;">This is an automated email from LibraTech. Do not reply.</p>
-            </div>
-          </div>
-        `,
-      });
+      const sent = attempts.some((attempt) => attempt.status === "SENT");
+      if (!sent) {
+        await db.update(passwordResetOtps)
+          .set({ used: true })
+          .where(and(eq(passwordResetOtps.userId, user.id), eq(passwordResetOtps.used, false)));
+        const reason = attempts.map((attempt) => attempt.error).filter(Boolean).join("; ") || "No active notification route is configured";
+        return res.status(502).json({ error: `Password reset notification could not be sent: ${reason}` });
+      }
 
       const maskedEmail = user.email.replace(/(.{2})(.*)(@.*)/, "$1***$3");
 
@@ -4521,12 +4520,14 @@ export async function registerRoutes(
         details: { email: maskedEmail },
       });
 
-      res.json({ success: true, email: maskedEmail, message: `OTP sent to ${maskedEmail}` });
+      res.json({
+        success: true,
+        email: maskedEmail,
+        channels: attempts.filter((attempt) => attempt.status === "SENT").map((attempt) => attempt.channel),
+        message: `Password reset code sent to ${maskedEmail}`,
+      });
     } catch (error: any) {
       console.error("Forgot password error:", error);
-      if (error.code === "EAUTH" || error.code === "ESOCKET" || error.code === "ECONNECTION") {
-        return res.status(500).json({ error: "Failed to send email. Please contact the administrator." });
-      }
       res.status(500).json({ error: "An unexpected error occurred. Please try again." });
     }
   });

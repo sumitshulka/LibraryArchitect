@@ -10,6 +10,7 @@ export type UserPasswordSetupStatus =
   | "SET"
   | "ERP_MANAGED"
   | "INVITATION_SENT"
+  | "INVITATION_PARTIAL"
   | "INVITATION_EXPIRED"
   | "DELIVERY_FAILED"
   | "NOT_SENT"
@@ -281,13 +282,13 @@ export const usersApi = {
     if (!res.ok) throw new Error("Failed to delete user");
   },
 
-  sendPasswordSetup: async (id: number): Promise<{ success: boolean; email: string; sentAt: string; expiresAt: string; message: string }> => {
+  sendPasswordSetup: async (id: number): Promise<{ success: boolean; email: string; channels: string[]; sentAt: string; expiresAt: string; message: string }> => {
     const res = await fetch(`${API_BASE}/users/${id}/password-setup`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "Failed to send password setup email");
+    if (!res.ok) throw new Error(data.error || "Failed to send password setup invitation");
     return data;
   },
 };
