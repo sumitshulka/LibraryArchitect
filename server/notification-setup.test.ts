@@ -44,10 +44,12 @@ describe("notification setup", () => {
     const stored = await storage.getSystemConfig("notification_providers_v1");
     expect(stored?.value).not.toContain("do-not-return-this");
     const loaded = await loadNotificationSetup(storage);
-    expect(loaded.providers[0].secrets?.accessToken).toBe("do-not-return-this");
+    const whatsappProvider = loaded.providers.find((provider) => provider.id === "waba-1");
+    expect(whatsappProvider?.secrets?.accessToken).toBe("do-not-return-this");
     const publicSetup = toPublicNotificationSetup(loaded);
-    expect(publicSetup.providers[0]).not.toHaveProperty("secrets");
-    expect(publicSetup.providers[0].secretKeys).toEqual(["accessToken"]);
+    const publicWhatsappProvider = publicSetup.providers.find((provider) => provider.id === "waba-1");
+    expect(publicWhatsappProvider).not.toHaveProperty("secrets");
+    expect(publicWhatsappProvider?.secretKeys).toEqual(["accessToken"]);
   });
 
   it("preserves an existing secret when the admin saves without replacing it", async () => {
@@ -63,6 +65,6 @@ describe("notification setup", () => {
     await saveNotificationSetup(storage, { providers: [{ ...base, secrets: { apiToken: "keep-me" } }], events: [] });
     await saveNotificationSetup(storage, { providers: [{ ...base, secrets: { apiToken: "••••••••" } }], events: [] });
     const loaded = await loadNotificationSetup(storage);
-    expect(loaded.providers[0].secrets?.apiToken).toBe("keep-me");
+    expect(loaded.providers.find((provider) => provider.id === "sms-1")?.secrets?.apiToken).toBe("keep-me");
   });
 });
