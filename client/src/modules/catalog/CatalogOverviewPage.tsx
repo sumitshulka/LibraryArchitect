@@ -234,6 +234,7 @@ function AddCopiesDialog({
 export default function CatalogOverviewPage() {
   const { user } = useAuth();
   const canManageCatalog = user?.role === "ADMIN" && user.isLocalUser;
+  const isPatron = user?.category === "PATRON";
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [attributeValueIds, setAttributeValueIds] = useState<number[]>([]);
@@ -261,6 +262,7 @@ export default function CatalogOverviewPage() {
   const { data: dashboardStats, isLoading: statsLoading } = useQuery({
     queryKey: ["dashboard-stats", user?.id],
     queryFn: statsApi.getDashboard,
+    enabled: !isPatron,
   });
 
   const filteredBooks = useMemo(
@@ -309,12 +311,12 @@ export default function CatalogOverviewPage() {
           <div className="mb-6 flex flex-col justify-between gap-4 md:flex-row md:items-center">
             <div>
               <h1 className="text-2xl font-bold tracking-tight" data-testid="text-catalog-title">Catalog overview</h1>
-              <p className="mt-1 text-sm text-muted-foreground">Manage books, journals, and media resources across your collection.</p>
+              <p className="mt-1 text-sm text-muted-foreground">{isPatron ? "Find books available through your library." : "Manage books, journals, and media resources across your collection."}</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button variant="outline" size="sm" onClick={() => flash("Catalog export prepared")} className="gap-2" data-testid="button-export">
+              {!isPatron && <Button variant="outline" size="sm" onClick={() => flash("Catalog export prepared")} className="gap-2" data-testid="button-export">
                 <Download className="h-4 w-4" />Export
-              </Button>
+              </Button>}
               {canManageCatalog && (
                 <>
                   <Link href="/catalog/bulk-upload">
@@ -332,21 +334,21 @@ export default function CatalogOverviewPage() {
             </div>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-[1.5fr_1fr_1fr_1fr]">
+          {!isPatron && <div className="grid gap-3 md:grid-cols-[1.5fr_1fr_1fr_1fr]">
             <SummaryCard label="Collection at a glance" value={statsLoading ? "—" : totalBooks.toLocaleString()} detail="total records · live from catalog" icon={BookOpen} accent />
             <SummaryCard label="On shelf" value={statsLoading ? "—" : availableBooks.toLocaleString()} detail={`${availablePercent}% of the collection`} icon={Gauge} />
             <SummaryCard label="Circulating" value={statsLoading ? "—" : checkedOutBooks.toLocaleString()} detail={`${dashboardStats?.activeCirculation ?? checkedOutBooks} active loans`} icon={Database} />
             <SummaryCard label="Needs attention" value={statsLoading ? "—" : attentionCount.toLocaleString()} detail={`${dashboardStats?.overdueItems ?? 0} overdue items`} icon={ShieldCheck} />
-          </div>
+          </div>}
 
           <div className="mt-6 flex flex-col justify-between gap-3 border-b pb-3 sm:flex-row sm:items-end">
             <div>
-              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Primary task</div>
-              <h2 className="mt-1 text-xl font-semibold tracking-tight">Manage collection</h2>
+              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{isPatron ? "Discover" : "Primary task"}</div>
+              <h2 className="mt-1 text-xl font-semibold tracking-tight">{isPatron ? "Browse the catalog" : "Manage collection"}</h2>
             </div>
-            <Button variant="outline" onClick={() => setAnalyticsOpen(true)} className="gap-2 self-start sm:self-auto" data-testid="button-catalog-analytics">
+            {!isPatron && <Button variant="outline" onClick={() => setAnalyticsOpen(true)} className="gap-2 self-start sm:self-auto" data-testid="button-catalog-analytics">
               <BarChart3 className="h-4 w-4" />Open catalog analytics
-            </Button>
+            </Button>}
           </div>
 
           <div className="mt-3 overflow-hidden rounded-lg border bg-card shadow-sm">
@@ -383,17 +385,17 @@ export default function CatalogOverviewPage() {
                     <th className="px-3 py-3 font-semibold">Category</th>
                     <th className="px-3 py-3 font-semibold">ISBN</th>
                     <th className="px-3 py-3 font-semibold">Status</th>
-                    <th className="w-14 px-4 py-3 text-right font-semibold" />
+                    {!isPatron && <th className="w-14 px-4 py-3 text-right font-semibold" />}
                   </tr>
                 </thead>
                 <tbody className="divide-y">
                   {isLoading ? (
-                    <tr><td colSpan={6} className="h-24 text-center text-sm text-muted-foreground"><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />Loading catalog...</td></tr>
+                    <tr><td colSpan={isPatron ? 5 : 6} className="h-24 text-center text-sm text-muted-foreground"><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />Loading catalog...</td></tr>
                   ) : filteredBooks.length > 0 ? filteredBooks.map((book: BookWithSearchAttributes) => (
                     <tr key={book.id} className="group transition-colors hover:bg-muted/30" data-testid={`row-book-${book.id}`}>
                       <td className="px-4 py-3"><Cover book={book} /></td>
                       <td className="px-3 py-3">
-                        <button type="button" onClick={() => handleBookClick(book.id)} className="text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid={`text-title-${book.id}`}>
+                        <button type="button" onClick={() => { if (!isPatron) handleBookClick(book.id); }} className="text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid={`text-title-${book.id}`}>
                           <div className="text-sm font-semibold text-foreground group-hover:text-primary">{book.title}</div>
                           <div className="mt-0.5 text-xs text-muted-foreground">{book.author} <span className="px-1 text-muted-foreground/60">·</span> {book.publishedYear}</div>
                         </button>
@@ -402,7 +404,7 @@ export default function CatalogOverviewPage() {
                       <td className="px-3 py-3"><Badge variant="outline" className="px-2 py-1 text-xs font-normal">{book.category || "Uncategorized"}</Badge></td>
                       <td className="px-3 py-3 font-mono text-xs text-muted-foreground">{formatIsbn(book.isbn)}</td>
                       <td className="px-3 py-3"><StatusBadge status={book.status} /></td>
-                      <td className="px-4 py-3 text-right">
+                      {!isPatron && <td className="px-4 py-3 text-right">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label={`Actions for ${book.title}`} className="h-8 w-8" data-testid={`button-actions-${book.id}`}><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
@@ -419,10 +421,10 @@ export default function CatalogOverviewPage() {
                             )}
                           </DropdownMenuContent>
                         </DropdownMenu>
-                      </td>
+                      </td>}
                     </tr>
                   )) : (
-                    <tr><td colSpan={6} className="h-36 text-center text-sm text-muted-foreground"><Search className="mb-2 inline h-5 w-5 text-muted-foreground/60" /><div>No records match this view</div><button className="mt-1 text-xs text-primary underline-offset-2 hover:underline" onClick={() => { setSearchQuery(""); setStatusFilter(null); setAttributeValueIds([]); }}>Clear search and filters</button></td></tr>
+                    <tr><td colSpan={isPatron ? 5 : 6} className="h-36 text-center text-sm text-muted-foreground"><Search className="mb-2 inline h-5 w-5 text-muted-foreground/60" /><div>No records match this view</div><button className="mt-1 text-xs text-primary underline-offset-2 hover:underline" onClick={() => { setSearchQuery(""); setStatusFilter(null); setAttributeValueIds([]); }}>Clear search and filters</button></td></tr>
                   )}
                 </tbody>
               </table>
@@ -434,7 +436,7 @@ export default function CatalogOverviewPage() {
           </div>
 
           <div className="mt-5 flex flex-col justify-between gap-3 border-t pt-4 text-xs text-muted-foreground sm:flex-row">
-            <span className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-green-600" />Catalog synced with the latest local records</span>
+            <span className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-green-600" />{isPatron ? "Showing the latest library catalog" : "Catalog synced with the latest local records"}</span>
             {canManageCatalog && <Link href="/settings?section=catalog" className="flex items-center gap-1.5 font-medium text-primary hover:underline" data-testid="link-catalog-settings">Catalog settings <Settings2 className="h-3.5 w-3.5" /></Link>}
           </div>
         </div>
@@ -451,7 +453,7 @@ export default function CatalogOverviewPage() {
         <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>MARC record</DialogTitle>
-            <DialogDescription>View and edit the bibliographic record for {marcBook?.title}.</DialogDescription>
+            <DialogDescription>View the bibliographic record for {marcBook?.title}.</DialogDescription>
           </DialogHeader>
           {marcBook && <MarcEditor book={marcBook} readOnly={!canManageCatalog} />}
         </DialogContent>

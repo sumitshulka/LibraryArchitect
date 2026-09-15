@@ -15,8 +15,11 @@ function SidebarContent({ onLinkClick }: { onLinkClick?: () => void }) {
   const { user } = useAuth();
 
   const isLocalAdmin = user?.role === 'ADMIN' && user?.isLocalUser;
+  const isPatron = user?.category === 'PATRON';
 
   const visibleItems = navItems.filter(item => {
+    if (isPatron) return item.patronVisible === true;
+    if (item.patronOnly) return false;
     if (item.localAdminOnly && !isLocalAdmin) return false;
     return true;
   });
@@ -24,6 +27,7 @@ function SidebarContent({ onLinkClick }: { onLinkClick?: () => void }) {
   const itemsByLabel = new Map(visibleItems.map(item => [item.label, item]));
 
   const visibleGroups = navGroups
+    .filter(group => !isPatron || group.title !== "Library Operations")
     .map(group => ({
       title: group.title,
       items: group.items.map(label => itemsByLabel.get(label)).filter((item): item is NonNullable<typeof item> => !!item),

@@ -47,6 +47,7 @@ const libraries = [
 ];
 const librarian = { id: 10, name: "A Librarian", username: "librarian", role: "LIBRARIAN" };
 const admin = { id: 20, name: "An Admin", username: "admin", role: "ADMIN" };
+const patron = { id: 40, name: "A Student", username: "student", role: "STUDENT", category: "PATRON", studentId: "STU-40" };
 const membership = {
   id: 30,
   userId: librarian.id,
@@ -57,7 +58,7 @@ const membership = {
 
 describe("library access authorization and messages", () => {
   let httpServer: Server;
-  let currentUser: typeof librarian | typeof admin | undefined;
+  let currentUser: typeof librarian | typeof admin | typeof patron | undefined;
 
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -156,6 +157,80 @@ describe("library access authorization and messages", () => {
     expect(storageMock.createBook).not.toHaveBeenCalled();
     expect(storageMock.allocateCopies).not.toHaveBeenCalled();
     expect(storageMock.createAuditSession).not.toHaveBeenCalled();
+  });
+
+  it("returns only the signed-in patron's loans, fines, and history", async () => {
+    currentUser = patron;
+    storageMock.getCirculationByUser.mockResolvedValue([
+      {
+        id: 1,
+        userId: patron.id,
+        bookId: 7,
+        bookCopyId: 8,
+        libraryId: 1,
+        checkoutDate: new Date("2026-09-01"),
+        dueDate: new Date("2026-09-20"),
+        returnDate: null,
+        status: "ACTIVE",
+        fineAmount: 500,
+        finePaidAmount: 100,
+        fineWaivedAmount: 0,
+        damageCost: 0,
+        damagePaidAmount: 0,
+        damageWaivedAmount: 0,
+      },
+      {
+        id: 2,
+        userId: patron.id,
+        bookId: 9,
+        bookCopyId: 10,
+        libraryId: 1,
+        checkoutDate: new Date("2026-08-01"),
+        dueDate: new Date("2026-08-10"),
+        returnDate: new Date("2026-08-09"),
+        status: "RETURNED",
+        fineAmount: 0,
+      },
+    ]);
+    storageMock.getBook.mockImplementation(async (id: number) => ({ id, title: `Book ${id}`, author: "Author" }));
+    storageMock.getBookCopy.mockImplementation(async (id: number) => ({ id, barcode: `BC-${id}` }));
+    storageMock.getLibrary.mockResolvedValue(libraries[0]);
+
+    const response = await request("/api/me/library-account");
+    expect(response.status).toBe(200);
+    const body = await response.json();
+
+    expect(storageMock.getCirculationByUser).toHaveBeenCalledWith(patron.id);
+    expect(body.summary).toMatchObject({ activeLoans: 1, historyCount: 1, totalOutstanding: 400 });
+    expect(body.activeLoans).toHaveLength(1);
+    expect(body.history).toHaveLength(1);
+    expect(body.activeLoans[0]).not.toHaveProperty("userEmail");
+
+    storageMock.getAllLibraries.mockResolvedValue([
+      libraries[0],
+      { ...libraries[1], isActive: false },
+    ]);
+    const librariesResponse = await request("/api/me/reservation-libraries");
+    expect(librariesResponse.status).toBe(200);
+    expect(await librariesResponse.json()).toEqual([
+      { id: libraries[0].id, name: libraries[0].name, code: libraries[0].code },
+    ]);
+  });
+
+  it("blocks patrons from staff circulation and inventory operations", async () => {
+    currentUser = patron;
+    const attempts: Array<[string, RequestInit]> = [
+      ["/api/circulation/checkout", { method: "POST", body: "{}" }],
+      ["/api/circulation/checkout-batch", { method: "POST", body: "{}" }],
+      ["/api/circulation/book-lookup?identifier=ABC", { method: "GET" }],
+      ["/api/audit-sessions", { method: "GET" }],
+      ["/api/inventory-items", { method: "GET" }],
+      ["/api/org-units", { method: "GET" }],
+    ];
+    for (const [path, init] of attempts) {
+      const response = await request(path, init);
+      expect(response.status, path).toBe(403);
+    }
   });
 
   it("scopes dashboard summaries, fines, and circulation reports to assigned libraries", async () => {

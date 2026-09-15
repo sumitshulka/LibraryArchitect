@@ -371,6 +371,16 @@ async function requireStaff(req: any, res: any): Promise<any | null> {
   return user;
 }
 
+async function requireAuthenticatedUser(req: any, res: any): Promise<any | null> {
+  const sessionId = getSessionId(req);
+  if (!sessionId) { res.status(401).json({ error: "Authentication required" }); return null; }
+  const session = await storage.getSession(sessionId);
+  if (!session) { res.status(401).json({ error: "Invalid session" }); return null; }
+  const user = await storage.getUser(session.userId);
+  if (!user) { res.status(401).json({ error: "User not found" }); return null; }
+  return user;
+}
+
 async function requireLocalAdmin(req: any, res: any): Promise<any | null> {
   const sessionId = getSessionId(req);
   if (!sessionId) {
@@ -557,6 +567,8 @@ export async function registerRoutes(
   // Book Dashboard - Get book details with library allocations and recent circulation
   app.get("/api/books/:id/dashboard", async (req, res) => {
     try {
+      const currentUser = await requireStaff(req, res);
+      if (!currentUser) return;
       const bookId = parseInt(req.params.id);
       const book = await storage.getBook(bookId);
       
@@ -744,6 +756,8 @@ export async function registerRoutes(
   // the current physical count across every library and unallocated stock.
   app.get("/api/books/:id/history", async (req, res) => {
     try {
+      const currentUser = await requireStaff(req, res);
+      if (!currentUser) return;
       const bookId = parseInt(req.params.id);
       if (isNaN(bookId)) {
         return res.status(400).json({ error: "Invalid book ID" });
@@ -1466,8 +1480,97 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/me/library-account", async (req, res) => {
+    try {
+      const currentUser = await requireAuthenticatedUser(req, res);
+      if (!currentUser) return;
+      if (currentUser.category !== "PATRON") {
+        return res.status(403).json({ error: "Patron access required" });
+      }
+
+      const records = await storage.getCirculationByUser(currentUser.id);
+      const enriched = await Promise.all(records.map(async (record) => {
+        const [book, copy, library, accrued] = await Promise.all([
+          storage.getBook(record.bookId),
+          record.bookCopyId ? storage.getBookCopy(record.bookCopyId) : Promise.resolve(undefined),
+          record.libraryId ? storage.getLibrary(record.libraryId) : Promise.resolve(undefined),
+          computeAccruedFine(record),
+        ]);
+        const fineOutstanding = Math.max(
+          Math.max(record.fineAmount || 0, accrued.fineCents) -
+            (record.finePaidAmount || 0) -
+            (record.fineWaivedAmount || 0),
+          0,
+        );
+        const damageOutstanding = Math.max(
+          (record.damageCost || 0) -
+            (record.damagePaidAmount || 0) -
+            (record.damageWaivedAmount || 0),
+          0,
+        );
+        return {
+          ...record,
+          bookTitle: book?.title || "Unknown title",
+          bookAuthor: book?.author || "Unknown author",
+          coverUrl: book?.coverUrl || null,
+          copyBarcode: copy?.barcode || null,
+          libraryName: library?.name || null,
+          fineOutstanding,
+          damageOutstanding,
+          totalOutstanding: fineOutstanding + damageOutstanding,
+          daysOverdue: accrued.daysOverdue,
+          isOverdue: accrued.isOverdue,
+        };
+      }));
+      const activeLoans = enriched.filter((record) => record.status === "ACTIVE" || record.status === "OVERDUE");
+      const history = enriched
+        .filter((record) => record.status !== "ACTIVE" && record.status !== "OVERDUE")
+        .sort((a, b) => new Date(b.returnDate || b.checkoutDate).getTime() - new Date(a.returnDate || a.checkoutDate).getTime());
+      const totalOutstanding = enriched.reduce((sum, record) => sum + record.totalOutstanding, 0);
+
+      res.json({
+        user: {
+          id: currentUser.id,
+          name: currentUser.name,
+          studentId: currentUser.studentId,
+          role: currentUser.role,
+        },
+        summary: {
+          activeLoans: activeLoans.length,
+          overdueLoans: activeLoans.filter((record) => record.isOverdue || record.status === "OVERDUE").length,
+          totalOutstanding,
+          historyCount: history.length,
+        },
+        activeLoans,
+        history,
+      });
+    } catch (error) {
+      console.error("Error fetching patron library account:", error);
+      res.status(500).json({ error: "Failed to fetch library account" });
+    }
+  });
+
+  app.get("/api/me/reservation-libraries", async (req, res) => {
+    try {
+      const currentUser = await requireAuthenticatedUser(req, res);
+      if (!currentUser) return;
+      if (currentUser.category !== "PATRON") {
+        return res.status(403).json({ error: "Patron access required" });
+      }
+      const libraries = await storage.getAllLibraries();
+      res.json(libraries
+        .filter((library) => library.isActive)
+        .map(({ id, name, code }) => ({ id, name, code })));
+    } catch (error) {
+      console.error("Error fetching reservation libraries:", error);
+      res.status(500).json({ error: "Failed to fetch reservation libraries" });
+    }
+  });
+
   app.get("/api/circulation/book-lookup", async (req, res) => {
     try {
+      const currentUser = await requireStaff(req, res);
+      if (!currentUser) return;
       const identifier = String(req.query.identifier || "").trim();
       if (!identifier) {
         return res.status(400).json({ error: "ISBN, SSN, or barcode is required" });
@@ -1502,18 +1605,8 @@ export async function registerRoutes(
 
   app.post("/api/circulation/checkout", async (req, res) => {
     try {
-      const sessionId = getSessionId(req);
-      if (!sessionId) {
-        return res.status(401).json({ error: "Authentication required" });
-      }
-      const sessionData = await storage.getSession(sessionId);
-      if (!sessionData) {
-        return res.status(401).json({ error: "Invalid session" });
-      }
-      const issuingUser = await storage.getUser(sessionData.userId);
-      if (!issuingUser) {
-        return res.status(401).json({ error: "User not found" });
-      }
+      const issuingUser = await requireStaff(req, res);
+      if (!issuingUser) return;
 
       const body = {
         ...req.body,
@@ -1618,18 +1711,8 @@ export async function registerRoutes(
 
   app.post("/api/circulation/checkout-batch", async (req, res) => {
     try {
-      const sessionId = getSessionId(req);
-      if (!sessionId) {
-        return res.status(401).json({ error: "Authentication required" });
-      }
-      const sessionData = await storage.getSession(sessionId);
-      if (!sessionData) {
-        return res.status(401).json({ error: "Invalid session" });
-      }
-      const issuingUser = await storage.getUser(sessionData.userId);
-      if (!issuingUser) {
-        return res.status(401).json({ error: "User not found" });
-      }
+      const issuingUser = await requireStaff(req, res);
+      if (!issuingUser) return;
 
       if (!Array.isArray(req.body?.items) || req.body.items.length === 0) {
         return res.status(400).json({ error: "At least one book is required for checkout" });
@@ -2858,6 +2941,8 @@ export async function registerRoutes(
   // ===== Inventory API =====
   app.get("/api/inventory", async (req, res) => {
     try {
+      const currentUser = await requireStaff(req, res);
+      if (!currentUser) return;
       const { sessionId } = req.query;
       
       if (sessionId && typeof sessionId === 'string') {
@@ -2914,6 +2999,8 @@ export async function registerRoutes(
   // ===== Audit Sessions API =====
   app.get("/api/audit-sessions", async (req, res) => {
     try {
+      const currentUser = await requireStaff(req, res);
+      if (!currentUser) return;
       const { libraryId, active } = req.query;
       
       if (active === 'true') {
@@ -2936,6 +3023,8 @@ export async function registerRoutes(
 
   app.get("/api/audit-sessions/:id", async (req, res) => {
     try {
+      const currentUser = await requireStaff(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       const session = await storage.getAuditSession(id);
       
@@ -2952,6 +3041,8 @@ export async function registerRoutes(
 
   app.get("/api/audit-sessions/:id/stats", async (req, res) => {
     try {
+      const currentUser = await requireStaff(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       const session = await storage.getAuditSession(id);
       
@@ -3074,6 +3165,8 @@ export async function registerRoutes(
   // Get enriched inventory items for a session
   app.get("/api/audit-sessions/:id/items-enriched", async (req, res) => {
     try {
+      const currentUser = await requireStaff(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       const session = await storage.getAuditSession(id);
       
@@ -3111,6 +3204,8 @@ export async function registerRoutes(
   // Download audit report as Excel
   app.get("/api/audit-sessions/:id/report", async (req, res) => {
     try {
+      const currentUser = await requireStaff(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       const session = await storage.getAuditSession(id);
       
@@ -3234,6 +3329,8 @@ export async function registerRoutes(
   // ===== Inventory Items API =====
   app.get("/api/inventory-items", async (req, res) => {
     try {
+      const currentUser = await requireStaff(req, res);
+      if (!currentUser) return;
       const { sessionId } = req.query;
       
       if (!sessionId || typeof sessionId !== 'string') {
@@ -6740,6 +6837,8 @@ export async function registerRoutes(
   // ===== Organizational Units API =====
   app.get("/api/org-units", async (req, res) => {
     try {
+      const currentUser = await requireStaff(req, res);
+      if (!currentUser) return;
       const { parentId, type } = req.query;
       
       if (type && typeof type === 'string') {
@@ -6763,6 +6862,8 @@ export async function registerRoutes(
 
   app.get("/api/org-units/:id", async (req, res) => {
     try {
+      const currentUser = await requireStaff(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       const unit = await storage.getOrgUnit(id);
       
@@ -6779,6 +6880,8 @@ export async function registerRoutes(
 
   app.post("/api/org-units", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const validated = insertOrgUnitSchema.parse(req.body);
       
       const existing = await storage.getOrgUnitByCode(validated.code);
@@ -6800,6 +6903,8 @@ export async function registerRoutes(
 
   app.patch("/api/org-units/:id", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       const validated = insertOrgUnitSchema.partial().parse(req.body);
       
@@ -6822,6 +6927,8 @@ export async function registerRoutes(
 
   app.delete("/api/org-units/:id", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       const unit = await storage.getOrgUnit(id);
       
@@ -6978,6 +7085,8 @@ export async function registerRoutes(
 
   app.post("/api/libraries", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const validated = insertLibrarySchema.parse(req.body);
       
       const existing = await storage.getLibraryByCode(validated.code);
@@ -6999,6 +7108,8 @@ export async function registerRoutes(
 
   app.patch("/api/libraries/:id", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       if (isNaN(id) || id <= 0) {
         return res.status(400).json({ error: "Invalid library ID" });
@@ -7090,6 +7201,8 @@ export async function registerRoutes(
 
   app.delete("/api/libraries/:id", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       const library = await storage.getLibrary(id);
       
@@ -7284,6 +7397,8 @@ export async function registerRoutes(
 
   app.get("/api/book-copies/:id/circulation-history", async (req, res) => {
     try {
+      const currentUser = await requireStaff(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       const copy = await storage.getBookCopy(id);
       

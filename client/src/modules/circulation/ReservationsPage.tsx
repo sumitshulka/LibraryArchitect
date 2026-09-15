@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { reservationsApi, librariesApi, booksApi, usersApi, type ReservationApi } from "@/lib/api";
+import { reservationsApi, librariesApi, booksApi, usersApi, patronAccountApi, type ReservationApi } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -60,7 +60,7 @@ export default function ReservationsPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2"><BookmarkCheck className="h-6 w-6" /> Reservations</h1>
-            <p className="text-sm text-muted-foreground">Holds placed by patrons. Active holds tie up an available copy until expiry.</p>
+            <p className="text-sm text-muted-foreground">{isStaff ? "Holds placed by patrons. Active holds tie up an available copy until expiry." : "Reserve books and keep track of your current and past requests."}</p>
           </div>
           <Button onClick={() => setCreateOpen(true)} data-testid="button-new-reservation">
             <Plus className="h-4 w-4 mr-2" /> New Reservation
@@ -86,7 +86,7 @@ export default function ReservationsPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div>
+              {isStaff && <div>
                 <Label className="text-xs">Library</Label>
                 <Select value={filters.libraryId ? String(filters.libraryId) : 'ALL'} onValueChange={v => setFilters(f => ({ ...f, libraryId: v === 'ALL' ? undefined : parseInt(v) }))}>
                   <SelectTrigger data-testid="select-filter-library"><SelectValue placeholder="All" /></SelectTrigger>
@@ -95,13 +95,13 @@ export default function ReservationsPage() {
                     {libraries.map((l: any) => <SelectItem key={l.id} value={String(l.id)}>{l.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
-              </div>
-              <div>
+              </div>}
+              {isStaff && <div>
                 <Label className="text-xs">Patron name / identifier</Label>
                 <Input placeholder="Search will filter list below"
                   data-testid="input-filter-patron"
                   onChange={(e) => setFilters(f => ({ ...f, _q: e.target.value } as any))} />
-              </div>
+              </div>}
               <div>
                 <Label className="text-xs">Book title</Label>
                 <Input placeholder="Search will filter list below"
@@ -123,7 +123,7 @@ export default function ReservationsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Patron</TableHead>
+                  {isStaff && <TableHead>Patron</TableHead>}
                   <TableHead>Book</TableHead>
                   <TableHead>Library</TableHead>
                   <TableHead>Copy</TableHead>
@@ -135,9 +135,9 @@ export default function ReservationsPage() {
               </TableHeader>
               <TableBody>
                 {isLoading ? (
-                  <TableRow><TableCell colSpan={8} className="text-center py-8"><Loader2 className="h-5 w-5 animate-spin inline" /></TableCell></TableRow>
+                  <TableRow><TableCell colSpan={isStaff ? 8 : 7} className="text-center py-8"><Loader2 className="h-5 w-5 animate-spin inline" /></TableCell></TableRow>
                 ) : rows.length === 0 ? (
-                  <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">No reservations</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={isStaff ? 8 : 7} className="text-center py-8 text-muted-foreground">You have no reservations</TableCell></TableRow>
                 ) : rows
                     .filter((r: any) => {
                       const q = (filters as any)._q?.toLowerCase();
@@ -148,10 +148,10 @@ export default function ReservationsPage() {
                     })
                     .map(r => (
                   <TableRow key={r.id} data-testid={`row-reservation-${r.id}`}>
-                    <TableCell>
+                    {isStaff && <TableCell>
                       <div className="font-medium">{r.userName || `User #${r.userId}`}</div>
                       <div className="text-xs text-muted-foreground">{r.userIdentifier}</div>
-                    </TableCell>
+                    </TableCell>}
                     <TableCell>
                       <div className="font-medium">{r.bookTitle || `Book #${r.bookId}`}</div>
                       <div className="text-xs text-muted-foreground">{r.bookAuthor}</div>
@@ -229,7 +229,10 @@ function CreateReservationDialog({ open, onClose, defaultUserId, showPatronPicke
   const [bookSearch, setBookSearch] = useState("");
   const [patronSearch, setPatronSearch] = useState("");
 
-  const { data: libraries = [] } = useQuery({ queryKey: ["libraries"], queryFn: () => librariesApi.getAll() });
+  const { data: libraries = [] } = useQuery({
+    queryKey: [showPatronPicker ? "libraries" : "patron-reservation-libraries"],
+    queryFn: () => showPatronPicker ? librariesApi.getAll() : patronAccountApi.getReservationLibraries(),
+  });
   const { data: books = [] } = useQuery({
     queryKey: ["books", bookSearch],
     queryFn: () => booksApi.getAll(bookSearch || undefined),

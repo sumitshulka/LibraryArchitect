@@ -294,6 +294,47 @@ export const usersApi = {
   },
 };
 
+export interface PatronLoan {
+  id: number;
+  bookId: number;
+  bookCopyId: number | null;
+  libraryId: number | null;
+  checkoutDate: string;
+  dueDate: string;
+  returnDate: string | null;
+  status: string;
+  bookTitle: string;
+  bookAuthor: string;
+  coverUrl: string | null;
+  copyBarcode: string | null;
+  libraryName: string | null;
+  fineOutstanding: number;
+  damageOutstanding: number;
+  totalOutstanding: number;
+  daysOverdue: number;
+  isOverdue: boolean;
+}
+
+export interface PatronLibraryAccount {
+  user: { id: number; name: string; studentId: string | null; role: string };
+  summary: { activeLoans: number; overdueLoans: number; totalOutstanding: number; historyCount: number };
+  activeLoans: PatronLoan[];
+  history: PatronLoan[];
+}
+
+export const patronAccountApi = {
+  getMine: async (): Promise<PatronLibraryAccount> => {
+    const res = await fetch(`${API_BASE}/me/library-account`, { cache: "no-store" });
+    if (!res.ok) throw new Error(await readError(res, "Failed to fetch your library account"));
+    return res.json();
+  },
+  getReservationLibraries: async (): Promise<Array<{ id: number; name: string; code: string }>> => {
+    const res = await fetch(`${API_BASE}/me/reservation-libraries`);
+    if (!res.ok) throw new Error(await readError(res, "Failed to fetch libraries"));
+    return res.json();
+  },
+};
+
 export const libraryAccessApi = {
   getMine: async (): Promise<LibraryAccessSummary> => {
     const res = await fetch(`${API_BASE}/me/library-access`, { cache: "no-store" });

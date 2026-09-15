@@ -39,13 +39,21 @@ import UploadResourcePage from "@/modules/digital-resources/UploadResourcePage";
 import ResourceDetailsPage from "@/modules/digital-resources/ResourceDetailsPage";
 import { Loader2 } from "lucide-react";
 import { libraryAccessApi } from "@/lib/api";
+import StudentDashboardPage from "@/modules/patron/StudentDashboardPage";
+import MyLoansPage from "@/modules/patron/MyLoansPage";
+import MyFinesPage from "@/modules/patron/MyFinesPage";
+import MyHistoryPage from "@/modules/patron/MyHistoryPage";
 
 function ProtectedRoute({
   component: Component,
   localAdminOnly = false,
+  staffOnly = false,
+  patronOnly = false,
 }: {
   component: React.ComponentType;
   localAdminOnly?: boolean;
+  staffOnly?: boolean;
+  patronOnly?: boolean;
 }) {
   const { user, isAuthenticated, isLoading } = useAuth();
   const [location] = useLocation();
@@ -72,6 +80,8 @@ function ProtectedRoute({
   if (localAdminOnly && (user?.role !== "ADMIN" || !user.isLocalUser)) {
     return <Redirect to="/" />;
   }
+  if (staffOnly && user?.category === "PATRON") return <Redirect to="/" />;
+  if (patronOnly && user?.category !== "PATRON") return <Redirect to="/" />;
 
   if (isLibrarian && isLoadingLibraryAccess) {
     return (
@@ -96,40 +106,48 @@ function ProtectedRoute({
   return <Component />;
 }
 
+function RoleDashboardPage() {
+  const { user } = useAuth();
+  return user?.category === "PATRON" ? <StudentDashboardPage /> : <DashboardPage />;
+}
+
 function AppRouter() {
   return (
     <Switch>
       <Route path="/login" component={LoginPage} />
       <Route path="/setup-password" component={PasswordSetupPage} />
       <Route path="/home" component={PublicHomePage} />
-      <Route path="/">{() => <ProtectedRoute component={DashboardPage} />}</Route>
-      <Route path="/dashboard">{() => <ProtectedRoute component={DashboardPage} />}</Route>
-      <Route path="/libraries">{() => <ProtectedRoute component={LibrariesPage} />}</Route>
+      <Route path="/">{() => <ProtectedRoute component={RoleDashboardPage} />}</Route>
+      <Route path="/dashboard">{() => <ProtectedRoute component={RoleDashboardPage} />}</Route>
+      <Route path="/my-loans">{() => <ProtectedRoute component={MyLoansPage} patronOnly />}</Route>
+      <Route path="/my-fines">{() => <ProtectedRoute component={MyFinesPage} patronOnly />}</Route>
+      <Route path="/my-history">{() => <ProtectedRoute component={MyHistoryPage} patronOnly />}</Route>
+      <Route path="/libraries">{() => <ProtectedRoute component={LibrariesPage} staffOnly />}</Route>
       <Route path="/catalog">{() => <ProtectedRoute component={CatalogPage} />}</Route>
       <Route path="/catalog/new">{() => <ProtectedRoute component={AddResourcePage} localAdminOnly />}</Route>
       <Route path="/catalog/bulk-upload">{() => <ProtectedRoute component={BulkUploadPage} localAdminOnly />}</Route>
       <Route path="/catalog/search-attributes">{() => <ProtectedRoute component={SearchAttributesPage} localAdminOnly />}</Route>
       <Route path="/catalog/search-attributes/bulk-assign">{() => <ProtectedRoute component={BulkAssignAttributesPage} localAdminOnly />}</Route>
-      <Route path="/digital-resources">{() => <ProtectedRoute component={DigitalResourcesDashboardPage} />}</Route>
-      <Route path="/digital-resources/repository">{() => <ProtectedRoute component={RepositoryPage} />}</Route>
-      <Route path="/digital-resources/upload">{() => <ProtectedRoute component={UploadResourcePage} />}</Route>
-      <Route path="/digital-resources/:id">{() => <ProtectedRoute component={ResourceDetailsPage} />}</Route>
+      <Route path="/digital-resources">{() => <ProtectedRoute component={DigitalResourcesDashboardPage} staffOnly />}</Route>
+      <Route path="/digital-resources/repository">{() => <ProtectedRoute component={RepositoryPage} staffOnly />}</Route>
+      <Route path="/digital-resources/upload">{() => <ProtectedRoute component={UploadResourcePage} staffOnly />}</Route>
+      <Route path="/digital-resources/:id">{() => <ProtectedRoute component={ResourceDetailsPage} staffOnly />}</Route>
       <Route path="/allocations">{() => <ProtectedRoute component={AllocationsPage} localAdminOnly />}</Route>
-      <Route path="/users">{() => <ProtectedRoute component={UsersPage} />}</Route>
-      <Route path="/circulation">{() => <ProtectedRoute component={CirculationPage} />}</Route>
-      <Route path="/circulation/waiver-requests">{() => <ProtectedRoute component={WaiverRequestsPage} />}</Route>
-      <Route path="/circulation/pending-fines">{() => <ProtectedRoute component={PendingFinesPage} />}</Route>
+      <Route path="/users">{() => <ProtectedRoute component={UsersPage} staffOnly />}</Route>
+      <Route path="/circulation">{() => <ProtectedRoute component={CirculationPage} staffOnly />}</Route>
+      <Route path="/circulation/waiver-requests">{() => <ProtectedRoute component={WaiverRequestsPage} staffOnly />}</Route>
+      <Route path="/circulation/pending-fines">{() => <ProtectedRoute component={PendingFinesPage} staffOnly />}</Route>
       <Route path="/reservations">{() => <ProtectedRoute component={ReservationsPage} />}</Route>
-      <Route path="/lost-damaged">{() => <ProtectedRoute component={LostDamagedPage} />}</Route>
-      <Route path="/inventory">{() => <ProtectedRoute component={InventoryPage} />}</Route>
-      <Route path="/organizations">{() => <ProtectedRoute component={OrganizationsPage} />}</Route>
-      <Route path="/organizations/libraries/:libraryId">{() => <ProtectedRoute component={LibraryDashboardPage} />}</Route>
-      <Route path="/organizations/libraries/:libraryId/resources">{() => <ProtectedRoute component={LibraryResourcesPage} />}</Route>
-      <Route path="/reports">{() => <ProtectedRoute component={ReportsPage} />}</Route>
-      <Route path="/audit-logs">{() => <ProtectedRoute component={AuditLogsPage} />}</Route>
-      <Route path="/messages">{() => <ProtectedRoute component={MessagesPage} />}</Route>
-      <Route path="/settings">{() => <ProtectedRoute component={SettingsPage} />}</Route>
-      <Route path="/settings/sso-testing">{() => <ProtectedRoute component={SSOTestingPage} />}</Route>
+      <Route path="/lost-damaged">{() => <ProtectedRoute component={LostDamagedPage} staffOnly />}</Route>
+      <Route path="/inventory">{() => <ProtectedRoute component={InventoryPage} staffOnly />}</Route>
+      <Route path="/organizations">{() => <ProtectedRoute component={OrganizationsPage} staffOnly />}</Route>
+      <Route path="/organizations/libraries/:libraryId">{() => <ProtectedRoute component={LibraryDashboardPage} staffOnly />}</Route>
+      <Route path="/organizations/libraries/:libraryId/resources">{() => <ProtectedRoute component={LibraryResourcesPage} staffOnly />}</Route>
+      <Route path="/reports">{() => <ProtectedRoute component={ReportsPage} staffOnly />}</Route>
+      <Route path="/audit-logs">{() => <ProtectedRoute component={AuditLogsPage} staffOnly />}</Route>
+      <Route path="/messages">{() => <ProtectedRoute component={MessagesPage} staffOnly />}</Route>
+      <Route path="/settings">{() => <ProtectedRoute component={SettingsPage} staffOnly />}</Route>
+      <Route path="/settings/sso-testing">{() => <ProtectedRoute component={SSOTestingPage} staffOnly />}</Route>
       <Route component={NotFound} />
     </Switch>
   );

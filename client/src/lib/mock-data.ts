@@ -1,4 +1,4 @@
-import { LucideIcon, LayoutDashboard, Book, Users, Repeat, AlertCircle, Settings, PieChart, Layers, Bell, Search, Menu, Building2, Package, ClipboardList, Tags, Coins, BookmarkCheck, Banknote, FolderOpen, AlertTriangle, Library, MessageSquare } from "lucide-react";
+import { LucideIcon, LayoutDashboard, Book, Users, Repeat, AlertCircle, Settings, PieChart, Layers, Bell, Search, Menu, Building2, Package, ClipboardList, Tags, Coins, BookmarkCheck, Banknote, FolderOpen, AlertTriangle, Library, MessageSquare, BookOpenCheck, History } from "lucide-react";
 
 export type UserRole = 'ADMIN' | 'LIBRARIAN' | 'STUDENT';
 
@@ -73,15 +73,15 @@ export const dashboardStats = {
 };
 
 export const navItems = [
-  { label: 'Dashboard', icon: LayoutDashboard, href: '/', localAdminOnly: false },
+  { label: 'Dashboard', icon: LayoutDashboard, href: '/', localAdminOnly: false, patronVisible: true },
   { label: 'Libraries', icon: Library, href: '/libraries', localAdminOnly: false },
-  { label: 'Catalog', icon: Book, href: '/catalog', localAdminOnly: false },
+  { label: 'Catalog', icon: Book, href: '/catalog', localAdminOnly: false, patronVisible: true },
   { label: 'Digital Resources', icon: FolderOpen, href: '/digital-resources', localAdminOnly: false },
   { label: 'Inventory', icon: Layers, href: '/inventory', localAdminOnly: false },
   { label: 'Search Attributes', icon: Tags, href: '/catalog/search-attributes', localAdminOnly: true },
   { label: 'Allocations', icon: Package, href: '/allocations', localAdminOnly: true },
   { label: 'Circulation', icon: Repeat, href: '/circulation', localAdminOnly: false },
-  { label: 'Reservations', icon: BookmarkCheck, href: '/reservations', localAdminOnly: false },
+  { label: 'Reservations', icon: BookmarkCheck, href: '/reservations', localAdminOnly: false, patronVisible: true },
   { label: 'Lost & Damaged', icon: AlertTriangle, href: '/lost-damaged', localAdminOnly: false },
   { label: 'Fines', icon: Banknote, href: '/circulation/pending-fines', localAdminOnly: false },
   { label: 'Waiver Requests', icon: Coins, href: '/circulation/waiver-requests', localAdminOnly: true },
@@ -91,11 +91,15 @@ export const navItems = [
   { label: 'Audit Logs', icon: ClipboardList, href: '/audit-logs', localAdminOnly: true },
   { label: 'Messages', icon: MessageSquare, href: '/messages', localAdminOnly: true },
   { label: 'Settings', icon: Settings, href: '/settings', localAdminOnly: true },
+  { label: 'My Loans', icon: BookOpenCheck, href: '/my-loans', localAdminOnly: false, patronVisible: true, patronOnly: true },
+  { label: 'My Fines', icon: Banknote, href: '/my-fines', localAdminOnly: false, patronVisible: true, patronOnly: true },
+  { label: 'Reading History', icon: History, href: '/my-history', localAdminOnly: false, patronVisible: true, patronOnly: true },
 ];
 
 export const navGroups: { title: string | null; items: string[] }[] = [
   { title: null, items: ['Dashboard', 'Libraries'] },
   { title: 'Collections', items: ['Catalog', 'Digital Resources', 'Inventory', 'Search Attributes'] },
+  { title: 'My Library', items: ['My Loans', 'Reservations', 'My Fines', 'Reading History'] },
   { title: 'Library Operations', items: ['Allocations', 'Circulation', 'Reservations', 'Lost & Damaged', 'Fines', 'Waiver Requests'] },
   { title: 'Members', items: ['Patrons', 'Organizations'] },
   { title: 'Insights', items: ['Reports'] },
