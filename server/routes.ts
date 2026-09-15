@@ -32,7 +32,7 @@ import nodemailer from "nodemailer";
 import * as XLSX from "xlsx";
 import { passwordResetOtps, passwordSetupTokens } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, gt, desc, isNull } from "drizzle-orm";
+import { eq, and, gt, desc, isNull, or } from "drizzle-orm";
 import multer from "multer";
 import { setupSwagger } from "./swagger";
 import { logAudit, invalidateAuditConfigCache } from "./audit";
@@ -4591,7 +4591,10 @@ export async function registerRoutes(
       const { hashPassword } = await import("./sso");
       const passwordUpdate = await db.update(users)
         .set({ password: hashPassword(newPassword) })
-        .where(and(eq(users.id, user.id), isNull(users.password)));
+        .where(and(
+          eq(users.id, user.id),
+          or(isNull(users.password), eq(users.password, "")),
+        ));
       if ((passwordUpdate.rowCount ?? 0) === 0) {
         return res.status(400).json({ error: "This password setup link is no longer available." });
       }

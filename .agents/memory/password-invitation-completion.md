@@ -7,4 +7,4 @@ The password setup flow must persist the local password before marking the one-t
 
 **Why:** The Neon HTTP proxy can silently lose affected rows on direct INSERT/UPDATE RETURNING statements, so account writes and token consumption must not be ordered around an unverified write.
 
-**How to apply:** Use a conditional password update for the uninitialized user, consume the invitation only after that update succeeds, and use returningViaCte when an update method needs to return the affected user.
+**How to apply:** Treat both SQL NULL and an empty string as an uninitialized local password. Use a conditional password update, consume the invitation only after that update succeeds, and use returningViaCte when an update method needs to return the affected user.
