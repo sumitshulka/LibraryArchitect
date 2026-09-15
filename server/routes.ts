@@ -28,7 +28,7 @@ import { fromZodError } from "zod-validation-error";
 import crypto from "crypto";
 import nodemailer from "nodemailer";
 import * as XLSX from "xlsx";
-import { passwordResetOtps } from "@shared/schema";
+import { passwordResetOtps, passwordSetupTokens } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, gt } from "drizzle-orm";
 import multer from "multer";
@@ -245,6 +245,14 @@ function getSessionId(req: any): string | undefined {
   const x = req.headers?.['x-session-id'];
   if (typeof x === 'string' && x.trim()) return x.trim();
   return undefined;
+}
+
+function getPublicOrigin(req: any): string {
+  const forwardedHost = req.headers?.["x-forwarded-host"];
+  const host = (typeof forwardedHost === "string" ? forwardedHost.split(",")[0].trim() : req.get("host")) || "localhost:5000";
+  const forwardedProto = req.headers?.["x-forwarded-proto"];
+  const protocol = (typeof forwardedProto === "string" ? forwardedProto.split(",")[0].trim() : req.protocol) || "http";
+  return `${protocol}://${host}`;
 }
 
 async function requireStaff(req: any, res: any): Promise<any | null> {
@@ -983,6 +991,8 @@ export async function registerRoutes(
   // ===== Users API =====
   app.get("/api/users", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const { category } = req.query;
       
       if (category && (category === 'STAFF' || category === 'PATRON')) {
@@ -1000,6 +1010,8 @@ export async function registerRoutes(
 
   app.get("/api/users/search", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const q = (req.query.q as string || "").trim();
       const role = req.query.role as string;
       const department = req.query.department as string;
@@ -1041,6 +1053,8 @@ export async function registerRoutes(
 
   app.get("/api/users/:id", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       const user = await storage.getUser(id);
       
@@ -1056,8 +1070,11 @@ export async function registerRoutes(
   });
 
   app.post("/api/users", async (req, res) => {
+    let createdUserId: number | undefined;
     try {
-      const validated = insertUserSchema.parse(req.body);
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+      const validated = insertUserSchema.omit({ password: true }).parse(req.body);
       
       // Check for duplicate username/email
       const existingUsername = await storage.getUserByUsername(validated.username);
@@ -1070,10 +1087,47 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Email already exists" });
       }
       
-      const user = await storage.createUser(validated);
-      logAudit(req, { category: 'USER_MANAGEMENT', action: 'USER_CREATED', targetType: 'user', targetId: String(user.id), details: { username: user.username, email: user.email, role: user.role, category: user.category } });
-      res.status(201).json(user);
+      const user = await storage.createUser({ ...validated, password: null });
+      createdUserId = user.id;
+      const setupToken = crypto.randomBytes(32).toString("base64url");
+      const tokenHash = crypto.createHash("sha256").update(setupToken).digest("hex");
+      const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
+      await db.update(passwordSetupTokens)
+        .set({ used: true })
+        .where(and(eq(passwordSetupTokens.userId, user.id), eq(passwordSetupTokens.used, false)));
+      await db.insert(passwordSetupTokens).values({
+        userId: user.id,
+        tokenHash,
+        expiresAt,
+      });
+
+      const setupLink = `${getPublicOrigin(req)}/setup-password?token=${encodeURIComponent(setupToken)}`;
+      const attempts = await emitNotification(storage, {
+        eventId: "USER_PASSWORD_SETUP",
+        recipient: user.email,
+        values: {
+          name: user.name,
+          firstName: user.name.trim().split(/\s+/)[0] || user.name,
+          username: user.username,
+          setupLink,
+          setupUrl: setupLink,
+          expiresAt: expiresAt.toISOString(),
+          message: `Welcome ${user.name}. Set your password using this link: ${setupLink}`,
+        },
+      });
+      if (!attempts.some((attempt) => attempt.status === "SENT")) {
+        await storage.deleteUser(user.id);
+        createdUserId = undefined;
+        return res.status(502).json({ error: "User was not created because the password setup email could not be sent." });
+      }
+
+      logAudit(req, { category: 'USER_MANAGEMENT', action: 'USER_CREATED', targetType: 'user', targetId: String(user.id), details: { username: user.username, email: user.email, role: user.role, category: user.category, passwordSetupInvitationSent: true } });
+      const { password, ...safeUser } = user;
+      res.status(201).json({ ...safeUser, invitationSent: true });
     } catch (error) {
+      if (createdUserId) {
+        await storage.deleteUser(createdUserId).catch(() => undefined);
+      }
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: fromZodError(error).toString() });
       }
@@ -1084,6 +1138,8 @@ export async function registerRoutes(
 
   app.patch("/api/users/:id", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       const validated = insertUserSchema.partial().parse(req.body);
       
@@ -1106,6 +1162,8 @@ export async function registerRoutes(
 
   app.delete("/api/users/:id", async (req, res) => {
     try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       const deleted = await storage.deleteUser(id);
       
@@ -4386,6 +4444,87 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Verify OTP error:", error);
       res.status(500).json({ error: "Failed to verify OTP" });
+    }
+  });
+
+  app.get("/api/auth/password-setup", async (req, res) => {
+    try {
+      const token = typeof req.query.token === "string" ? req.query.token : "";
+      if (!token) return res.status(400).json({ error: "Password setup token is required" });
+      const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+      const [setupRecord] = await db.select().from(passwordSetupTokens)
+        .where(and(
+          eq(passwordSetupTokens.tokenHash, tokenHash),
+          eq(passwordSetupTokens.used, false),
+          gt(passwordSetupTokens.expiresAt, new Date()),
+        ));
+      if (!setupRecord) return res.status(400).json({ error: "This password setup link is invalid or has expired." });
+      const user = await storage.getUser(setupRecord.userId);
+      if (!user || user.password) return res.status(400).json({ error: "This password setup link is no longer available." });
+      res.json({
+        valid: true,
+        user: { name: user.name, username: user.username, email: user.email },
+        expiresAt: setupRecord.expiresAt,
+      });
+    } catch (error) {
+      console.error("Password setup validation error:", error);
+      res.status(500).json({ error: "Failed to validate password setup link" });
+    }
+  });
+
+  app.post("/api/auth/password-setup", async (req, res) => {
+    try {
+      const { token, newPassword, confirmPassword } = req.body;
+      if (!token || !newPassword || !confirmPassword) {
+        return res.status(400).json({ error: "All fields are required" });
+      }
+      if (newPassword !== confirmPassword) {
+        return res.status(400).json({ error: "Passwords do not match" });
+      }
+      if (newPassword.length < 8) {
+        return res.status(400).json({ error: "Password must be at least 8 characters" });
+      }
+      if (!/[a-zA-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+        return res.status(400).json({ error: "Password must contain both letters and numbers" });
+      }
+
+      const tokenHash = crypto.createHash("sha256").update(String(token)).digest("hex");
+      const [setupRecord] = await db.select().from(passwordSetupTokens)
+        .where(eq(passwordSetupTokens.tokenHash, tokenHash));
+      if (!setupRecord || setupRecord.used || setupRecord.expiresAt <= new Date()) {
+        return res.status(400).json({ error: "This password setup link is invalid or has expired." });
+      }
+      const user = await storage.getUser(setupRecord.userId);
+      if (!user || user.password) {
+        return res.status(400).json({ error: "This password setup link is no longer available." });
+      }
+
+      const [claimedToken] = await db.update(passwordSetupTokens)
+        .set({ used: true })
+        .where(and(
+          eq(passwordSetupTokens.id, setupRecord.id),
+          eq(passwordSetupTokens.used, false),
+          gt(passwordSetupTokens.expiresAt, new Date()),
+        ))
+        .returning();
+      if (!claimedToken) {
+        return res.status(400).json({ error: "This password setup link is invalid or has already been used." });
+      }
+
+      const { hashPassword } = await import("./sso");
+      await storage.updateUser(user.id, { password: hashPassword(newPassword) });
+      await logAudit(req, {
+        userId: user.id,
+        userName: user.username,
+        action: "PASSWORD_SETUP_COMPLETED",
+        category: "AUTHENTICATION",
+        status: "SUCCESS",
+        details: { method: "EMAIL_INVITATION" },
+      });
+      res.json({ success: true, message: "Your password has been set successfully." });
+    } catch (error) {
+      console.error("Password setup error:", error);
+      res.status(500).json({ error: "Failed to set password" });
     }
   });
 

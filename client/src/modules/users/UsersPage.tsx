@@ -351,7 +351,7 @@ function UserDialog({
     mutationFn: usersApi.create,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["users"] });
-      toast.success("User created successfully");
+      toast.success("User created and password setup email sent");
       onClose();
     },
     onError: (error: Error) => {

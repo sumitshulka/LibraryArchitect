@@ -8,6 +8,7 @@ import { CurrencyProvider } from "@/lib/useCurrency";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import NotFound from "@/pages/not-found";
 import LoginPage from "@/pages/LoginPage";
+import PasswordSetupPage from "@/pages/PasswordSetupPage";
 import DashboardPage from "@/modules/dashboard/DashboardPage";
 import CatalogPage from "@/modules/catalog/CatalogOverviewPage";
 import AddResourcePage from "@/modules/catalog/AddResourcePage";
@@ -58,6 +59,7 @@ function AppRouter() {
   return (
     <Switch>
       <Route path="/login" component={LoginPage} />
+      <Route path="/setup-password" component={PasswordSetupPage} />
       <Route path="/home" component={PublicHomePage} />
       <Route path="/">{() => <ProtectedRoute component={DashboardPage} />}</Route>
       <Route path="/dashboard">{() => <ProtectedRoute component={DashboardPage} />}</Route>

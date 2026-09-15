@@ -246,6 +246,15 @@ export const passwordResetOtps = pgTable("password_reset_otps", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+export const passwordSetupTokens = pgTable("password_setup_tokens", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  used: boolean("used").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const erpIntegrationWhitelist = pgTable("erp_integration_whitelist", {
   id: serial("id").primaryKey(),
   integrationId: integer("integration_id").notNull().references(() => erpIntegrations.id, { onDelete: 'cascade' }),

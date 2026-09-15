@@ -42,11 +42,14 @@ export default function LoginPage() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showNewPassword, setShowNewPassword] = useState(false);
+  const [setupNotice, setSetupNotice] = useState("");
 
   useEffect(() => {
     const params = new URLSearchParams(searchString);
     const ssoError = params.get("error");
-    if (ssoError && SSO_ERROR_MESSAGES[ssoError]) {
+    if (params.get("setup") === "complete") {
+      setSetupNotice("Your password is ready. Sign in with your username or email.");
+    } else if (ssoError && SSO_ERROR_MESSAGES[ssoError]) {
       setError(SSO_ERROR_MESSAGES[ssoError]);
     } else if (ssoError) {
       setError("SSO login failed. Please try again or contact your administrator.");
@@ -290,6 +293,12 @@ export default function LoginPage() {
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-5">
+                  {setupNotice && (
+                    <Alert className="border-emerald-200 bg-emerald-50 text-emerald-800">
+                      <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                      <AlertDescription>{setupNotice}</AlertDescription>
+                    </Alert>
+                  )}
                   {error && (
                     <Alert variant="destructive" data-testid="alert-login-error">
                       <AlertCircle className="h-4 w-4" />

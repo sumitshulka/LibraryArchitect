@@ -91,10 +91,25 @@ function decryptSecrets(value?: string): Record<string, string> {
 }
 
 function defaultEvents(): NotificationEvent[] {
-  return NOTIFICATION_EVENT_CATALOG.map((event) => ({
-    ...event,
-    routes: DEFAULT_ROUTES.map((route) => ({ ...route, valueKeys: [] })),
-  }));
+  return NOTIFICATION_EVENT_CATALOG.map((event) => {
+    const routes: NotificationRoute[] = DEFAULT_ROUTES.map((route) => ({ ...route, valueKeys: [] }));
+    if (event.id === "USER_PASSWORD_SETUP") {
+      routes[0] = {
+        ...routes[0],
+        providerId: DEFAULT_EMAIL_PROVIDER_ID,
+        enabled: true,
+        subject: "Set up your SC24Lib password",
+        bodyTemplate: [
+          "<p>Hello {{firstName}},</p>",
+          "<p>Your SC24Lib account is ready. Use the secure link below to set your password:</p>",
+          "<p><a href=\"{{setupLink}}\">Set up your password</a></p>",
+          "<p>This link expires at {{expiresAt}} and can only be used once.</p>",
+        ].join(""),
+        valueKeys: ["firstName", "setupLink", "expiresAt"],
+      };
+    }
+    return { ...event, routes };
+  });
 }
 
 function parseJson<T>(value: string | undefined, fallback: T): T {
