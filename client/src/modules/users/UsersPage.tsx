@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
 import { usersApi, librariesApi, staffAllocationsApi, type StaffAllocationLogWithDetails, type StaffAllocationWithLibrary, type AdminUser } from "@/lib/api";
 import type { User, Library } from "@shared/schema";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -114,6 +114,21 @@ export default function UsersPage() {
 
   const users = activeTab === 'STAFF' ? staffUsers : patronUsers;
   const isLoading = activeTab === 'STAFF' ? loadingStaff : loadingPatrons;
+  const usersWithLibraryBadges = users.filter((user) => user.role !== "ADMIN");
+  const libraryAllocationQueries = useQueries({
+    queries: usersWithLibraryBadges.map((user) => ({
+      queryKey: ["staff-allocations", user.id],
+      queryFn: () => staffAllocationsApi.getStaffAllocations(user.id),
+      enabled: currentUser?.role === "ADMIN",
+      staleTime: 30_000,
+    })),
+  });
+  const allocationsByUserId = new Map(
+    usersWithLibraryBadges.map((user, index) => [
+      user.id,
+      libraryAllocationQueries[index]?.data?.filter((allocation) => allocation.isActive) || [],
+    ]),
+  );
 
   const filteredUsers = users.filter((user) => {
     return (
@@ -288,6 +303,30 @@ export default function UsersPage() {
                         </div>
                         <span className="text-xs text-muted-foreground">{user.email}</span>
                         <div className="mt-1">{getPasswordSetupBadge(user as AdminUser)}</div>
+                        {user.role !== "ADMIN" && (
+                          <div className="mt-2 flex flex-wrap items-center gap-1" data-testid={`user-libraries-${user.id}`}>
+                            {(allocationsByUserId.get(user.id) || []).slice(0, 2).map((allocation) => (
+                              <Badge
+                                key={allocation.libraryId}
+                                variant="outline"
+                                className="max-w-[150px] truncate gap-1 text-xs font-normal"
+                                title={allocation.library?.name || "Unknown library"}
+                              >
+                                <LibraryIcon className="h-3 w-3 shrink-0" />
+                                {allocation.library?.name || "Unknown library"}
+                              </Badge>
+                            ))}
+                            {(allocationsByUserId.get(user.id) || []).length > 2 && (
+                              <Badge
+                                variant="secondary"
+                                className="text-xs font-normal"
+                                title={(allocationsByUserId.get(user.id) || []).slice(2).map((allocation) => allocation.library?.name || "Unknown library").join(", ")}
+                              >
+                                +{(allocationsByUserId.get(user.id) || []).length - 2} more
+                              </Badge>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell>
