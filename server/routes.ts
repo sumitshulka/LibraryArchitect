@@ -37,7 +37,7 @@ import { eq, and, gt, desc, isNull, or } from "drizzle-orm";
 import multer from "multer";
 import { setupSwagger } from "./swagger";
 import { logAudit, invalidateAuditConfigCache } from "./audit";
-import { registerReservationRoutes } from "./reservations";
+import { registerReservationRoutes, resolveLibraryReservationDays } from "./reservations";
 import { registerErpExtraRoutes } from "./erp-extra";
 import { registerDigitalResourceRoutes } from "./digital-resources";
 import { registerLostDamagedRoutes } from "./lost-damaged";
@@ -1558,9 +1558,13 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Patron access required" });
       }
       const libraries = await storage.getAllLibraries();
-      res.json(libraries
-        .filter((library) => library.isActive)
-        .map(({ id, name, code }) => ({ id, name, code })));
+      const activeLibraries = libraries.filter((library) => library.isActive);
+      res.json(await Promise.all(activeLibraries.map(async ({ id, name, code }) => ({
+        id,
+        name,
+        code,
+        reservationDays: await resolveLibraryReservationDays(id),
+      }))));
     } catch (error) {
       console.error("Error fetching reservation libraries:", error);
       res.status(500).json({ error: "Failed to fetch reservation libraries" });

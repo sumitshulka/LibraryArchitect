@@ -236,7 +236,7 @@ function CreateReservationDialog({ open, onClose, defaultUserId, showPatronPicke
   const [bookSearch, setBookSearch] = useState("");
   const [patronSearch, setPatronSearch] = useState("");
 
-  const { data: libraries = [] } = useQuery({
+  const { data: libraries = [] } = useQuery<Array<{ id: number; name: string }>>({
     queryKey: [showPatronPicker ? "libraries" : "patron-reservation-libraries"],
     queryFn: () => showPatronPicker ? librariesApi.getAll() : patronAccountApi.getReservationLibraries(),
   });

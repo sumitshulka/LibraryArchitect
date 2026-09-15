@@ -328,7 +328,7 @@ export const patronAccountApi = {
     if (!res.ok) throw new Error(await readError(res, "Failed to fetch your library account"));
     return res.json();
   },
-  getReservationLibraries: async (): Promise<Array<{ id: number; name: string; code: string }>> => {
+  getReservationLibraries: async (): Promise<Array<{ id: number; name: string; code: string; reservationDays: number }>> => {
     const res = await fetch(`${API_BASE}/me/reservation-libraries`);
     if (!res.ok) throw new Error(await readError(res, "Failed to fetch libraries"));
     return res.json();

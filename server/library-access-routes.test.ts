@@ -36,7 +36,10 @@ vi.mock("./fines", () => ({
   loadGlobalCirculationDefaults: vi.fn(),
 }));
 vi.mock("./swagger", () => ({ setupSwagger: vi.fn() }));
-vi.mock("./reservations", () => ({ registerReservationRoutes: vi.fn() }));
+vi.mock("./reservations", () => ({
+  registerReservationRoutes: vi.fn(),
+  resolveLibraryReservationDays: vi.fn(async () => 7),
+}));
 vi.mock("./erp-extra", () => ({ registerErpExtraRoutes: vi.fn() }));
 vi.mock("./digital-resources", () => ({ registerDigitalResourceRoutes: vi.fn() }));
 vi.mock("./lost-damaged", () => ({ registerLostDamagedRoutes: vi.fn() }));
@@ -213,7 +216,7 @@ describe("library access authorization and messages", () => {
     const librariesResponse = await request("/api/me/reservation-libraries");
     expect(librariesResponse.status).toBe(200);
     expect(await librariesResponse.json()).toEqual([
-      { id: libraries[0].id, name: libraries[0].name, code: libraries[0].code },
+      { id: libraries[0].id, name: libraries[0].name, code: libraries[0].code, reservationDays: 7 },
     ]);
   });
 
