@@ -35,6 +35,7 @@ import { booksApi, statsApi, type BookWithSearchAttributes } from "@/lib/api";
 import type { Book } from "@shared/schema";
 import { useAuth } from "@/lib/auth";
 import { formatIsbn } from "@/lib/isbn";
+import { PatronPagination } from "@/modules/patron/patronShared";
 import { toast } from "sonner";
 import { useCurrency } from "@/lib/useCurrency";
 import { BookDetailsSheet, BookHistoryDialog, CatalogAnalyticsDialog, EditBookDialog } from "./CatalogPage";
@@ -249,16 +250,35 @@ export default function CatalogOverviewPage() {
   const [addCopiesDialogOpen, setAddCopiesDialogOpen] = useState(false);
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
   const [notice, setNotice] = useState("");
+  const [catalogPage, setCatalogPage] = useState(1);
+  const catalogPageSize = 24;
   const queryClient = useQueryClient();
 
-  const { data: books = [], isLoading } = useQuery({
+  const staffBooksQuery = useQuery({
     queryKey: ["books", searchQuery, attributeValueIds],
     queryFn: () => booksApi.getAll(searchQuery || undefined, attributeValueIds.length ? attributeValueIds : undefined),
+    enabled: !isPatron,
+  });
+  const patronBooksQuery = useQuery({
+    queryKey: ["patron-books", searchQuery, statusFilter, attributeValueIds, catalogPage],
+    queryFn: () => booksApi.getPage({
+      search: searchQuery || undefined,
+      status: statusFilter || undefined,
+      attributeValueIds: attributeValueIds.length ? attributeValueIds : undefined,
+      limit: catalogPageSize,
+      offset: (catalogPage - 1) * catalogPageSize,
+    }),
+    enabled: isPatron,
   });
   const { data: summaryBooks = [] } = useQuery({
     queryKey: ["catalog-summary-books"],
     queryFn: () => booksApi.getAll(),
+    enabled: !isPatron,
   });
+  const books = isPatron ? (patronBooksQuery.data?.books ?? []) : (staffBooksQuery.data ?? []);
+  const isLoading = isPatron ? patronBooksQuery.isLoading : staffBooksQuery.isLoading;
+  const catalogTotal = isPatron ? (patronBooksQuery.data?.total ?? 0) : books.length;
+  useEffect(() => setCatalogPage(1), [searchQuery, statusFilter, attributeValueIds]);
   const { data: dashboardStats, isLoading: statsLoading } = useQuery({
     queryKey: ["dashboard-stats", user?.id],
     queryFn: statsApi.getDashboard,
@@ -266,8 +286,8 @@ export default function CatalogOverviewPage() {
   });
 
   const filteredBooks = useMemo(
-    () => books.filter((book) => !statusFilter || book.status === statusFilter),
-    [books, statusFilter],
+    () => isPatron ? books : books.filter((book) => !statusFilter || book.status === statusFilter),
+    [books, statusFilter, isPatron],
   );
   const attentionCount = summaryBooks.filter((book) => book.status === "LOST" || book.status === "MAINTENANCE").length + (dashboardStats?.overdueItems ?? 0);
   const totalBooks = dashboardStats?.totalBooks ?? summaryBooks.length;
@@ -359,7 +379,7 @@ export default function CatalogOverviewPage() {
               </div>
               <div className="flex flex-wrap items-center justify-between gap-2 sm:justify-end">
                 <SearchAttributesFilter selectedValueIds={attributeValueIds} onChange={setAttributeValueIds} />
-                <span className="text-xs text-muted-foreground">{filteredBooks.length} of {books.length} visible</span>
+                <span className="text-xs text-muted-foreground">{isPatron ? `${filteredBooks.length} of ${catalogTotal} visible` : `${filteredBooks.length} of ${books.length} visible`}</span>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" size="sm" className="h-9 gap-2" data-testid="button-filter">
@@ -430,9 +450,10 @@ export default function CatalogOverviewPage() {
               </table>
             </div>
             <div className="flex items-center justify-between border-t px-4 py-3 text-xs text-muted-foreground">
-              <span>Showing {filteredBooks.length} of {books.length} entries</span>
-              <span className="rounded bg-muted px-2 py-1 font-medium text-muted-foreground">Page 1</span>
+              <span>Showing {filteredBooks.length} of {catalogTotal} entries</span>
+              {!isPatron && <span className="rounded bg-muted px-2 py-1 font-medium text-muted-foreground">Page 1</span>}
             </div>
+            {isPatron && <div className="px-4 pb-4"><PatronPagination page={catalogPage} total={catalogTotal} pageSize={catalogPageSize} onPageChange={setCatalogPage} /></div>}
           </div>
 
           <div className="mt-5 flex flex-col justify-between gap-3 border-t pt-4 text-xs text-muted-foreground sm:flex-row">

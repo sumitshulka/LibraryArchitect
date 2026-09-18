@@ -1,6 +1,6 @@
 import { Link } from "wouter";
 import { format, isPast } from "date-fns";
-import { ArrowRight, BookOpen, CalendarClock, CircleAlert, Library, RotateCcw, type LucideIcon } from "lucide-react";
+import { ArrowLeft, ArrowRight, BookOpen, CalendarClock, CircleAlert, Library, RotateCcw, type LucideIcon } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Badge } from "@/components/ui/badge";
@@ -58,6 +58,18 @@ export function SectionHeading({ title, description, href }: { title: string; de
 
 export function EmptyPanel({ icon: Icon = RotateCcw, title, description, href }: { icon?: LucideIcon; title: string; description: string; href?: string }) {
   return <Card className="border-dashed border-slate-300 bg-slate-50/50"><CardContent className="flex flex-col items-center py-14 text-center"><Icon className="mb-3 h-8 w-8 text-slate-400" /><h3 className="font-semibold text-slate-800">{title}</h3><p className="mt-1 max-w-sm text-sm text-slate-500">{description}</p>{href && <Link href={href} className="mt-4"><Button variant="outline">Explore catalog</Button></Link>}</CardContent></Card>;
+}
+
+export function PatronPagination({ page, total, pageSize, onPageChange }: { page: number; total: number; pageSize: number; onPageChange: (page: number) => void }) {
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  if (pageCount <= 1) return null;
+  return <div className="flex flex-col items-center justify-between gap-3 border-t border-slate-200 pt-4 text-sm sm:flex-row">
+    <p className="text-xs text-slate-500">Page {page} of {pageCount} · {total} {total === 1 ? "item" : "items"}</p>
+    <div className="flex items-center gap-2">
+      <Button variant="outline" size="sm" className="gap-1" disabled={page === 1} onClick={() => onPageChange(page - 1)}><ArrowLeft className="h-3.5 w-3.5" />Previous</Button>
+      <Button variant="outline" size="sm" className="gap-1" disabled={page === pageCount} onClick={() => onPageChange(page + 1)}>Next<ArrowRight className="h-3.5 w-3.5" /></Button>
+    </div>
+  </div>;
 }
 
 export { Card, CardContent, CardHeader, CardTitle, Separator };

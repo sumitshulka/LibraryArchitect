@@ -515,7 +515,7 @@ export async function registerRoutes(
   // ===== Books API =====
   app.get("/api/books", async (req, res) => {
     try {
-      const { search, attributeValueIds } = req.query;
+      const { search, attributeValueIds, status } = req.query;
 
       const attrIds = attributeValueIds
         ? String(attributeValueIds).split(',').map(Number).filter(n => !isNaN(n))
@@ -534,6 +534,9 @@ export async function registerRoutes(
         );
         books = books.filter(b => allowedBookIds.has(b.id));
       }
+      if (status && typeof status === "string") {
+        books = books.filter(b => b.status === status);
+      }
 
       const attributesByBook = await storage.getResourceSearchAttributesForBooks(books.map(b => b.id));
       const booksWithAttributes = books.map(b => ({
@@ -541,7 +544,22 @@ export async function registerRoutes(
         searchAttributes: attributesByBook.get(b.id) || [],
       }));
 
-      res.json(booksWithAttributes);
+      const hasPagination = req.query.limit !== undefined || req.query.offset !== undefined;
+      if (!hasPagination) {
+        return res.json(booksWithAttributes);
+      }
+      const requestedLimit = Number.parseInt(String(req.query.limit ?? "24"), 10);
+      const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 100) : 24;
+      const requestedOffset = Number.parseInt(String(req.query.offset ?? "0"), 10);
+      const offset = Number.isFinite(requestedOffset) ? Math.max(requestedOffset, 0) : 0;
+      const pageBooks = booksWithAttributes.slice(offset, offset + limit);
+      res.json({
+        books: pageBooks,
+        total: booksWithAttributes.length,
+        limit,
+        offset,
+        hasMore: offset + pageBooks.length < booksWithAttributes.length,
+      });
     } catch (error) {
       console.error("Error fetching books:", error);
       res.status(500).json({ error: "Failed to fetch books" });

@@ -61,6 +61,23 @@ export const booksApi = {
     if (!res.ok) throw new Error("Failed to fetch books");
     return res.json();
   },
+  getPage: async (params: {
+    search?: string;
+    attributeValueIds?: number[];
+    status?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ books: BookWithSearchAttributes[]; total: number; limit: number; offset: number; hasMore: boolean }> => {
+    const query = new URLSearchParams();
+    if (params.search) query.set("search", params.search);
+    if (params.attributeValueIds?.length) query.set("attributeValueIds", params.attributeValueIds.join(","));
+    if (params.status) query.set("status", params.status);
+    query.set("limit", String(params.limit ?? 24));
+    query.set("offset", String(params.offset ?? 0));
+    const res = await fetch(`${API_BASE}/books?${query.toString()}`);
+    if (!res.ok) throw new Error("Failed to fetch books");
+    return res.json();
+  },
 
   getById: async (id: number): Promise<Book> => {
     const res = await fetch(`${API_BASE}/books/${id}`);

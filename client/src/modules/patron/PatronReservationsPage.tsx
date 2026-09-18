@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { addDays, format, isPast } from "date-fns";
 import { toast } from "sonner";
@@ -6,7 +6,7 @@ import {
   BookOpen, CalendarDays, Check, Clock3, Info, Library, Plus, Search, Sparkles, Trash2,
 } from "lucide-react";
 import { MainLayout } from "@/components/layout/MainLayout";
-import { AccountHeader, EmptyPanel, PatronError } from "./patronShared";
+import { AccountHeader, EmptyPanel, PatronError, PatronPagination } from "./patronShared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -31,6 +31,8 @@ export default function PatronReservationsPage() {
   const [search, setSearch] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [cancelTarget, setCancelTarget] = useState<ReservationApi | null>(null);
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
   const query = useQuery({ queryKey: ["patron-reservations", "all"], queryFn: () => reservationsApi.list() });
   const cancel = useMutation({
     mutationFn: (id: number) => reservationsApi.cancel(id),
@@ -42,6 +44,8 @@ export default function PatronReservationsPage() {
     const haystack = `${row.bookTitle ?? ""} ${row.bookAuthor ?? ""} ${row.libraryName ?? ""}`.toLowerCase();
     return (status === "ALL" || row.status === status) && (!search || haystack.includes(search.toLowerCase()));
   }), [rows, search, status]);
+  useEffect(() => setPage(1), [search, status]);
+  const visibleRows = filtered.slice((page - 1) * pageSize, page * pageSize);
   const active = rows.filter((row) => row.status === "ACTIVE");
   const readySoon = active.filter((row) => !isPast(new Date(row.expiresAt))).length;
 
@@ -67,7 +71,7 @@ export default function PatronReservationsPage() {
         </CardContent>
       </Card>
       {filtered.length === 0 ? <EmptyPanel icon={Sparkles} title={search || status !== "ALL" ? "Nothing matches this view" : "Your next read starts here"} description={search || status !== "ALL" ? "Try another search or show all reservations." : "Browse the catalog and reserve a title when you are ready."} href="/catalog" /> :
-        <div className="grid gap-4 lg:grid-cols-2">{filtered.map((row) => <ReservationCard key={row.id} row={row} onCancel={setCancelTarget} />)}</div>}
+         <><div className="grid gap-4 lg:grid-cols-2">{visibleRows.map((row) => <ReservationCard key={row.id} row={row} onCancel={setCancelTarget} />)}</div><PatronPagination page={page} total={filtered.length} pageSize={pageSize} onPageChange={setPage} /></>}
     </div>
     <CreateReservationDialog open={createOpen} onClose={() => setCreateOpen(false)} />
     <Dialog open={!!cancelTarget} onOpenChange={(open) => !open && setCancelTarget(null)}>
