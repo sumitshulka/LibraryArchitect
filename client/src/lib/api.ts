@@ -263,6 +263,13 @@ export const usersApi = {
     if (!res.ok) throw new Error("Failed to fetch users");
     return res.json();
   },
+  getPageByCategory: async (category: 'STAFF' | 'PATRON', params: { search?: string; limit?: number; offset?: number } = {}): Promise<{ users: User[]; total: number; limit: number; offset: number; hasMore: boolean }> => {
+    const query = new URLSearchParams({ category, limit: String(params.limit ?? 20), offset: String(params.offset ?? 0) });
+    if (params.search) query.set("search", params.search);
+    const res = await fetch(`${API_BASE}/users?${query.toString()}`);
+    if (!res.ok) throw new Error("Failed to fetch users");
+    return res.json();
+  },
 
   getById: async (id: number): Promise<User> => {
     const res = await fetch(`${API_BASE}/users/${id}`);

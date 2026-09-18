@@ -1213,13 +1213,34 @@ export async function registerRoutes(
       const currentUser = await requireStaff(req, res);
       if (!currentUser) return;
       const { category } = req.query;
-      
+      const search = typeof req.query.search === "string" ? req.query.search.trim().toLowerCase() : "";
+      const hasPagination = req.query.limit !== undefined || req.query.offset !== undefined;
+      const requestedLimit = Number.parseInt(String(req.query.limit ?? "20"), 10);
+      const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 100) : 20;
+      const requestedOffset = Number.parseInt(String(req.query.offset ?? "0"), 10);
+      const offset = Number.isFinite(requestedOffset) ? Math.max(requestedOffset, 0) : 0;
+
+      const present = async (users: User[]) => {
+        const searched = search
+          ? users.filter((user) => `${user.name} ${user.email}`.toLowerCase().includes(search))
+          : users;
+        if (!hasPagination) return presentUsersToStaff(currentUser, searched);
+        const pageUsers = searched.slice(offset, offset + limit);
+        return {
+          users: await presentUsersToStaff(currentUser, pageUsers),
+          total: searched.length,
+          limit,
+          offset,
+          hasMore: offset + pageUsers.length < searched.length,
+        };
+      };
+
       if (category && (category === 'STAFF' || category === 'PATRON')) {
         const users = await getUsersVisibleToStaff(currentUser, category);
-        res.json(await presentUsersToStaff(currentUser, users));
+        res.json(await present(users));
       } else {
         const users = await getUsersVisibleToStaff(currentUser);
-        res.json(await presentUsersToStaff(currentUser, users));
+        res.json(await present(users));
       }
     } catch (error) {
       console.error("Error fetching users:", error);

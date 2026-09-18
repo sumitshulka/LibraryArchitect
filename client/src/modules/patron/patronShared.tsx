@@ -60,9 +60,9 @@ export function EmptyPanel({ icon: Icon = RotateCcw, title, description, href }:
   return <Card className="border-dashed border-slate-300 bg-slate-50/50"><CardContent className="flex flex-col items-center py-14 text-center"><Icon className="mb-3 h-8 w-8 text-slate-400" /><h3 className="font-semibold text-slate-800">{title}</h3><p className="mt-1 max-w-sm text-sm text-slate-500">{description}</p>{href && <Link href={href} className="mt-4"><Button variant="outline">Explore catalog</Button></Link>}</CardContent></Card>;
 }
 
-export function PatronPagination({ page, total, pageSize, onPageChange }: { page: number; total: number; pageSize: number; onPageChange: (page: number) => void }) {
+export function PatronPagination({ page, total, pageSize, onPageChange, alwaysShow = false }: { page: number; total: number; pageSize: number; onPageChange: (page: number) => void; alwaysShow?: boolean }) {
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
-  if (pageCount <= 1) return null;
+  if (pageCount <= 1 && !alwaysShow) return null;
   return <div className="flex flex-col items-center justify-between gap-3 border-t border-slate-200 pt-4 text-sm sm:flex-row">
     <p className="text-xs text-slate-500">Page {page} of {pageCount} · {total} {total === 1 ? "item" : "items"}</p>
     <div className="flex items-center gap-2">

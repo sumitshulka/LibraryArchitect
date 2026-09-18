@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -46,6 +46,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Plus, Search, MoreHorizontal, Mail, Shield, Users, UserCog, Pencil, Trash2, Building2, RefreshCw, Library as LibraryIcon, X, History, PlusCircle, MinusCircle, CheckCircle2, Clock3, AlertCircle, KeyRound } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import { PatronPagination } from "@/modules/patron/patronShared";
 
 export default function UsersPage() {
   const { user: currentUser } = useAuth();
@@ -55,20 +56,25 @@ export default function UsersPage() {
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [allocatingUser, setAllocatingUser] = useState<User | null>(null);
+  const [page, setPage] = useState(1);
+  const pageSize = 20;
 
   const queryClient = useQueryClient();
 
-  const { data: staffUsers = [], isLoading: loadingStaff, refetch: refetchStaff } = useQuery({
-    queryKey: ["users", "STAFF"],
-    queryFn: () => usersApi.getByCategory('STAFF'),
+  const { data: staffPage = { users: [], total: 0 }, isLoading: loadingStaff, refetch: refetchStaff } = useQuery({
+    queryKey: ["users", "STAFF", searchQuery, page],
+    queryFn: () => usersApi.getPageByCategory('STAFF', { search: searchQuery || undefined, limit: pageSize, offset: (page - 1) * pageSize }),
     refetchInterval: 15_000,
   });
 
-  const { data: patronUsers = [], isLoading: loadingPatrons, refetch: refetchPatrons } = useQuery({
-    queryKey: ["users", "PATRON"],
-    queryFn: () => usersApi.getByCategory('PATRON'),
+  const { data: patronPage = { users: [], total: 0 }, isLoading: loadingPatrons, refetch: refetchPatrons } = useQuery({
+    queryKey: ["users", "PATRON", searchQuery, page],
+    queryFn: () => usersApi.getPageByCategory('PATRON', { search: searchQuery || undefined, limit: pageSize, offset: (page - 1) * pageSize }),
     refetchInterval: 15_000,
   });
+  const staffUsers = staffPage.users;
+  const patronUsers = patronPage.users;
+  useEffect(() => setPage(1), [activeTab, searchQuery]);
 
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -131,12 +137,8 @@ export default function UsersPage() {
     ]),
   );
 
-  const filteredUsers = users.filter((user) => {
-    return (
-      user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-  });
+  const totalUsers = activeTab === 'STAFF' ? staffPage.total : patronPage.total;
+  const filteredUsers = users;
 
   const getRoleBadge = (role: User['role']) => {
     switch (role) {
@@ -224,15 +226,15 @@ export default function UsersPage() {
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'STAFF' | 'PATRON')} className="mt-4">
+      <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v as 'STAFF' | 'PATRON'); setPage(1); }} className="mt-4">
         <TabsList className="grid w-full max-w-md grid-cols-2">
           <TabsTrigger value="STAFF" className="gap-2" data-testid="tab-staff">
             <UserCog className="h-4 w-4" />
-            Library Staff ({staffUsers.length})
+             Library Staff ({staffPage.total})
           </TabsTrigger>
           <TabsTrigger value="PATRON" className="gap-2" data-testid="tab-patrons">
             <Users className="h-4 w-4" />
-            Library Users ({patronUsers.length})
+             Library Users ({patronPage.total})
           </TabsTrigger>
         </TabsList>
 
@@ -250,7 +252,7 @@ export default function UsersPage() {
                 />
               </div>
               <div className="text-sm text-muted-foreground">
-                {filteredUsers.length} {activeTab === 'STAFF' ? 'staff members' : 'patrons'}
+                 {filteredUsers.length} of {totalUsers} {activeTab === 'STAFF' ? 'staff members' : 'patrons'}
               </div>
             </div>
 
@@ -402,6 +404,9 @@ export default function UsersPage() {
                 ))}
               </TableBody>
             </Table>
+             <div className="px-4 pb-4">
+               <PatronPagination page={page} total={totalUsers} pageSize={pageSize} onPageChange={setPage} alwaysShow />
+             </div>
           </div>
         </TabsContent>
       </Tabs>
