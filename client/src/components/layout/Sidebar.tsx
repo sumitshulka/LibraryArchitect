@@ -27,7 +27,10 @@ function SidebarContent({ onLinkClick }: { onLinkClick?: () => void }) {
   const itemsByLabel = new Map(visibleItems.map(item => [item.label, item]));
 
   const visibleGroups = navGroups
-    .filter(group => !isPatron || group.title !== "Library Operations")
+    .filter(group => {
+      if (isPatron) return group.title !== "Library Operations";
+      return group.title !== "My Library";
+    })
     .map(group => ({
       title: group.title,
       items: group.items.map(label => itemsByLabel.get(label)).filter((item): item is NonNullable<typeof item> => !!item),
