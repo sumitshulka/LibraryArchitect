@@ -7623,6 +7623,21 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/libraries/summaries", async (req, res) => {
+    try {
+      const currentUser = await requireStaff(req, res);
+      if (!currentUser) return;
+      const accessibleLibraries = await getAccessibleLibrariesForUser(currentUser);
+      const summaries = await storage.getLibrarySummaries(
+        accessibleLibraries.map((library) => library.id),
+      );
+      res.json(summaries);
+    } catch (error) {
+      console.error("Error fetching library summaries:", error);
+      res.status(500).json({ error: "Failed to fetch library summaries" });
+    }
+  });
+
   app.get("/api/libraries/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id);

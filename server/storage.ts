@@ -164,6 +164,14 @@ export interface LibraryStaffMember {
   allocatedAt: Date;
 }
 
+export interface LibrarySummary extends Library {
+  librarianNames: string[];
+  bookCount: number;
+  copyCount: number;
+  digitalResourceCount: number;
+  staffCount: number;
+}
+
 export interface LibraryAccessRequestWithDetails extends LibraryAccessRequest {
   requesterName: string;
   requesterEmail: string;
@@ -508,6 +516,7 @@ export interface IStorage {
   getAllLibraries(): Promise<Library[]>;
   getLibrariesByOrgUnit(orgUnitId: number): Promise<Library[]>;
   getActiveLibraries(): Promise<Library[]>;
+  getLibrarySummaries(libraryIds?: number[]): Promise<LibrarySummary[]>;
   
   // Book Copies
   getBookCopy(id: number): Promise<BookCopy | undefined>;
@@ -2245,6 +2254,72 @@ export class DBStorage implements IStorage {
           allocatedAt: m.joinedAt,
         };
       });
+  }
+
+  async getLibrarySummaries(libraryIds?: number[]): Promise<LibrarySummary[]> {
+    const librariesList = libraryIds
+      ? libraryIds.length > 0
+        ? await db.select().from(libraries).where(inArray(libraries.id, libraryIds))
+        : []
+      : await db.select().from(libraries);
+
+    if (librariesList.length === 0) return [];
+
+    const ids = librariesList.map((library) => library.id);
+    const [bookCounts, digitalResourceCounts, staffCounts] = await Promise.all([
+      db.select({
+        libraryId: bookCopies.libraryId,
+        bookCount: sql<number>`count(distinct ${bookCopies.bookId})`,
+        copyCount: sql<number>`count(*)`,
+      })
+        .from(bookCopies)
+        .where(inArray(bookCopies.libraryId, ids))
+        .groupBy(bookCopies.libraryId),
+      db.select({
+        libraryId: digitalResources.libraryId,
+        resourceCount: sql<number>`count(*)`,
+      })
+        .from(digitalResources)
+        .where(inArray(digitalResources.libraryId, ids))
+        .groupBy(digitalResources.libraryId),
+      db.select({
+        libraryId: libraryMemberships.libraryId,
+        staffCount: sql<number>`count(*)`,
+        librarianNames: sql<string[]>`coalesce(
+          array_agg(${users.name}) filter (where ${users.role} = 'LIBRARIAN'),
+          array[]::text[]
+        )`,
+      })
+        .from(libraryMemberships)
+        .innerJoin(users, eq(libraryMemberships.userId, users.id))
+        .where(and(
+          inArray(libraryMemberships.libraryId, ids),
+          eq(libraryMemberships.isActive, true),
+          eq(users.category, "STAFF"),
+        ))
+        .groupBy(libraryMemberships.libraryId),
+    ]);
+
+    const booksByLibrary = new Map(bookCounts.map((row) => [
+      row.libraryId,
+      { bookCount: Number(row.bookCount), copyCount: Number(row.copyCount) },
+    ]));
+    const digitalResourcesByLibrary = new Map(
+      digitalResourceCounts.map((row) => [row.libraryId, Number(row.resourceCount)]),
+    );
+    const staffByLibrary = new Map(staffCounts.map((row) => [
+      row.libraryId,
+      { staffCount: Number(row.staffCount), librarianNames: row.librarianNames },
+    ]));
+
+    return librariesList.map((library) => ({
+      ...library,
+      librarianNames: staffByLibrary.get(library.id)?.librarianNames ?? [],
+      bookCount: booksByLibrary.get(library.id)?.bookCount ?? 0,
+      copyCount: booksByLibrary.get(library.id)?.copyCount ?? 0,
+      digitalResourceCount: digitalResourcesByLibrary.get(library.id) ?? 0,
+      staffCount: staffByLibrary.get(library.id)?.staffCount ?? 0,
+    }));
   }
 
   // Library Dashboard

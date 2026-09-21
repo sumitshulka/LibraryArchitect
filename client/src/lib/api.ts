@@ -1536,6 +1536,12 @@ export const librariesApi = {
     return res.json();
   },
 
+  getSummaries: async (): Promise<LibrarySummary[]> => {
+    const res = await fetch(`${API_BASE}/libraries/summaries`);
+    if (!res.ok) throw new Error("Failed to fetch library summaries");
+    return res.json();
+  },
+
   getActive: async (): Promise<Library[]> => {
     const res = await fetch(`${API_BASE}/libraries?active=true`);
     if (!res.ok) throw new Error("Failed to fetch active libraries");
@@ -1700,6 +1706,14 @@ export interface LibraryDashboardStats {
   pendingTransfersOut: number;
   
   totalMembers: number;
+}
+
+export interface LibrarySummary extends Library {
+  librarianNames: string[];
+  bookCount: number;
+  copyCount: number;
+  digitalResourceCount: number;
+  staffCount: number;
 }
 
 export type BookCopyIdentifierField = "barcode" | "internalSSN" | "userDefinedSSN";
