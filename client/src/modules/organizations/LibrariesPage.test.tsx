@@ -44,6 +44,8 @@ function makeLibrary(id: number, name = `Library ${id}`): LibrarySummary {
     updatedAt: new Date("2026-01-01"),
     librarianNames: [`Librarian ${id}`],
     staffNames: [`Librarian ${id}`],
+    managerNames: [`Librarian ${id}`],
+    managerRole: "LIBRARIAN",
     bookCount: id * 10,
     copyCount: id * 12,
     digitalResourceCount: id,
@@ -133,6 +135,33 @@ describe("LibrariesPage landing behavior", () => {
     expect(screen.getByTestId("row-library-1")).toBeInTheDocument();
     expect(screen.getByTestId("row-library-2")).toBeInTheDocument();
     expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("shows administrators before librarians as the assigned manager", async () => {
+    const university = makeLibrary(1, "University Library");
+    university.staffNames = ["Bob Admin", "Backup Librarian"];
+    university.librarianNames = ["Backup Librarian"];
+    university.managerNames = ["Bob Admin"];
+    university.managerRole = "ADMIN";
+
+    const computerScience = makeLibrary(2, "Computer Science Library");
+    computerScience.staffNames = ["Nancy D"];
+    computerScience.librarianNames = ["Nancy D"];
+    computerScience.managerNames = ["Nancy D"];
+
+    mockedGetLibraries.mockResolvedValue([university, computerScience]);
+    mockedGetOrgUnits.mockResolvedValue([makeOrgUnit(1), makeOrgUnit(2)]);
+
+    renderPage();
+
+    const universityManager = await screen.findByTestId("summary-library-1-librarian");
+    expect(universityManager).toHaveTextContent("Bob Admin");
+    expect(universityManager).toHaveTextContent("Assigned administrator");
+    expect(universityManager).not.toHaveTextContent("Backup Librarian");
+
+    const computerScienceManager = screen.getByTestId("summary-library-2-librarian");
+    expect(computerScienceManager).toHaveTextContent("Nancy D");
+    expect(computerScienceManager).toHaveTextContent("Assigned librarian");
   });
 
   it("keeps the empty state visible with a link to library configuration", async () => {

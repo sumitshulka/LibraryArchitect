@@ -167,6 +167,8 @@ export interface LibraryStaffMember {
 export interface LibrarySummary extends Library {
   librarianNames: string[];
   staffNames: string[];
+  managerNames: string[];
+  managerRole: "ADMIN" | "LIBRARIAN" | "STAFF" | null;
   bookCount: number;
   copyCount: number;
   digitalResourceCount: number;
@@ -2267,7 +2269,7 @@ export class DBStorage implements IStorage {
     if (librariesList.length === 0) return [];
 
     const ids = librariesList.map((library) => library.id);
-    const [bookCounts, digitalResourceCounts, staffCounts] = await Promise.all([
+    const [bookCounts, digitalResourceCounts, staffRows] = await Promise.all([
       db.select({
         libraryId: bookCopies.libraryId,
         bookCount: sql<number>`count(distinct ${bookCopies.bookId})`,
@@ -2285,14 +2287,9 @@ export class DBStorage implements IStorage {
         .groupBy(digitalResources.libraryId),
       db.select({
         libraryId: libraryMemberships.libraryId,
-        staffCount: sql<number>`count(*)`,
-        staffNames: sql<string[]>`array_agg(${users.name} order by ${users.name})`,
-        librarianNames: sql<string[]>`coalesce(
-          array_agg(${users.name} order by ${users.name}) filter (
-            where ${users.role} = 'LIBRARIAN' or ${libraryMemberships.role} = 'LIBRARIAN'
-          ),
-          array[]::text[]
-        )`,
+        name: users.name,
+        userRole: users.role,
+        membershipRole: libraryMemberships.role,
       })
         .from(libraryMemberships)
         .innerJoin(users, eq(libraryMemberships.userId, users.id))
@@ -2301,7 +2298,6 @@ export class DBStorage implements IStorage {
           eq(libraryMemberships.isActive, true),
           eq(users.category, "STAFF"),
         ))
-        .groupBy(libraryMemberships.libraryId),
     ]);
 
     const booksByLibrary = new Map(bookCounts.map((row) => [
@@ -2311,24 +2307,56 @@ export class DBStorage implements IStorage {
     const digitalResourcesByLibrary = new Map(
       digitalResourceCounts.map((row) => [row.libraryId, Number(row.resourceCount)]),
     );
-    const staffByLibrary = new Map(staffCounts.map((row) => [
-      row.libraryId,
-      {
-        staffCount: Number(row.staffCount),
-        staffNames: row.staffNames,
-        librarianNames: row.librarianNames,
-      },
-    ]));
+    const staffByLibrary = new Map<number, {
+      staffNames: string[];
+      adminNames: string[];
+      librarianNames: string[];
+    }>();
+    for (const row of staffRows) {
+      const group = staffByLibrary.get(row.libraryId) ?? {
+        staffNames: [],
+        adminNames: [],
+        librarianNames: [],
+      };
+      group.staffNames.push(row.name);
+      if (row.userRole === "ADMIN" || row.membershipRole === "ADMIN") {
+        group.adminNames.push(row.name);
+      } else if (row.userRole === "LIBRARIAN" || row.membershipRole === "LIBRARIAN") {
+        group.librarianNames.push(row.name);
+      }
+      staffByLibrary.set(row.libraryId, group);
+    }
 
-    return librariesList.map((library) => ({
-      ...library,
-      librarianNames: staffByLibrary.get(library.id)?.librarianNames ?? [],
-      staffNames: staffByLibrary.get(library.id)?.staffNames ?? [],
-      bookCount: booksByLibrary.get(library.id)?.bookCount ?? 0,
-      copyCount: booksByLibrary.get(library.id)?.copyCount ?? 0,
-      digitalResourceCount: digitalResourcesByLibrary.get(library.id) ?? 0,
-      staffCount: staffByLibrary.get(library.id)?.staffCount ?? 0,
-    }));
+    return librariesList.map((library) => {
+      const staff = staffByLibrary.get(library.id);
+      const staffNames = [...(staff?.staffNames ?? [])].sort();
+      const librarianNames = [...(staff?.librarianNames ?? [])].sort();
+      const adminNames = [...(staff?.adminNames ?? [])].sort();
+      const managerNames = adminNames.length > 0
+        ? adminNames
+        : librarianNames.length > 0
+          ? librarianNames
+          : staffNames;
+      const managerRole = adminNames.length > 0
+        ? "ADMIN" as const
+        : librarianNames.length > 0
+          ? "LIBRARIAN" as const
+          : staffNames.length > 0
+            ? "STAFF" as const
+            : null;
+
+      return {
+        ...library,
+        librarianNames,
+        staffNames,
+        managerNames,
+        managerRole,
+        bookCount: booksByLibrary.get(library.id)?.bookCount ?? 0,
+        copyCount: booksByLibrary.get(library.id)?.copyCount ?? 0,
+        digitalResourceCount: digitalResourcesByLibrary.get(library.id) ?? 0,
+        staffCount: staffNames.length,
+      };
+    });
   }
 
   // Library Dashboard

@@ -1711,6 +1711,8 @@ export interface LibraryDashboardStats {
 export interface LibrarySummary extends Library {
   librarianNames: string[];
   staffNames: string[];
+  managerNames: string[];
+  managerRole: "ADMIN" | "LIBRARIAN" | "STAFF" | null;
   bookCount: number;
   copyCount: number;
   digitalResourceCount: number;

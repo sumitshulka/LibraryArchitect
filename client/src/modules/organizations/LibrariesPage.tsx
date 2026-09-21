@@ -123,14 +123,17 @@ export default function LibrariesPage() {
                 <div className="grid gap-4 xl:grid-cols-2">
                   {libraries.map((library) => {
                     const orgUnit = orgUnits.find((unit) => unit.id === library.orgUnitId);
-                    const librarianNames = library.librarianNames ?? [];
-                    const staffNames = library.staffNames ?? [];
-                    const hasLibrarianAssignment = librarianNames.length > 0;
-                    const librarians = hasLibrarianAssignment
-                      ? librarianNames.join(", ")
-                      : staffNames.length > 0
-                        ? staffNames.join(", ")
+                    const managerNames = library.managerNames ?? [];
+                    const manager = managerNames.length > 0
+                      ? managerNames.join(", ")
                       : "Unassigned";
+                    const managerDetail = library.managerRole === "ADMIN"
+                      ? managerNames.length > 1 ? "Assigned administrators" : "Assigned administrator"
+                      : library.managerRole === "LIBRARIAN"
+                        ? managerNames.length > 1 ? "Assigned librarians" : "Assigned librarian"
+                        : library.managerRole === "STAFF"
+                          ? managerNames.length > 1 ? "Assigned staff members" : "Assigned staff member"
+                          : "No librarian or manager assigned";
 
                     return (
                       <Card key={library.id} className="border-muted" data-testid={`row-library-${library.id}`}>
@@ -182,10 +185,8 @@ export default function LibrariesPage() {
                             <SummaryMetric
                               icon={UserRound}
                               label="Librarian / manager"
-                              value={librarians}
-                              detail={hasLibrarianAssignment
-                                ? librarianNames.length > 1 ? "Assigned librarians" : "Assigned librarian"
-                                : staffNames.length > 0 ? "Assigned staff member" : "No librarian assigned"}
+                              value={manager}
+                              detail={managerDetail}
                               testId={`summary-library-${library.id}-librarian`}
                             />
                             <SummaryMetric

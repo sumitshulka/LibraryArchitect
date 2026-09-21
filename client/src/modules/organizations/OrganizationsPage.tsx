@@ -824,14 +824,17 @@ export default function OrganizationsPage() {
               <div className="grid gap-4 xl:grid-cols-2">
                 {libraries.map((lib) => {
                   const orgUnit = orgUnits.find(u => u.id === lib.orgUnitId);
-                  const librarianNames = lib.librarianNames ?? [];
-                  const staffNames = lib.staffNames ?? [];
-                  const hasLibrarianAssignment = librarianNames.length > 0;
-                  const librarians = hasLibrarianAssignment
-                    ? librarianNames.join(", ")
-                    : staffNames.length > 0
-                      ? staffNames.join(", ")
+                  const managerNames = lib.managerNames ?? [];
+                  const manager = managerNames.length > 0
+                    ? managerNames.join(", ")
                     : "Unassigned";
+                  const managerDetail = lib.managerRole === "ADMIN"
+                    ? managerNames.length > 1 ? "Assigned administrators" : "Assigned administrator"
+                    : lib.managerRole === "LIBRARIAN"
+                      ? managerNames.length > 1 ? "Assigned librarians" : "Assigned librarian"
+                      : lib.managerRole === "STAFF"
+                        ? managerNames.length > 1 ? "Assigned staff members" : "Assigned staff member"
+                        : "No librarian or manager assigned";
 
                   return (
                     <Card key={lib.id} className="border-muted" data-testid={`row-lib-${lib.id}`}>
@@ -875,10 +878,8 @@ export default function OrganizationsPage() {
                           <LibrarySummaryMetric
                             icon={UserRound}
                             label="Librarian / manager"
-                            value={librarians}
-                            detail={hasLibrarianAssignment
-                              ? librarianNames.length > 1 ? "Assigned librarians" : "Assigned librarian"
-                              : staffNames.length > 0 ? "Assigned staff member" : "No librarian assigned"}
+                            value={manager}
+                            detail={managerDetail}
                             testId={`summary-lib-${lib.id}-librarian`}
                           />
                           <LibrarySummaryMetric

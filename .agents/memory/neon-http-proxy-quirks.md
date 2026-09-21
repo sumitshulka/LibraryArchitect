@@ -52,3 +52,10 @@ Parameterized numeric values used as CTE columns can be inferred as text by the 
 **Why:** allocation reproduced this proxy/parameter inference issue even though the application value was a JavaScript number.
 
 **How to apply:** explicitly cast numeric parameters in raw SQL (`${value}::integer`, etc.) whenever a CTE or `VALUES` row is later compared with a typed database column.
+
+## 8. Avoid PostgreSQL array aggregates for application data
+PostgreSQL array aggregates such as `array_agg(text)` can contain correct values in raw SQL while Drizzle receives them as empty arrays through this HTTP proxy.
+
+**Why:** library summary queries returned accurate staff counts but empty staff-name arrays; selecting one scalar row per membership and grouping in TypeScript preserved the names.
+
+**How to apply:** when the application needs grouped values, select scalar rows and aggregate them in TypeScript instead of relying on PostgreSQL array-valued columns.
