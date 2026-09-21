@@ -1859,7 +1859,7 @@ export class DBStorage implements IStorage {
     );
     const requestedRows = requestedIdentifiers.map(({ copyId, internalSSN, userDefinedSSN }) => {
       return sql`(
-        ${copyId},
+        ${copyId}::integer,
         ${internalSSN === null ? sql`NULL` : internalSSN}::text,
         ${userDefinedSSN === null ? sql`NULL` : userDefinedSSN}::text
       )`;
@@ -1867,7 +1867,10 @@ export class DBStorage implements IStorage {
 
     const lockQuery = sql`
       SELECT pg_advisory_xact_lock(hashtextextended(lower(identifier), 0))
-      FROM (VALUES ${sqlIdentifierValues(getLockIdentifiers(identifiers))}) AS requested(identifier)
+      FROM (VALUES ${sqlIdentifierValues(getLockIdentifiers([
+        ...identifiers,
+        ...copyIds.map((copyId) => `book-copy:${copyId}`),
+      ]))}) AS requested(identifier)
     `;
     const allocationQuery = sql`
       WITH requested(copy_id, internal_ssn, user_defined_ssn) AS (

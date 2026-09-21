@@ -45,3 +45,10 @@ Mocked route tests cannot validate advisory-lock batches, cross-column identifie
 **Why:** these behaviors depend on PostgreSQL transaction ordering and the HTTP driver's result mapping, which local mocks do not exercise.
 
 **How to apply:** run the database-backed suite when changing identifier locking, collision queries, or remediation behavior; never point it at the normal development database.
+
+## 7. Cast numeric parameters when they cross a CTE boundary
+Parameterized numeric values used as CTE columns can be inferred as text by the HTTP path, producing errors such as `operator does not exist: text = integer` when compared with integer table columns.
+
+**Why:** allocation reproduced this proxy/parameter inference issue even though the application value was a JavaScript number.
+
+**How to apply:** explicitly cast numeric parameters in raw SQL (`${value}::integer`, etc.) whenever a CTE or `VALUES` row is later compared with a typed database column.

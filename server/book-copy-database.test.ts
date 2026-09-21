@@ -249,6 +249,37 @@ describe.skipIf(!testDatabaseUrl)("book copy identifiers against PostgreSQL", ()
     expect(await rowsForIdentifier(identifier)).toHaveLength(1);
   });
 
+  it("allocates copies with integer IDs and generated internal SSNs", async () => {
+    const libraryResult = await db.execute(sql`
+      SELECT id
+      FROM libraries
+      ORDER BY id
+      LIMIT 1
+    `);
+    const libraryId = Number((libraryResult.rows as DatabaseRow[])[0]?.id);
+    expect(Number.isInteger(libraryId)).toBe(true);
+
+    const firstCopyId = await insertBookCopy({
+      barcode: `${runId}-allocation-first`,
+    });
+    const secondCopyId = await insertBookCopy({
+      barcode: `${runId}-allocation-second`,
+    });
+
+    const allocated = await storage.allocateCopies(
+      [firstCopyId, secondCopyId],
+      libraryId,
+      { mode: "GENERATE", prefix: `${runId}-ssn` },
+    );
+
+    expect(allocated.map((copy) => copy.id)).toEqual([firstCopyId, secondCopyId]);
+    expect(allocated.every((copy) => copy.libraryId === libraryId)).toBe(true);
+    expect(allocated.map((copy) => copy.internalSSN)).toEqual([
+      expect.stringContaining(`${runId}-ssn-`),
+      expect.stringContaining(`${runId}-ssn-`),
+    ]);
+  });
+
   it("audits every legacy collision occurrence and supports remediation", async () => {
     const identifier = `${runId}-legacy-collision`;
     await insertBookCopy({
