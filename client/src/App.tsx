@@ -21,6 +21,7 @@ import ReservationsPage from "@/modules/circulation/ReservationsPage";
 import LostDamagedPage from "@/modules/circulation/LostDamagedPage";
 import PendingFinesPage from "@/modules/circulation/PendingFinesPage";
 import InventoryPage from "@/modules/inventory/InventoryPage";
+import InventoryImportPage from "@/modules/inventory/InventoryImportPage";
 import OrganizationsPage from "@/modules/organizations/OrganizationsPage";
 import LibrariesPage from "@/modules/organizations/LibrariesPage";
 import { LibraryDashboardPage } from "@/modules/organizations/LibraryDashboardPage";
@@ -140,6 +141,7 @@ function AppRouter() {
       <Route path="/reservations">{() => <ProtectedRoute component={ReservationsPage} />}</Route>
       <Route path="/lost-damaged">{() => <ProtectedRoute component={LostDamagedPage} staffOnly />}</Route>
       <Route path="/inventory">{() => <ProtectedRoute component={InventoryPage} staffOnly />}</Route>
+      <Route path="/admin/inventory-import">{() => <ProtectedRoute component={InventoryImportPage} localAdminOnly />}</Route>
       <Route path="/organizations">{() => <ProtectedRoute component={OrganizationsPage} staffOnly />}</Route>
       <Route path="/organizations/libraries/:libraryId">{() => <ProtectedRoute component={LibraryDashboardPage} staffOnly />}</Route>
       <Route path="/organizations/libraries/:libraryId/resources">{() => <ProtectedRoute component={LibraryResourcesPage} staffOnly />}</Route>

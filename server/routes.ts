@@ -102,6 +102,183 @@ const copyAllocationSchema = z.object({
   }
 });
 
+type InventoryImportMode = "EXISTING_SSN" | "GENERATE_SSN";
+
+interface InventoryImportBook {
+  bookRef: string;
+  isbn: string;
+  title: string;
+  author: string;
+  publisher: string | null;
+  publishedYear: number | null;
+  category: string;
+  format: "PHYSICAL" | "EBOOK" | "AUDIOBOOK";
+  shelfLocation: string | null;
+  existingBookId: number | null;
+}
+
+interface InventoryImportCopy {
+  rowNumber: number;
+  bookRef: string;
+  libraryCode: string;
+  existingSSN: string | null;
+  existingBarcode: string | null;
+  shelfLocation: string | null;
+  status: "AVAILABLE" | "CHECKED_OUT" | "LOST" | "DAMAGED" | "IN_TRANSIT" | "RESERVED";
+  acquisitionDate: Date | null;
+  acquisitionSource: string | null;
+  price: number | null;
+}
+
+interface InventoryImportAllocation {
+  rowNumber: number;
+  bookRef: string;
+  libraryCode: string;
+  copyCount: number;
+  ssnPrefix: string;
+  shelfLocation: string | null;
+  acquisitionDate: Date | null;
+  acquisitionSource: string | null;
+  price: number | null;
+}
+
+interface InventoryImportPreview {
+  mode: InventoryImportMode;
+  books: InventoryImportBook[];
+  copies: InventoryImportCopy[];
+  allocations: InventoryImportAllocation[];
+  stats: {
+    books: number;
+    existingBooks: number;
+    newBooks: number;
+    copies: number;
+    libraries: number;
+    errors: number;
+    warnings: number;
+  };
+  errors: Array<{ sheet: string; row: number; message: string; severity: "error" | "warning" }>;
+  createdAt: number;
+  status: "READY" | "COMPLETED";
+  result?: Record<string, unknown>;
+}
+
+const inventoryImportPreviews = new Map<string, InventoryImportPreview>();
+const INVENTORY_IMPORT_MAX_ROWS = 50_000;
+const INVENTORY_IMPORT_MAX_COPIES = 100_000;
+const INVENTORY_IMPORT_PREVIEW_TTL_MS = 30 * 60 * 1000;
+
+function pruneInventoryImportPreviews() {
+  const cutoff = Date.now() - INVENTORY_IMPORT_PREVIEW_TTL_MS;
+  inventoryImportPreviews.forEach((preview, token) => {
+    if (preview.createdAt < cutoff) inventoryImportPreviews.delete(token);
+  });
+}
+
+function trimImportValue(value: unknown): string {
+  return String(value ?? "").trim();
+}
+
+function normalizeImportHeader(value: unknown): string {
+  return trimImportValue(value).toLocaleLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function normalizeImportIsbn(value: string): string {
+  return value.replace(/[-\s]/g, "").toUpperCase();
+}
+
+function parseImportInteger(value: string): number | null {
+  if (!value) return null;
+  const parsed = Number.parseInt(value.replace(/,/g, ""), 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseImportPrice(value: string): number | null {
+  if (!value) return null;
+  const parsed = Number.parseFloat(value.replace(/,/g, ""));
+  return Number.isFinite(parsed) ? Math.round(parsed) : null;
+}
+
+function parseImportDate(value: string): Date | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function sanitizeImportToken(value: string): string {
+  return value.replace(/[^A-Z0-9-]/gi, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 30) || "IMPORT";
+}
+
+function readInventoryImportSheet(
+  workbook: XLSX.WorkBook,
+  sheetName: string,
+  requiredHeaders: string[],
+): { rows: Array<{ rowNumber: number; values: Record<string, string> }>; errors: Array<{ sheet: string; row: number; message: string; severity: "error" | "warning" }> } {
+  const errors: Array<{ sheet: string; row: number; message: string; severity: "error" | "warning" }> = [];
+  const worksheet = workbook.Sheets[sheetName];
+  if (!worksheet) {
+    errors.push({ sheet: sheetName, row: 1, message: `Missing required "${sheetName}" worksheet`, severity: "error" });
+    return { rows: [], errors };
+  }
+
+  const matrix = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "", raw: false }) as unknown[][];
+  if (matrix.length === 0) {
+    errors.push({ sheet: sheetName, row: 1, message: "Worksheet must contain a header row", severity: "error" });
+    return { rows: [], errors };
+  }
+
+  const headers = (matrix[0] || []).map((header) => trimImportValue(header));
+  const indexes = new Map(headers.map((header, index) => [normalizeImportHeader(header), index]));
+  for (const requiredHeader of requiredHeaders) {
+    if (!indexes.has(normalizeImportHeader(requiredHeader))) {
+      errors.push({ sheet: sheetName, row: 1, message: `Missing required column "${requiredHeader}"`, severity: "error" });
+    }
+  }
+  if (errors.length > 0) return { rows: [], errors };
+
+  const rows = matrix.slice(1).map((rawRow, index) => {
+    const values: Record<string, string> = {};
+    for (const header of headers) {
+      const columnIndex = indexes.get(normalizeImportHeader(header));
+      values[header] = columnIndex === undefined ? "" : trimImportValue(rawRow[columnIndex]);
+    }
+    return { rowNumber: index + 2, values };
+  }).filter(({ values }) => Object.values(values).some(Boolean));
+
+  return { rows, errors };
+}
+
+function importValue(values: Record<string, string>, header: string): string {
+  const wanted = normalizeImportHeader(header);
+  const key = Object.keys(values).find((candidate) => normalizeImportHeader(candidate) === wanted);
+  return key ? values[key] : "";
+}
+
+function createInventoryTemplate(mode: InventoryImportMode): Buffer {
+  const workbook = XLSX.utils.book_new();
+  const books = [
+    ["Book Ref", "ISBN", "Title", "Author", "Publisher", "Published Year", "Category", "Format", "Shelf Location"],
+    ["BK-001", "978-0132350884", "Clean Code", "Robert C. Martin", "Prentice Hall", "2008", "Computer Science", "PHYSICAL", "CS-001"],
+  ];
+  const secondSheet = mode === "EXISTING_SSN"
+    ? [
+        ["Book Ref", "Library Code", "Existing SSN", "Existing Barcode", "Shelf Location", "Status", "Acquisition Date", "Acquisition Source", "Price"],
+        ["BK-001", "MAIN", "LIB-000001", "", "CS-001", "AVAILABLE", "2026-01-15", "Migration", "4500"],
+      ]
+    : [
+        ["Book Ref", "Library Code", "Copy Count", "SSN Prefix", "Shelf Location", "Acquisition Date", "Acquisition Source", "Price"],
+        ["BK-001", "MAIN", "25", "MAIN", "CS-001", "2026-01-15", "Purchase", "4500"],
+      ];
+  const secondSheetName = mode === "EXISTING_SSN" ? "Copies" : "Allocations";
+  const booksSheet = XLSX.utils.aoa_to_sheet(books);
+  const secondWorksheet = XLSX.utils.aoa_to_sheet(secondSheet);
+  for (const worksheet of [booksSheet, secondWorksheet]) {
+    worksheet["!cols"] = Array.from({ length: 12 }, () => ({ wch: 20 }));
+  }
+  XLSX.utils.book_append_sheet(workbook, booksSheet, "Books");
+  XLSX.utils.book_append_sheet(workbook, secondWorksheet, secondSheetName);
+  return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+}
+
 const z3950SearchSchema = z.object({
   query: z.string().trim().min(1).max(200).optional(),
   isbn: z.string().trim().min(1).max(200).optional(),
@@ -4372,6 +4549,367 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error committing bulk upload:", error);
       res.status(500).json({ error: "Failed to commit bulk upload" });
+    }
+  });
+
+  // ===== Inventory Import API =====
+  const inventoryImportUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 25 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      const allowed = [
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.ms-excel",
+        "application/octet-stream",
+      ];
+      cb(null, allowed.includes(file.mimetype) || /\.xlsx?$/i.test(file.originalname));
+    },
+  });
+
+  app.get("/api/inventory-import/template", async (req, res) => {
+    try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+      const mode = req.query.mode === "GENERATE_SSN" ? "GENERATE_SSN" : "EXISTING_SSN";
+      const buffer = createInventoryTemplate(mode);
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename=inventory_import_${mode.toLocaleLowerCase()}.xlsx`);
+      res.send(buffer);
+    } catch (error) {
+      console.error("Error generating inventory import template:", error);
+      res.status(500).json({ error: "Failed to generate inventory import template" });
+    }
+  });
+
+  app.post("/api/inventory-import/preview", inventoryImportUpload.single("file"), async (req, res) => {
+    try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+      pruneInventoryImportPreviews();
+      if (!req.file) return res.status(400).json({ error: "No Excel workbook uploaded" });
+
+      const mode: InventoryImportMode = req.body.mode === "GENERATE_SSN" ? "GENERATE_SSN" : "EXISTING_SSN";
+      const workbook = XLSX.read(req.file.buffer, { type: "buffer", cellDates: true, raw: false });
+      const bookSheet = readInventoryImportSheet(workbook, "Books", ["Book Ref", "ISBN", "Title", "Author"]);
+      const secondSheet = readInventoryImportSheet(
+        workbook,
+        mode === "EXISTING_SSN" ? "Copies" : "Allocations",
+        mode === "EXISTING_SSN"
+          ? ["Book Ref", "Library Code", "Existing SSN"]
+          : ["Book Ref", "Library Code", "Copy Count"],
+      );
+      const errors = [...bookSheet.errors, ...secondSheet.errors];
+      if (bookSheet.rows.length > INVENTORY_IMPORT_MAX_ROWS || secondSheet.rows.length > INVENTORY_IMPORT_MAX_ROWS) {
+        errors.push({
+          sheet: "Workbook",
+          row: 1,
+          message: `Each worksheet may contain at most ${INVENTORY_IMPORT_MAX_ROWS.toLocaleString()} data rows`,
+          severity: "error",
+        });
+      }
+
+      const [libraries, existingBooks] = await Promise.all([
+        storage.getAllLibraries(),
+        storage.getAllBooks(),
+      ]);
+      const librariesByCode = new Map(libraries.map((library) => [library.code.toLocaleLowerCase(), library]));
+      const booksByIsbn = new Map(existingBooks.map((book) => [normalizeImportIsbn(book.isbn), book]));
+      const booksByRef = new Map<string, InventoryImportBook>();
+      const normalizedBooks: InventoryImportBook[] = [];
+
+      for (const sourceRow of bookSheet.rows) {
+        const bookRef = importValue(sourceRow.values, "Book Ref");
+        const isbn = normalizeImportIsbn(importValue(sourceRow.values, "ISBN"));
+        const title = importValue(sourceRow.values, "Title");
+        const author = importValue(sourceRow.values, "Author");
+        const formatValue = importValue(sourceRow.values, "Format").toUpperCase() || "PHYSICAL";
+        const format = ["PHYSICAL", "EBOOK", "AUDIOBOOK"].includes(formatValue)
+          ? formatValue as InventoryImportBook["format"]
+          : "PHYSICAL";
+        const book: InventoryImportBook = {
+          bookRef,
+          isbn,
+          title,
+          author,
+          publisher: importValue(sourceRow.values, "Publisher") || null,
+          publishedYear: parseImportInteger(importValue(sourceRow.values, "Published Year")),
+          category: importValue(sourceRow.values, "Category") || "General",
+          format,
+          shelfLocation: importValue(sourceRow.values, "Shelf Location") || null,
+          existingBookId: booksByIsbn.get(isbn)?.id ?? null,
+        };
+        if (!bookRef) errors.push({ sheet: "Books", row: sourceRow.rowNumber, message: "Book Ref is required", severity: "error" });
+        if (!isbn) errors.push({ sheet: "Books", row: sourceRow.rowNumber, message: "ISBN is required", severity: "error" });
+        if (!title) errors.push({ sheet: "Books", row: sourceRow.rowNumber, message: "Title is required", severity: "error" });
+        if (!author) errors.push({ sheet: "Books", row: sourceRow.rowNumber, message: "Author is required", severity: "error" });
+        if (bookRef && booksByRef.has(bookRef.toLocaleLowerCase())) {
+          errors.push({ sheet: "Books", row: sourceRow.rowNumber, message: `Book Ref "${bookRef}" is duplicated`, severity: "error" });
+        } else if (bookRef) {
+          booksByRef.set(bookRef.toLocaleLowerCase(), book);
+          normalizedBooks.push(book);
+        }
+      }
+
+      const normalizedCopies: InventoryImportCopy[] = [];
+      const normalizedAllocations: InventoryImportAllocation[] = [];
+      const seenSsns = new Set<string>();
+      const seenBarcodes = new Set<string>();
+      let copyCount = 0;
+      for (const sourceRow of secondSheet.rows) {
+        const bookRef = importValue(sourceRow.values, "Book Ref");
+        const libraryCode = importValue(sourceRow.values, "Library Code");
+        const book = booksByRef.get(bookRef.toLocaleLowerCase());
+        const library = librariesByCode.get(libraryCode.toLocaleLowerCase());
+        if (!book) errors.push({ sheet: mode === "EXISTING_SSN" ? "Copies" : "Allocations", row: sourceRow.rowNumber, message: `Book Ref "${bookRef}" was not found in Books`, severity: "error" });
+        if (!library) errors.push({ sheet: mode === "EXISTING_SSN" ? "Copies" : "Allocations", row: sourceRow.rowNumber, message: `Active library "${libraryCode}" was not found`, severity: "error" });
+        if (!book || !library) continue;
+
+        if (mode === "EXISTING_SSN") {
+          const existingSSN = importValue(sourceRow.values, "Existing SSN");
+          const existingBarcode = importValue(sourceRow.values, "Existing Barcode") || null;
+          const statusValue = importValue(sourceRow.values, "Status").toUpperCase() || "AVAILABLE";
+          const status = ["AVAILABLE", "CHECKED_OUT", "LOST", "DAMAGED", "IN_TRANSIT", "RESERVED"].includes(statusValue)
+            ? statusValue as InventoryImportCopy["status"]
+            : "AVAILABLE";
+          const ssnKey = existingSSN.toLocaleLowerCase();
+          const barcodeKey = existingBarcode?.toLocaleLowerCase();
+          if (!existingSSN) errors.push({ sheet: "Copies", row: sourceRow.rowNumber, message: "Existing SSN is required", severity: "error" });
+          if (existingSSN && seenSsns.has(ssnKey)) errors.push({ sheet: "Copies", row: sourceRow.rowNumber, message: `Existing SSN "${existingSSN}" is duplicated in the workbook`, severity: "error" });
+          if (existingSSN) seenSsns.add(ssnKey);
+          if (barcodeKey && seenBarcodes.has(barcodeKey)) errors.push({ sheet: "Copies", row: sourceRow.rowNumber, message: `Existing Barcode "${existingBarcode}" is duplicated in the workbook`, severity: "error" });
+          if (barcodeKey) seenBarcodes.add(barcodeKey);
+          normalizedCopies.push({
+            rowNumber: sourceRow.rowNumber,
+            bookRef,
+            libraryCode: library.code,
+            existingSSN: existingSSN || null,
+            existingBarcode,
+            shelfLocation: importValue(sourceRow.values, "Shelf Location") || book.shelfLocation,
+            status,
+            acquisitionDate: parseImportDate(importValue(sourceRow.values, "Acquisition Date")),
+            acquisitionSource: importValue(sourceRow.values, "Acquisition Source") || null,
+            price: parseImportPrice(importValue(sourceRow.values, "Price")),
+          });
+          copyCount += 1;
+        } else {
+          const requestedCount = parseImportInteger(importValue(sourceRow.values, "Copy Count")) ?? 0;
+          if (requestedCount < 1) errors.push({ sheet: "Allocations", row: sourceRow.rowNumber, message: "Copy Count must be at least 1", severity: "error" });
+          const safeCount = Math.max(requestedCount, 0);
+          const prefix = importValue(sourceRow.values, "SSN Prefix") || library.code;
+          normalizedAllocations.push({
+            rowNumber: sourceRow.rowNumber,
+            bookRef,
+            libraryCode: library.code,
+            copyCount: safeCount,
+            ssnPrefix: prefix,
+            shelfLocation: importValue(sourceRow.values, "Shelf Location") || book.shelfLocation,
+            acquisitionDate: parseImportDate(importValue(sourceRow.values, "Acquisition Date")),
+            acquisitionSource: importValue(sourceRow.values, "Acquisition Source") || null,
+            price: parseImportPrice(importValue(sourceRow.values, "Price")),
+          });
+          copyCount += safeCount;
+        }
+      }
+
+      if (copyCount > INVENTORY_IMPORT_MAX_COPIES) {
+        errors.push({
+          sheet: mode === "EXISTING_SSN" ? "Copies" : "Allocations",
+          row: 1,
+          message: `This workbook requests ${copyCount.toLocaleString()} copies; the limit is ${INVENTORY_IMPORT_MAX_COPIES.toLocaleString()}`,
+          severity: "error",
+        });
+      }
+
+      const identifiers = mode === "EXISTING_SSN"
+        ? normalizedCopies.flatMap((copy) => [copy.existingSSN, copy.existingBarcode]).filter((value): value is string => Boolean(value))
+        : [];
+      const identifierRows = new Map<string, number>();
+      normalizedCopies.forEach((copy) => {
+        [copy.existingSSN, copy.existingBarcode].filter((value): value is string => Boolean(value)).forEach((identifier) => {
+          identifierRows.set(identifier.toLocaleLowerCase(), copy.rowNumber);
+        });
+      });
+      for (let index = 0; index < identifiers.length; index += 500) {
+        const existingCopies = await storage.getBookCopiesByIdentifiers(identifiers.slice(index, index + 500));
+        for (const existingCopy of existingCopies) {
+          const identifiersForCopy = [existingCopy.barcode, existingCopy.internalSSN, existingCopy.userDefinedSSN]
+            .filter((value): value is string => Boolean(value))
+            .map((value) => value.toLocaleLowerCase());
+          const match = identifiers.find((identifier) => identifiersForCopy.includes(identifier.toLocaleLowerCase()));
+          if (match) errors.push({ sheet: "Copies", row: identifierRows.get(match.toLocaleLowerCase()) ?? 1, message: `Identifier "${match}" is already used by copy ${existingCopy.id}`, severity: "error" });
+        }
+      }
+
+      const errorCount = errors.filter((error) => error.severity === "error").length;
+      const token = crypto.randomBytes(18).toString("hex");
+      const preview: InventoryImportPreview = {
+        mode,
+        books: normalizedBooks,
+        copies: normalizedCopies,
+        allocations: normalizedAllocations,
+        stats: {
+          books: normalizedBooks.length,
+          existingBooks: normalizedBooks.filter((book) => book.existingBookId !== null).length,
+          newBooks: normalizedBooks.filter((book) => book.existingBookId === null).length,
+          copies: copyCount,
+          libraries: new Set([
+            ...normalizedCopies.map((copy) => copy.libraryCode),
+            ...normalizedAllocations.map((allocation) => allocation.libraryCode),
+          ]).size,
+          errors: errorCount,
+          warnings: errors.filter((error) => error.severity === "warning").length,
+        },
+        errors,
+        createdAt: Date.now(),
+        status: "READY",
+      };
+      inventoryImportPreviews.set(token, preview);
+      res.json({
+        previewToken: token,
+        mode,
+        stats: preview.stats,
+        errors: errors.slice(0, 250),
+        sampleRows: (mode === "EXISTING_SSN" ? normalizedCopies : normalizedAllocations).slice(0, 100),
+        truncatedErrors: errors.length > 250,
+      });
+    } catch (error) {
+      console.error("Error previewing inventory import:", error);
+      res.status(500).json({ error: "Failed to preview inventory import" });
+    }
+  });
+
+  app.post("/api/inventory-import/commit", async (req, res) => {
+    try {
+      const currentUser = await requireLocalAdmin(req, res);
+      if (!currentUser) return;
+      pruneInventoryImportPreviews();
+      const previewToken = typeof req.body?.previewToken === "string" ? req.body.previewToken : "";
+      const preview = inventoryImportPreviews.get(previewToken);
+      if (!preview) return res.status(404).json({ error: "Import preview expired. Upload the workbook again." });
+      if (preview.status === "COMPLETED") return res.json(preview.result);
+      if (preview.stats.errors > 0) return res.status(400).json({ error: "Resolve all validation errors before importing" });
+
+      const [libraries, currentBooks] = await Promise.all([storage.getAllLibraries(), storage.getAllBooks()]);
+      const librariesByCode = new Map(libraries.map((library) => [library.code.toLocaleLowerCase(), library]));
+      const booksByIsbn = new Map(currentBooks.map((book) => [normalizeImportIsbn(book.isbn), book]));
+      const tokenLabel = sanitizeImportToken(previewToken.slice(0, 10).toUpperCase());
+      let createdBooks = 0;
+      let createdCopies = 0;
+      const errors: Array<{ row: number; message: string }> = [];
+      const resolvedBookIds = new Map<string, number>();
+
+      for (const book of preview.books) {
+        let bookId = book.existingBookId ?? booksByIsbn.get(book.isbn)?.id;
+        if (!bookId) {
+          const created = await storage.createBook({
+            isbn: book.isbn,
+            title: book.title,
+            author: book.author,
+            publisher: book.publisher,
+            publishedYear: book.publishedYear,
+            category: book.category,
+            resourceTypeId: null,
+            format: book.format,
+            status: "AVAILABLE",
+            coverUrl: null,
+            shelfLocation: book.shelfLocation,
+            marcRecord: null,
+          });
+          bookId = created.id;
+          booksByIsbn.set(book.isbn, created);
+          createdBooks += 1;
+        }
+        resolvedBookIds.set(book.bookRef.toLocaleLowerCase(), bookId);
+      }
+
+      const createCopy = async (bookRef: string, libraryCode: string, rowNumber: number, copyNumber: number, details: {
+        existingSSN?: string | null;
+        existingBarcode?: string | null;
+        shelfLocation: string | null;
+        status: InventoryImportCopy["status"];
+        acquisitionDate: Date | null;
+        acquisitionSource: string | null;
+        price: number | null;
+        ssnPrefix?: string;
+      }) => {
+        const bookId = resolvedBookIds.get(bookRef.toLocaleLowerCase());
+        const library = librariesByCode.get(libraryCode.toLocaleLowerCase());
+        if (!bookId || !library) throw new Error("Book or library could not be resolved");
+        const sequence = String(copyNumber).padStart(6, "0");
+        const generatedBarcode = `INV-${tokenLabel}-${sequence}`;
+        const generatedSSN = `SSN-${sanitizeImportToken(details.ssnPrefix || "IMPORT")}-${tokenLabel}-${sequence}`;
+        await storage.createBookCopy({
+          bookId,
+          libraryId: library.id,
+          barcode: details.existingBarcode || generatedBarcode,
+          internalSSN: generatedSSN,
+          userDefinedSSN: details.existingSSN || null,
+          callNumber: null,
+          shelfLocation: details.shelfLocation,
+          status: details.status,
+          condition: "GOOD",
+          acquisitionDate: details.acquisitionDate,
+          acquisitionSource: details.acquisitionSource,
+          price: details.price,
+          notes: `Inventory import ${previewToken}`,
+          allocatedAt: new Date(),
+        });
+        createdCopies += 1;
+      };
+
+      let sequence = 0;
+      if (preview.mode === "EXISTING_SSN") {
+        for (const copy of preview.copies) {
+          try {
+            sequence += 1;
+            await createCopy(copy.bookRef, copy.libraryCode, copy.rowNumber, sequence, copy);
+          } catch (error) {
+            errors.push({ row: copy.rowNumber, message: error instanceof Error ? error.message : "Copy creation failed" });
+          }
+        }
+      } else {
+        for (const allocation of preview.allocations) {
+          for (let copyNumber = 0; copyNumber < allocation.copyCount; copyNumber += 1) {
+            try {
+              sequence += 1;
+              await createCopy(allocation.bookRef, allocation.libraryCode, allocation.rowNumber, sequence, {
+                existingSSN: null,
+                existingBarcode: null,
+                shelfLocation: allocation.shelfLocation,
+                status: "AVAILABLE",
+                acquisitionDate: allocation.acquisitionDate,
+                acquisitionSource: allocation.acquisitionSource,
+                price: allocation.price,
+                ssnPrefix: allocation.ssnPrefix,
+              });
+            } catch (error) {
+              errors.push({ row: allocation.rowNumber, message: error instanceof Error ? error.message : "Copy creation failed" });
+              break;
+            }
+          }
+        }
+      }
+
+      const result = {
+        success: errors.length === 0,
+        previewToken,
+        mode: preview.mode,
+        createdBooks,
+        createdCopies,
+        failedRows: errors.length,
+        errors: errors.slice(0, 250),
+      };
+      preview.status = "COMPLETED";
+      preview.result = result;
+      logAudit(req, {
+        category: "INVENTORY",
+        action: "INVENTORY_IMPORT",
+        details: { ...result, totalRequestedCopies: preview.stats.copies },
+      });
+      res.json(result);
+    } catch (error) {
+      console.error("Error committing inventory import:", error);
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to commit inventory import" });
     }
   });
 
