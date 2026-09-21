@@ -22,6 +22,13 @@ import {
 } from "@/components/ui/card";
 import { librariesApi, orgUnitsApi } from "@/lib/api";
 
+const libraryCardColors = [
+  "border-blue-200 bg-blue-50/60 dark:border-blue-900/60 dark:bg-blue-950/20",
+  "border-emerald-200 bg-emerald-50/60 dark:border-emerald-900/60 dark:bg-emerald-950/20",
+  "border-violet-200 bg-violet-50/60 dark:border-violet-900/60 dark:bg-violet-950/20",
+  "border-amber-200 bg-amber-50/60 dark:border-amber-900/60 dark:bg-amber-950/20",
+];
+
 export default function LibrariesPage() {
   const {
     data: libraries = [],
@@ -120,8 +127,8 @@ export default function LibrariesPage() {
                     </Button>
                   </div>
                 )}
-                <div className="grid gap-4 xl:grid-cols-2">
-                  {libraries.map((library) => {
+                <div className="grid grid-cols-1 gap-4">
+                  {libraries.map((library, index) => {
                     const orgUnit = orgUnits.find((unit) => unit.id === library.orgUnitId);
                     const managerNames = library.managerNames ?? [];
                     const manager = managerNames.length > 0
@@ -136,7 +143,11 @@ export default function LibrariesPage() {
                           : "No librarian or manager assigned";
 
                     return (
-                      <Card key={library.id} className="border-muted" data-testid={`row-library-${library.id}`}>
+                      <Card
+                        key={library.id}
+                        className={`border-l-4 ${libraryCardColors[index % libraryCardColors.length]}`}
+                        data-testid={`row-library-${library.id}`}
+                      >
                         <CardHeader className="pb-3">
                           <div className="flex items-start justify-between gap-4">
                             <div className="min-w-0">

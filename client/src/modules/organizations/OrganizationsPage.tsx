@@ -63,6 +63,13 @@ const ORG_TYPE_LABELS: Record<string, string> = {
   DEPARTMENT: "Department",
 };
 
+const libraryCardColors = [
+  "border-blue-200 bg-blue-50/60 dark:border-blue-900/60 dark:bg-blue-950/20",
+  "border-emerald-200 bg-emerald-50/60 dark:border-emerald-900/60 dark:bg-emerald-950/20",
+  "border-violet-200 bg-violet-50/60 dark:border-violet-900/60 dark:bg-violet-950/20",
+  "border-amber-200 bg-amber-50/60 dark:border-amber-900/60 dark:bg-amber-950/20",
+];
+
 function getParentPath(unitId: number | null | undefined, allUnits: OrgUnit[]): string {
   if (!unitId) return "Root (Top Level)";
   const path: string[] = [];
@@ -821,8 +828,8 @@ export default function OrganizationsPage() {
                 No libraries configured. Add libraries to organizational units above.
               </div>
             ) : (
-              <div className="grid gap-4 xl:grid-cols-2">
-                {libraries.map((lib) => {
+              <div className="grid grid-cols-1 gap-4">
+                {libraries.map((lib, index) => {
                   const orgUnit = orgUnits.find(u => u.id === lib.orgUnitId);
                   const managerNames = lib.managerNames ?? [];
                   const manager = managerNames.length > 0
@@ -837,7 +844,11 @@ export default function OrganizationsPage() {
                         : "No librarian or manager assigned";
 
                   return (
-                    <Card key={lib.id} className="border-muted" data-testid={`row-lib-${lib.id}`}>
+                    <Card
+                      key={lib.id}
+                      className={`border-l-4 ${libraryCardColors[index % libraryCardColors.length]}`}
+                      data-testid={`row-lib-${lib.id}`}
+                    >
                       <CardHeader className="pb-3">
                         <div className="flex items-start justify-between gap-4">
                           <div className="min-w-0">
