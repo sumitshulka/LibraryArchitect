@@ -39,10 +39,12 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { 
   Building2, Plus, Pencil, Trash2, 
-  ChevronRight, ChevronDown, Building, School, GraduationCap, Library, LayoutDashboard, BookOpen
+  ChevronRight, ChevronDown, Building, School, GraduationCap, Library, LayoutDashboard, BookOpen,
+  FileText, UserRound, Users
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { orgUnitsApi, librariesApi } from "@/lib/api";
+import { orgUnitsApi, librariesApi, type LibrarySummary } from "@/lib/api";
 import { toast } from "sonner";
 import type { OrgUnit, Library as LibraryType } from "@shared/schema";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -298,6 +300,7 @@ function LibraryDialog({
     mutationFn: (data: any) => librariesApi.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["libraries"] });
+      queryClient.invalidateQueries({ queryKey: ["library-summaries"] });
       toast.success("Library created");
       onClose();
     },
@@ -310,6 +313,7 @@ function LibraryDialog({
     mutationFn: (data: any) => librariesApi.update(library!.id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["libraries"] });
+      queryClient.invalidateQueries({ queryKey: ["library-summaries"] });
       toast.success("Library updated");
       onClose();
     },
@@ -618,8 +622,8 @@ export default function OrganizationsPage() {
   });
 
   const { data: libraries = [], isLoading: loadingLibs } = useQuery({
-    queryKey: ["libraries"],
-    queryFn: librariesApi.getAll,
+    queryKey: ["library-summaries"],
+    queryFn: librariesApi.getSummaries,
   });
 
   const deleteOrgMutation = useMutation({
@@ -637,6 +641,7 @@ export default function OrganizationsPage() {
     mutationFn: librariesApi.delete,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["libraries"] });
+      queryClient.invalidateQueries({ queryKey: ["library-summaries"] });
       toast.success("Library deleted");
     },
     onError: (error: Error) => {
@@ -816,81 +821,145 @@ export default function OrganizationsPage() {
                 No libraries configured. Add libraries to organizational units above.
               </div>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Code</TableHead>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Organization</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {libraries.map((lib) => {
-                    const orgUnit = orgUnits.find(u => u.id === lib.orgUnitId);
-                    return (
-                      <TableRow key={lib.id} data-testid={`row-lib-${lib.id}`}>
-                        <TableCell className="font-mono text-sm">{lib.code}</TableCell>
-                        <TableCell className="font-medium">{lib.name}</TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {orgUnit?.name || "-"}
-                        </TableCell>
-                        <TableCell>
-                          <Badge 
+              <div className="grid gap-4 xl:grid-cols-2">
+                {libraries.map((lib) => {
+                  const orgUnit = orgUnits.find(u => u.id === lib.orgUnitId);
+                  const librarians = lib.librarianNames.length > 0
+                    ? lib.librarianNames.join(", ")
+                    : "Unassigned";
+
+                  return (
+                    <Card key={lib.id} className="border-muted" data-testid={`row-lib-${lib.id}`}>
+                      <CardHeader className="pb-3">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="min-w-0">
+                            <CardTitle className="truncate text-lg">{lib.name}</CardTitle>
+                            <CardDescription className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                              <span className="font-mono text-xs">{lib.code}</span>
+                              <span aria-hidden="true">•</span>
+                              <span className="inline-flex items-center gap-1">
+                                <Building2 className="h-3.5 w-3.5" />
+                                {orgUnit?.name || "No organization"}
+                              </span>
+                            </CardDescription>
+                          </div>
+                          <Badge
                             variant={lib.isActive ? "default" : "secondary"}
                             className={lib.isActive ? "bg-green-100 text-green-800" : ""}
                           >
                             {lib.isActive ? "Active" : "Inactive"}
                           </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <div className="grid grid-cols-2 gap-3">
+                          <LibrarySummaryMetric
+                            icon={BookOpen}
+                            label="Books"
+                            value={lib.bookCount}
+                            detail={`${lib.copyCount} ${lib.copyCount === 1 ? "copy" : "copies"}`}
+                            testId={`summary-lib-${lib.id}-books`}
+                          />
+                          <LibrarySummaryMetric
+                            icon={FileText}
+                            label="Digital resources"
+                            value={lib.digitalResourceCount}
+                            detail={lib.digitalResourceCount === 0 ? "None attached" : "Attached"}
+                            testId={`summary-lib-${lib.id}-digital-resources`}
+                          />
+                          <LibrarySummaryMetric
+                            icon={UserRound}
+                            label="Librarian"
+                            value={librarians}
+                            detail={lib.librarianNames.length > 1 ? "Assigned librarians" : "Assigned librarian"}
+                            testId={`summary-lib-${lib.id}-librarian`}
+                          />
+                          <LibrarySummaryMetric
+                            icon={Users}
+                            label="Library staff"
+                            value={lib.staffCount}
+                            detail={`${lib.staffCount === 1 ? "person" : "people"} managed`}
+                            testId={`summary-lib-${lib.id}-staff`}
+                          />
+                        </div>
+                        <div className="flex flex-wrap justify-end gap-2 border-t pt-3">
                           <Link href={`/organizations/libraries/${lib.id}/resources`}>
-                            <Button 
-                              variant="ghost" 
-                              size="icon"
+                            <Button
+                              variant="outline"
+                              size="sm"
                               title="View Resources"
                               data-testid={`button-table-resources-lib-${lib.id}`}
                             >
-                              <BookOpen className="h-4 w-4 text-green-600" />
+                              <BookOpen className="mr-2 h-4 w-4 text-green-600" />
+                              Resources
                             </Button>
                           </Link>
                           <Link href={`/organizations/libraries/${lib.id}`}>
-                            <Button 
-                              variant="ghost" 
-                              size="icon"
+                            <Button
+                              variant="outline"
+                              size="sm"
                               title="View Dashboard"
                               data-testid={`button-table-dashboard-lib-${lib.id}`}
                             >
-                              <LayoutDashboard className="h-4 w-4 text-blue-500" />
+                              <LayoutDashboard className="mr-2 h-4 w-4 text-blue-500" />
+                              Dashboard
                             </Button>
                           </Link>
-                          <Button 
-                            variant="ghost" 
-                            size="icon"
+                          <Button
+                            variant="outline"
+                            size="sm"
                             onClick={() => handleEditLibrary(lib)}
                             data-testid={`button-edit-lib-${lib.id}`}
                           >
-                            <Pencil className="h-4 w-4" />
+                            <Pencil className="mr-2 h-4 w-4" />
+                            Edit
                           </Button>
-                          <Button 
-                            variant="ghost" 
-                            size="icon"
+                          <Button
+                            variant="outline"
+                            size="sm"
                             onClick={() => handleDeleteLibrary(lib.id)}
                             data-testid={`button-delete-lib-${lib.id}`}
                           >
-                            <Trash2 className="h-4 w-4 text-red-500" />
+                            <Trash2 className="mr-2 h-4 w-4 text-red-500" />
+                            Delete
                           </Button>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
             )}
           </CardContent>
         </Card>
       </div>
     </MainLayout>
+  );
+}
+
+function LibrarySummaryMetric({
+  icon: Icon,
+  label,
+  value,
+  detail,
+  testId,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string | number;
+  detail: string;
+  testId: string;
+}) {
+  return (
+    <div className="min-w-0 rounded-lg bg-muted/60 p-3" data-testid={testId}>
+      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+        <Icon className="h-4 w-4 shrink-0" />
+        <span>{label}</span>
+      </div>
+      <div className="mt-1 truncate text-sm font-semibold" title={String(value)}>
+        {value}
+      </div>
+      <div className="mt-0.5 truncate text-xs text-muted-foreground">{detail}</div>
+    </div>
   );
 }

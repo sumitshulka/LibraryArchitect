@@ -4,13 +4,15 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Router } from "wouter";
-import type { Library, OrgUnit } from "@shared/schema";
+import type { OrgUnit } from "@shared/schema";
+import type { LibrarySummary } from "@/lib/api";
 import LibrariesPage from "./LibrariesPage";
 import { librariesApi, orgUnitsApi } from "@/lib/api";
 
 vi.mock("@/lib/api", () => ({
   librariesApi: {
     getAll: vi.fn(),
+    getSummaries: vi.fn(),
   },
   orgUnitsApi: {
     getAll: vi.fn(),
@@ -21,11 +23,11 @@ vi.mock("@/components/layout/MainLayout", () => ({
   MainLayout: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
 
-const mockedGetLibraries = vi.mocked(librariesApi.getAll);
+const mockedGetLibraries = vi.mocked(librariesApi.getSummaries);
 const mockedGetOrgUnits = vi.mocked(orgUnitsApi.getAll);
 const navigate = vi.fn();
 
-function makeLibrary(id: number, name = `Library ${id}`): Library {
+function makeLibrary(id: number, name = `Library ${id}`): LibrarySummary {
   return {
     id,
     name,
@@ -40,6 +42,11 @@ function makeLibrary(id: number, name = `Library ${id}`): Library {
     policies: null,
     createdAt: new Date("2026-01-01"),
     updatedAt: new Date("2026-01-01"),
+    librarianNames: [`Librarian ${id}`],
+    bookCount: id * 10,
+    copyCount: id * 12,
+    digitalResourceCount: id,
+    staffCount: id + 1,
   };
 }
 
@@ -117,6 +124,11 @@ describe("LibrariesPage landing behavior", () => {
       "/organizations/libraries/1",
     );
     expect(screen.getByText("Organization 1")).toBeInTheDocument();
+    expect(screen.getByTestId("summary-library-1-books")).toHaveTextContent("10");
+    expect(screen.getByTestId("summary-library-1-books")).toHaveTextContent("12 copies");
+    expect(screen.getByTestId("summary-library-1-digital-resources")).toHaveTextContent("1");
+    expect(screen.getByTestId("summary-library-1-librarian")).toHaveTextContent("Librarian 1");
+    expect(screen.getByTestId("summary-library-1-staff")).toHaveTextContent("2");
     expect(screen.getByTestId("row-library-1")).toBeInTheDocument();
     expect(screen.getByTestId("row-library-2")).toBeInTheDocument();
     expect(navigate).not.toHaveBeenCalled();
