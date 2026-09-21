@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { circulationApi, booksApi, bookCopiesApi, librariesApi, libraryMembershipsApi, reservationsApi } from "@/lib/api";
+import { circulationApi, booksApi, bookCopiesApi, librariesApi, reservationsApi } from "@/lib/api";
 import { Link } from "wouter";
 import { useCurrency } from "@/lib/useCurrency";
 import { ReturnBookDialog } from "./ReturnBookDialog";
@@ -55,7 +55,7 @@ import {
 } from "lucide-react";
 import { formatIsbn } from "@/lib/isbn";
 import { toast } from "sonner";
-import type { Book, User as UserType, BookCopy as BookCopyType, Library, LibraryMembership } from "@shared/schema";
+import type { Book, User as UserType, BookCopy as BookCopyType, Library } from "@shared/schema";
 
 type SafeUser = Omit<UserType, "password">;
 type CheckoutItem = {
@@ -432,19 +432,13 @@ export default function CirculationPage() {
     queryFn: () => librariesApi.getActive(),
   });
 
-  const { data: userMemberships = [] } = useQuery<LibraryMembership[]>({
-    queryKey: ["user-memberships", currentUser?.id],
-    queryFn: () => libraryMembershipsApi.getByUser(currentUser!.id),
-    enabled: !!currentUser && !isAdmin,
-  });
-
-  const assignedLibrary = !isAdmin && userMemberships.length > 0
-    ? userMemberships.find(m => m.isPrimaryLibrary && m.isActive) || userMemberships.find(m => m.isActive) || null
+  const assignedLibrary = !isAdmin && libraries.length > 0
+    ? libraries[0]
     : null;
 
   useEffect(() => {
     if (assignedLibrary && !selectedLibraryId) {
-      setSelectedLibraryId(assignedLibrary.libraryId);
+      setSelectedLibraryId(assignedLibrary.id);
     }
   }, [assignedLibrary, selectedLibraryId]);
 
@@ -470,7 +464,7 @@ export default function CirculationPage() {
   });
 
   const accessibleLibraryIds = new Set(
-    userMemberships.filter(membership => membership.isActive).map(membership => membership.libraryId),
+    libraries.map((library) => library.id),
   );
   const activeTransactions = circulation.filter(c =>
     (c.status === "ACTIVE" || c.status === "OVERDUE") &&

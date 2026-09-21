@@ -10,6 +10,10 @@ import {
   librariesApi,
 } from "@/lib/api";
 
+const authState = vi.hoisted(() => ({
+  user: { id: 99, role: "ADMIN", name: "Admin", email: "admin@example.com" },
+}));
+
 vi.mock("@/lib/api", () => ({
   bookCopiesApi: { getByBook: vi.fn(), getByBookAndLibrary: vi.fn() },
   booksApi: { getAll: vi.fn() },
@@ -46,9 +50,7 @@ vi.mock("./ReturnBookDialog", () => ({
 }));
 
 vi.mock("@/lib/auth", () => ({
-  useAuth: () => ({
-    user: { id: 99, role: "ADMIN", name: "Admin", email: "admin@example.com" },
-  }),
+  useAuth: () => ({ user: authState.user }),
 }));
 
 vi.mock("@/lib/useCurrency", () => ({
@@ -119,6 +121,7 @@ function renderPage() {
 describe("CirculationPage checkout", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    authState.user = { id: 99, role: "ADMIN", name: "Admin", email: "admin@example.com" };
     mockedGetLibraries.mockResolvedValue([
       {
         id: 3,
@@ -202,6 +205,39 @@ describe("CirculationPage checkout", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+  });
+
+  it("uses the librarian's accessible active library instead of the admin-only memberships endpoint", async () => {
+    authState.user = {
+      id: 11,
+      role: "LIBRARIAN",
+      name: "Nancy D",
+      email: "nd@nancyd.me",
+    };
+    mockedGetLibraries.mockResolvedValue([
+      {
+        id: 2,
+        name: "Computer Science Library",
+        code: "LIB-SECTION",
+        orgUnitId: 1,
+        address: null,
+        contactEmail: null,
+        contactPhone: null,
+        openingHours: null,
+        isActive: true,
+        isMainLibrary: false,
+        policies: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ]);
+
+    renderPage();
+
+    expect(await screen.findByTestId("text-assigned-library")).toHaveTextContent(
+      "Computer Science Library (LIB-SECTION)",
+    );
+    expect(screen.queryByText(/No library assigned/)).not.toBeInTheDocument();
   });
 
   it("keeps Issue Book disabled until library, member, book, and copy prerequisites are ready", async () => {
