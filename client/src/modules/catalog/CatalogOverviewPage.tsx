@@ -48,12 +48,19 @@ function escapeCsvValue(value: string | null | undefined): string {
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, "\"\"")}"` : text;
 }
 
+function excelTextCell(value: string | null | undefined): string {
+  // CSV has no type metadata. This Excel-compatible expression keeps long
+  // numeric ISBNs from being converted to scientific notation while displaying
+  // the original ISBN value.
+  return `="${(value ?? "").replace(/"/g, "\"\"")}"`;
+}
+
 export function buildCatalogCsv(books: CatalogExportBook[]): string {
   const rows = [
     ["Sr No", "ISBN", "Book Title", "Author"],
     ...books.map((book, index) => [
       String(index + 1),
-      book.isbn,
+      excelTextCell(book.isbn),
       book.title,
       book.author,
     ]),

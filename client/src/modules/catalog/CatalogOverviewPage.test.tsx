@@ -115,11 +115,11 @@ describe("CatalogOverviewPage", () => {
   it("builds a CSV with the requested catalog columns and escaped values", () => {
     expect(buildCatalogCsv([
       book,
-      { ...book, isbn: "123", title: 'A "quoted", title', author: "Author\nName" },
+      { ...book, isbn: "123-45", title: 'A "quoted", title', author: "Author\nName" },
     ])).toBe(
       'Sr No,ISBN,Book Title,Author\r\n'
-      + '1,9781250247100,The Dichotomy of Leadership,Jocko Willink\r\n'
-      + '2,123,"A ""quoted"", title","Author\nName"\r\n',
+      + '1,"=""9781250247100""",The Dichotomy of Leadership,Jocko Willink\r\n'
+      + '2,"=""123-45""","A ""quoted"", title","Author\nName"\r\n',
     );
   });
 
