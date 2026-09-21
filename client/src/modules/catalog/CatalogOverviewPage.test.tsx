@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Router } from "wouter";
-import CatalogOverviewPage from "./CatalogOverviewPage";
+import CatalogOverviewPage, { buildCatalogCsv } from "./CatalogOverviewPage";
 import { booksApi, statsApi } from "@/lib/api";
 
 const { authState } = vi.hoisted(() => ({
@@ -110,6 +110,36 @@ describe("CatalogOverviewPage", () => {
 
   afterEach(() => {
     cleanup();
+  });
+
+  it("builds a CSV with the requested catalog columns and escaped values", () => {
+    expect(buildCatalogCsv([
+      book,
+      { ...book, isbn: "123", title: 'A "quoted", title', author: "Author\nName" },
+    ])).toBe(
+      'Sr No,ISBN,Book Title,Author\r\n'
+      + '1,9781250247100,The Dichotomy of Leadership,Jocko Willink\r\n'
+      + '2,123,"A ""quoted"", title","Author\nName"\r\n',
+    );
+  });
+
+  it("downloads a fresh CSV when Export is clicked", async () => {
+    const user = userEvent.setup();
+    const createObjectURL = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:catalog");
+    const revokeObjectURL = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    renderPage();
+
+    await user.click(await screen.findByTestId("button-export"));
+
+    expect(mockedGetBooks).toHaveBeenCalledTimes(3);
+    expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
+    expect(click).toHaveBeenCalled();
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:catalog");
+
+    createObjectURL.mockRestore();
+    revokeObjectURL.mockRestore();
+    click.mockRestore();
   });
 
   it("presents the catalog as one overview without permanent MARC or Z39.50 tabs", async () => {

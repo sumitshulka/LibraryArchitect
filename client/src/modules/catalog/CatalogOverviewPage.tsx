@@ -41,6 +41,42 @@ import { useCurrency } from "@/lib/useCurrency";
 import { BookDetailsSheet, BookHistoryDialog, CatalogAnalyticsDialog, EditBookDialog } from "./CatalogPage";
 import { MarcEditor } from "./MarcEditor";
 
+type CatalogExportBook = Pick<Book, "isbn" | "title" | "author">;
+
+function escapeCsvValue(value: string | null | undefined): string {
+  const text = value ?? "";
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, "\"\"")}"` : text;
+}
+
+export function buildCatalogCsv(books: CatalogExportBook[]): string {
+  const rows = [
+    ["Sr No", "ISBN", "Book Title", "Author"],
+    ...books.map((book, index) => [
+      String(index + 1),
+      book.isbn,
+      book.title,
+      book.author,
+    ]),
+  ];
+
+  return `${rows.map((row) => row.map(escapeCsvValue).join(",")).join("\r\n")}\r\n`;
+}
+
+function downloadCatalogCsv(books: CatalogExportBook[]): void {
+  const blob = new Blob([`\uFEFF${buildCatalogCsv(books)}`], {
+    type: "text/csv;charset=utf-8;",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `catalog-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 const statusMeta: Record<string, { label: string; className: string; dotClassName: string }> = {
   AVAILABLE: { label: "Available", className: "bg-green-100 text-green-800", dotClassName: "bg-green-500" },
   CHECKED_OUT: { label: "Checked out", className: "bg-blue-100 text-blue-800", dotClassName: "bg-blue-500" },
@@ -250,6 +286,7 @@ export default function CatalogOverviewPage() {
   const [addCopiesDialogOpen, setAddCopiesDialogOpen] = useState(false);
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
   const [notice, setNotice] = useState("");
+  const [isExporting, setIsExporting] = useState(false);
   const [catalogPage, setCatalogPage] = useState(1);
   const catalogPageSize = 24;
   const queryClient = useQueryClient();
@@ -324,6 +361,19 @@ export default function CatalogOverviewPage() {
     if (confirm("Are you sure you want to delete this book?")) deleteMutation.mutate(id);
   };
 
+  const handleExport = async () => {
+    setIsExporting(true);
+    try {
+      const exportBooks = await booksApi.getAll();
+      downloadCatalogCsv(exportBooks);
+      toast.success(`Exported ${exportBooks.length} catalog records`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to export catalog");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
     <MainLayout>
       <div className="w-full">
@@ -334,8 +384,9 @@ export default function CatalogOverviewPage() {
               <p className="mt-1 text-sm text-muted-foreground">{isPatron ? "Find books available through your library." : "Manage books, journals, and media resources across your collection."}</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              {!isPatron && <Button variant="outline" size="sm" onClick={() => flash("Catalog export prepared")} className="gap-2" data-testid="button-export">
-                <Download className="h-4 w-4" />Export
+              {!isPatron && <Button variant="outline" size="sm" onClick={handleExport} disabled={isExporting} className="gap-2" data-testid="button-export">
+                {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                {isExporting ? "Exporting..." : "Export"}
               </Button>}
               {canManageCatalog && (
                 <>
