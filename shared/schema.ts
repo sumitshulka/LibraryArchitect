@@ -78,6 +78,9 @@ export const categories = pgTable("categories", {
 export const books = pgTable("books", {
   id: serial("id").primaryKey(),
   isbn: text("isbn").notNull().unique(),
+  isbnCanonical: text("isbn_canonical").generatedAlwaysAs(
+    sql`regexp_replace(upper(isbn), '[^0-9X]', '', 'g')`,
+  ),
   title: text("title").notNull(),
   author: text("author").notNull(),
   publisher: text("publisher"),
@@ -93,9 +96,7 @@ export const books = pgTable("books", {
   unitPrice: integer("unit_price"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => [
-  uniqueIndex("books_isbn_canonical_unique").on(
-    sql`regexp_replace(upper(${table.isbn}), '[^0-9X]', '', 'g')`,
-  ),
+  uniqueIndex("books_isbn_canonical_unique").on(table.isbnCanonical),
 ]);
 
 export const circulation = pgTable("circulation", {

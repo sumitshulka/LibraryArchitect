@@ -924,21 +924,14 @@ export class DBStorage implements IStorage {
 
   async getBookByIsbn(isbn: string): Promise<Book | undefined> {
     const canonicalIsbn = normalizeIsbn(isbn);
-    const [book] = await db.select().from(books).where(
-      sql`regexp_replace(upper(${books.isbn}), '[^0-9X]', '', 'g') = ${canonicalIsbn}`,
-    );
+    const [book] = await db.select().from(books).where(eq(books.isbnCanonical, canonicalIsbn));
     return book;
   }
 
   async getBooksByIsbns(isbns: string[]): Promise<Book[]> {
     const canonicalIsbns = Array.from(new Set(isbns.map(normalizeIsbn).filter(Boolean)));
     if (canonicalIsbns.length === 0) return [];
-    return await db.select().from(books).where(
-      inArray(
-        sql`regexp_replace(upper(${books.isbn}), '[^0-9X]', '', 'g')`,
-        canonicalIsbns,
-      ),
-    );
+    return await db.select().from(books).where(inArray(books.isbnCanonical, canonicalIsbns));
   }
 
   async createBook(insertBook: InsertBook): Promise<Book> {

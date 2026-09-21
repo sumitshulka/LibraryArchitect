@@ -85,7 +85,7 @@ export const booksApi = {
     return res.json();
   },
 
-  create: async (book: Omit<Book, "id" | "createdAt" | "acquisitionDate"> & { quantity?: number; acquisitionDate?: string | Date | null }): Promise<Book> => {
+  create: async (book: Omit<Book, "id" | "createdAt" | "acquisitionDate" | "isbnCanonical"> & { quantity?: number; acquisitionDate?: string | Date | null }): Promise<Book> => {
     const res = await fetch(`${API_BASE}/books`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
