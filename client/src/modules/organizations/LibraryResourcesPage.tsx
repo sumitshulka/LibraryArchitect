@@ -487,14 +487,23 @@ function printCatalogCards(cards: CatalogCardData[], cardSize: CardSize = 'A6') 
 function printBarcodeSheet(ssns: string[]) {
   const printWindow = window.open('', '_blank');
   if (!printWindow) return;
-  
-  const stickerDivs = ssns.map((ssn, index) => `
-    <div class="sticker">
-      <svg id="barcode-${index}"></svg>
-      <div class="ssn">${ssn}</div>
-    </div>
-  `).join('');
-  
+
+  const labelsPerPage = 24;
+  const pages: string[] = [];
+  for (let start = 0; start < ssns.length; start += labelsPerPage) {
+    const pageSsns = ssns.slice(start, start + labelsPerPage);
+    const stickerDivs = pageSsns.map((ssn, pageIndex) => {
+      const index = start + pageIndex;
+      return `
+        <div class="sticker">
+          <svg id="barcode-${index}" aria-label="Barcode for ${ssn}"></svg>
+          <div class="ssn">${ssn}</div>
+        </div>
+      `;
+    }).join('');
+    pages.push(`<div class="sticker-page">${stickerDivs}</div>`);
+  }
+
   const barcodeScripts = ssns.map((ssn, index) => `
     JsBarcode("#barcode-${index}", "${ssn}", {
       format: "CODE128",
@@ -514,18 +523,28 @@ function printBarcodeSheet(ssns: string[]) {
             size: A4;
             margin: 0;
           }
-          body { 
+          * {
+            box-sizing: border-box;
+          }
+          body {
             margin: 0;
-            padding: 5mm;
+            padding: 0;
             font-family: monospace;
           }
-          .sticker-grid {
+          .sticker-page {
             display: grid;
             grid-template-columns: repeat(3, 66.5mm);
             grid-template-rows: repeat(8, 33.9mm);
             gap: 0;
             width: 200mm;
             height: 271mm;
+            margin: 5mm auto;
+            break-after: page;
+            page-break-after: always;
+          }
+          .sticker-page:last-child {
+            break-after: auto;
+            page-break-after: auto;
           }
           .sticker {
             display: flex;
@@ -534,8 +553,9 @@ function printBarcodeSheet(ssns: string[]) {
             justify-content: center;
             text-align: center;
             padding: 2mm;
-            box-sizing: border-box;
             overflow: hidden;
+            min-width: 0;
+            break-inside: avoid;
           }
           .sticker svg {
             max-width: 60mm;
@@ -548,21 +568,35 @@ function printBarcodeSheet(ssns: string[]) {
             max-width: 60mm;
           }
           @media screen {
+            body { padding: 5mm; background: #eee; }
+            .sticker-page {
+              margin: 0 auto 8mm;
+              background: white;
+              box-shadow: 0 1px 8px rgba(0, 0, 0, .15);
+            }
             .sticker { border: 1px dashed #ccc; }
           }
           @media print {
+            body { padding: 0; }
+            .sticker-page {
+              margin: 5mm;
+              break-after: page;
+              page-break-after: always;
+            }
+            .sticker-page:last-child {
+              break-after: auto;
+              page-break-after: auto;
+            }
             .sticker { border: none; }
           }
         </style>
       </head>
       <body>
-        <div class="sticker-grid">
-          ${stickerDivs}
-        </div>
+        ${pages.join('')}
         <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
         <script>
           ${barcodeScripts}
-          setTimeout(() => window.print(), 500);
+          window.addEventListener('load', () => setTimeout(() => window.print(), 300));
         </script>
       </body>
     </html>
