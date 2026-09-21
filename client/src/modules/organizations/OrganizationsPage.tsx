@@ -850,9 +850,17 @@ export default function OrganizationsPage() {
                       data-testid={`row-lib-${lib.id}`}
                     >
                       <CardHeader className="pb-3">
-                        <div className="flex items-start justify-between gap-4">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                           <div className="min-w-0">
-                            <CardTitle className="truncate text-lg">{lib.name}</CardTitle>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <CardTitle className="truncate text-lg">{lib.name}</CardTitle>
+                              <Badge
+                                variant={lib.isActive ? "default" : "secondary"}
+                                className={lib.isActive ? "bg-green-100 text-green-800" : ""}
+                              >
+                                {lib.isActive ? "Active" : "Inactive"}
+                              </Badge>
+                            </div>
                             <CardDescription className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
                               <span className="font-mono text-xs">{lib.code}</span>
                               <span aria-hidden="true">•</span>
@@ -862,12 +870,48 @@ export default function OrganizationsPage() {
                               </span>
                             </CardDescription>
                           </div>
-                          <Badge
-                            variant={lib.isActive ? "default" : "secondary"}
-                            className={lib.isActive ? "bg-green-100 text-green-800" : ""}
-                          >
-                            {lib.isActive ? "Active" : "Inactive"}
-                          </Badge>
+                          <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+                            <Link href={`/organizations/libraries/${lib.id}/resources`}>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                title="View Resources"
+                                data-testid={`button-table-resources-lib-${lib.id}`}
+                              >
+                                <BookOpen className="mr-2 h-4 w-4 text-green-600" />
+                                Resources
+                              </Button>
+                            </Link>
+                            <Link href={`/organizations/libraries/${lib.id}`}>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                title="View Dashboard"
+                                data-testid={`button-table-dashboard-lib-${lib.id}`}
+                              >
+                                <LayoutDashboard className="mr-2 h-4 w-4 text-blue-500" />
+                                Dashboard
+                              </Button>
+                            </Link>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleEditLibrary(lib)}
+                              data-testid={`button-edit-lib-${lib.id}`}
+                            >
+                              <Pencil className="mr-2 h-4 w-4" />
+                              Edit
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleDeleteLibrary(lib.id)}
+                              data-testid={`button-delete-lib-${lib.id}`}
+                            >
+                              <Trash2 className="mr-2 h-4 w-4 text-red-500" />
+                              Delete
+                            </Button>
+                          </div>
                         </div>
                       </CardHeader>
                       <CardContent className="space-y-4">
@@ -900,48 +944,6 @@ export default function OrganizationsPage() {
                             detail={`${lib.staffCount === 1 ? "person" : "people"} managed`}
                             testId={`summary-lib-${lib.id}-staff`}
                           />
-                        </div>
-                        <div className="flex flex-wrap justify-end gap-2 border-t pt-3">
-                          <Link href={`/organizations/libraries/${lib.id}/resources`}>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              title="View Resources"
-                              data-testid={`button-table-resources-lib-${lib.id}`}
-                            >
-                              <BookOpen className="mr-2 h-4 w-4 text-green-600" />
-                              Resources
-                            </Button>
-                          </Link>
-                          <Link href={`/organizations/libraries/${lib.id}`}>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              title="View Dashboard"
-                              data-testid={`button-table-dashboard-lib-${lib.id}`}
-                            >
-                              <LayoutDashboard className="mr-2 h-4 w-4 text-blue-500" />
-                              Dashboard
-                            </Button>
-                          </Link>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleEditLibrary(lib)}
-                            data-testid={`button-edit-lib-${lib.id}`}
-                          >
-                            <Pencil className="mr-2 h-4 w-4" />
-                            Edit
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleDeleteLibrary(lib.id)}
-                            data-testid={`button-delete-lib-${lib.id}`}
-                          >
-                            <Trash2 className="mr-2 h-4 w-4 text-red-500" />
-                            Delete
-                          </Button>
                         </div>
                       </CardContent>
                     </Card>
