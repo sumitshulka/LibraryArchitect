@@ -1710,6 +1710,7 @@ export interface LibraryDashboardStats {
 
 export interface LibrarySummary extends Library {
   librarianNames: string[];
+  staffNames: string[];
   bookCount: number;
   copyCount: number;
   digitalResourceCount: number;

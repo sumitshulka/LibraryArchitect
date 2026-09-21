@@ -43,6 +43,7 @@ function makeLibrary(id: number, name = `Library ${id}`): LibrarySummary {
     createdAt: new Date("2026-01-01"),
     updatedAt: new Date("2026-01-01"),
     librarianNames: [`Librarian ${id}`],
+    staffNames: [`Librarian ${id}`],
     bookCount: id * 10,
     copyCount: id * 12,
     digitalResourceCount: id,

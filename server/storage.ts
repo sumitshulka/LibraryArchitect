@@ -166,6 +166,7 @@ export interface LibraryStaffMember {
 
 export interface LibrarySummary extends Library {
   librarianNames: string[];
+  staffNames: string[];
   bookCount: number;
   copyCount: number;
   digitalResourceCount: number;
@@ -2285,8 +2286,11 @@ export class DBStorage implements IStorage {
       db.select({
         libraryId: libraryMemberships.libraryId,
         staffCount: sql<number>`count(*)`,
+        staffNames: sql<string[]>`array_agg(${users.name} order by ${users.name})`,
         librarianNames: sql<string[]>`coalesce(
-          array_agg(${users.name}) filter (where ${users.role} = 'LIBRARIAN'),
+          array_agg(${users.name} order by ${users.name}) filter (
+            where ${users.role} = 'LIBRARIAN' or ${libraryMemberships.role} = 'LIBRARIAN'
+          ),
           array[]::text[]
         )`,
       })
@@ -2309,12 +2313,17 @@ export class DBStorage implements IStorage {
     );
     const staffByLibrary = new Map(staffCounts.map((row) => [
       row.libraryId,
-      { staffCount: Number(row.staffCount), librarianNames: row.librarianNames },
+      {
+        staffCount: Number(row.staffCount),
+        staffNames: row.staffNames,
+        librarianNames: row.librarianNames,
+      },
     ]));
 
     return librariesList.map((library) => ({
       ...library,
       librarianNames: staffByLibrary.get(library.id)?.librarianNames ?? [],
+      staffNames: staffByLibrary.get(library.id)?.staffNames ?? [],
       bookCount: booksByLibrary.get(library.id)?.bookCount ?? 0,
       copyCount: booksByLibrary.get(library.id)?.copyCount ?? 0,
       digitalResourceCount: digitalResourcesByLibrary.get(library.id) ?? 0,

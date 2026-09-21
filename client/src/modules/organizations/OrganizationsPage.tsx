@@ -824,8 +824,13 @@ export default function OrganizationsPage() {
               <div className="grid gap-4 xl:grid-cols-2">
                 {libraries.map((lib) => {
                   const orgUnit = orgUnits.find(u => u.id === lib.orgUnitId);
-                  const librarians = lib.librarianNames.length > 0
-                    ? lib.librarianNames.join(", ")
+                  const librarianNames = lib.librarianNames ?? [];
+                  const staffNames = lib.staffNames ?? [];
+                  const hasLibrarianAssignment = librarianNames.length > 0;
+                  const librarians = hasLibrarianAssignment
+                    ? librarianNames.join(", ")
+                    : staffNames.length > 0
+                      ? staffNames.join(", ")
                     : "Unassigned";
 
                   return (
@@ -869,9 +874,11 @@ export default function OrganizationsPage() {
                           />
                           <LibrarySummaryMetric
                             icon={UserRound}
-                            label="Librarian"
+                            label="Librarian / manager"
                             value={librarians}
-                            detail={lib.librarianNames.length > 1 ? "Assigned librarians" : "Assigned librarian"}
+                            detail={hasLibrarianAssignment
+                              ? librarianNames.length > 1 ? "Assigned librarians" : "Assigned librarian"
+                              : staffNames.length > 0 ? "Assigned staff member" : "No librarian assigned"}
                             testId={`summary-lib-${lib.id}-librarian`}
                           />
                           <LibrarySummaryMetric
