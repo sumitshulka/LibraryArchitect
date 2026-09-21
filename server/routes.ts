@@ -43,6 +43,7 @@ import { registerDigitalResourceRoutes } from "./digital-resources";
 import { registerLostDamagedRoutes } from "./lost-damaged";
 import { loadNotificationSetup, saveNotificationSetup, toPublicNotificationSetup, type NotificationSetup } from "./notification-setup";
 import { emitNotification, retryNotificationAttempt, sendProviderTest, verifyNotificationProvider, type NotificationAttempt } from "./notification-service";
+import { normalizeIsbn } from "@shared/isbn";
 import {
   completeNotificationOAuth,
   configureMetaWaba,
@@ -180,10 +181,6 @@ function trimImportValue(value: unknown): string {
 
 function normalizeImportHeader(value: unknown): string {
   return trimImportValue(value).toLocaleLowerCase().replace(/[^a-z0-9]+/g, "");
-}
-
-function normalizeImportIsbn(value: string): string {
-  return value.replace(/[-\s]/g, "").toUpperCase();
 }
 
 function parseImportInteger(value: string): number | null {
@@ -1147,6 +1144,7 @@ export async function registerRoutes(
       
       const validated = insertBookSchema.parse({
         ...bookData,
+        isbn: normalizeIsbn(String(bookData.isbn ?? "")),
         acquisitionDate: parsedAcquisitionDate,
       });
       const copyCount = Math.min(Math.max(1, parseInt(quantity) || 1), 1000);
@@ -1206,7 +1204,19 @@ export async function registerRoutes(
       const currentUser = await requireLocalAdmin(req, res);
       if (!currentUser) return;
       const id = parseInt(req.params.id);
-      const validated = insertBookSchema.partial().parse(req.body);
+      const validated = insertBookSchema.partial().parse({
+        ...req.body,
+        ...(req.body?.isbn !== undefined
+          ? { isbn: normalizeIsbn(String(req.body.isbn ?? "")) }
+          : {}),
+      });
+
+      if (validated.isbn !== undefined) {
+        const existing = await storage.getBookByIsbn(validated.isbn);
+        if (existing && existing.id !== id) {
+          return res.status(400).json({ error: "Book with this ISBN already exists" });
+        }
+      }
       
       const book = await storage.updateBook(id, validated);
       
@@ -4344,7 +4354,7 @@ export async function registerRoutes(
         const row = rows[i];
         if (!row || row.length === 0 || !row[1]) continue;
         
-        const isbn = String(row[1] || "").trim();
+          const isbn = normalizeIsbn(String(row[1] || ""));
         if (!isbn) continue;
         
         let bookData: any = {
@@ -4378,7 +4388,7 @@ export async function registerRoutes(
           bookData.title = String(row[2] || "");
           
           try {
-            const cleanIsbn = isbn.replace(/[-\s]/g, '');
+            const cleanIsbn = normalizeIsbn(isbn);
             const openLibUrl = `https://openlibrary.org/api/books?bibkeys=ISBN:${cleanIsbn}&format=json&jscmd=data`;
             const openLibResponse = await fetch(openLibUrl);
             
@@ -4489,14 +4499,21 @@ export async function registerRoutes(
             continue;
           }
           
-          const existingBooks = await storage.searchBooks(row.isbn);
+          const isbn = normalizeIsbn(String(row.isbn));
+          if (!isbn) {
+            skippedRows++;
+            errors.push({ rowId: row.rowId, message: "ISBN is required" });
+            continue;
+          }
+
+          const existingBooks = await storage.searchBooks(isbn);
           let bookId: number;
           
           if (existingBooks.length > 0) {
             bookId = existingBooks[0].id;
           } else {
             const newBook = await storage.createBook({
-              isbn: row.isbn,
+              isbn,
               title: row.title,
               author: row.author || "Unknown",
               publisher: row.publisher || null,
@@ -4608,18 +4625,17 @@ export async function registerRoutes(
         });
       }
 
-      const [libraries, existingBooks] = await Promise.all([
+      const [libraries] = await Promise.all([
         storage.getAllLibraries(),
-        storage.getAllBooks(),
       ]);
       const librariesByCode = new Map(libraries.map((library) => [library.code.toLocaleLowerCase(), library]));
-      const booksByIsbn = new Map(existingBooks.map((book) => [normalizeImportIsbn(book.isbn), book]));
       const booksByRef = new Map<string, InventoryImportBook>();
+      const booksByIsbnInImport = new Map<string, number>();
       const normalizedBooks: InventoryImportBook[] = [];
 
       for (const sourceRow of bookSheet.rows) {
         const bookRef = importValue(sourceRow.values, "Book Ref");
-        const isbn = normalizeImportIsbn(importValue(sourceRow.values, "ISBN"));
+        const isbn = normalizeIsbn(importValue(sourceRow.values, "ISBN"));
         const title = importValue(sourceRow.values, "Title");
         const author = importValue(sourceRow.values, "Author");
         const formatValue = importValue(sourceRow.values, "Format").toUpperCase() || "PHYSICAL";
@@ -4636,18 +4652,38 @@ export async function registerRoutes(
           category: importValue(sourceRow.values, "Category") || "General",
           format,
           shelfLocation: importValue(sourceRow.values, "Shelf Location") || null,
-          existingBookId: booksByIsbn.get(isbn)?.id ?? null,
+          existingBookId: null,
         };
         if (!bookRef) errors.push({ sheet: "Books", row: sourceRow.rowNumber, message: "Book Ref is required", severity: "error" });
         if (!isbn) errors.push({ sheet: "Books", row: sourceRow.rowNumber, message: "ISBN is required", severity: "error" });
         if (!title) errors.push({ sheet: "Books", row: sourceRow.rowNumber, message: "Title is required", severity: "error" });
         if (!author) errors.push({ sheet: "Books", row: sourceRow.rowNumber, message: "Author is required", severity: "error" });
+        if (isbn && booksByIsbnInImport.has(isbn)) {
+          errors.push({
+            sheet: "Books",
+            row: sourceRow.rowNumber,
+            message: `ISBN "${isbn}" is duplicated in the workbook`,
+            severity: "error",
+          });
+        } else if (isbn) {
+          booksByIsbnInImport.set(isbn, sourceRow.rowNumber);
+        }
         if (bookRef && booksByRef.has(bookRef.toLocaleLowerCase())) {
           errors.push({ sheet: "Books", row: sourceRow.rowNumber, message: `Book Ref "${bookRef}" is duplicated`, severity: "error" });
         } else if (bookRef) {
           booksByRef.set(bookRef.toLocaleLowerCase(), book);
           normalizedBooks.push(book);
         }
+      }
+
+      const existingBooks: Awaited<ReturnType<typeof storage.getBooksByIsbns>> = [];
+      const importIsbns = Array.from(new Set(normalizedBooks.map((book) => book.isbn).filter(Boolean)));
+      for (let index = 0; index < importIsbns.length; index += 500) {
+        existingBooks.push(...await storage.getBooksByIsbns(importIsbns.slice(index, index + 500)));
+      }
+      const booksByIsbn = new Map(existingBooks.map((book) => [normalizeIsbn(book.isbn), book]));
+      for (const book of normalizedBooks) {
+        book.existingBookId = booksByIsbn.get(book.isbn)?.id ?? null;
       }
 
       const normalizedCopies: InventoryImportCopy[] = [];
@@ -4789,9 +4825,14 @@ export async function registerRoutes(
       if (preview.status === "COMPLETED") return res.json(preview.result);
       if (preview.stats.errors > 0) return res.status(400).json({ error: "Resolve all validation errors before importing" });
 
-      const [libraries, currentBooks] = await Promise.all([storage.getAllLibraries(), storage.getAllBooks()]);
+      const [libraries] = await Promise.all([storage.getAllLibraries()]);
       const librariesByCode = new Map(libraries.map((library) => [library.code.toLocaleLowerCase(), library]));
-      const booksByIsbn = new Map(currentBooks.map((book) => [normalizeImportIsbn(book.isbn), book]));
+      const currentBooks: Awaited<ReturnType<typeof storage.getBooksByIsbns>> = [];
+      const importIsbns = Array.from(new Set(preview.books.map((book) => book.isbn).filter(Boolean)));
+      for (let index = 0; index < importIsbns.length; index += 500) {
+        currentBooks.push(...await storage.getBooksByIsbns(importIsbns.slice(index, index + 500)));
+      }
+      const booksByIsbn = new Map(currentBooks.map((book) => [normalizeIsbn(book.isbn), book]));
       const tokenLabel = sanitizeImportToken(previewToken.slice(0, 10).toUpperCase());
       let createdBooks = 0;
       let createdCopies = 0;

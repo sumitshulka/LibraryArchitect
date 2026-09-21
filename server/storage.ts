@@ -118,6 +118,7 @@ import {
   resourceSearchAttributes,
   digitalResourceSearchAttributes,
 } from "@shared/schema";
+import { normalizeIsbn } from "@shared/isbn";
 
 export interface AuditLogFilters {
   category?: string;
@@ -370,6 +371,7 @@ export interface IStorage {
   // Books
   getBook(id: number): Promise<Book | undefined>;
   getBookByIsbn(isbn: string): Promise<Book | undefined>;
+  getBooksByIsbns(isbns: string[]): Promise<Book[]>;
   createBook(book: InsertBook): Promise<Book>;
   updateBook(id: number, book: Partial<InsertBook>): Promise<Book | undefined>;
   getAllBooks(): Promise<Book[]>;
@@ -921,8 +923,22 @@ export class DBStorage implements IStorage {
   }
 
   async getBookByIsbn(isbn: string): Promise<Book | undefined> {
-    const [book] = await db.select().from(books).where(eq(books.isbn, isbn));
+    const canonicalIsbn = normalizeIsbn(isbn);
+    const [book] = await db.select().from(books).where(
+      sql`regexp_replace(upper(${books.isbn}), '[^0-9X]', '', 'g') = ${canonicalIsbn}`,
+    );
     return book;
+  }
+
+  async getBooksByIsbns(isbns: string[]): Promise<Book[]> {
+    const canonicalIsbns = Array.from(new Set(isbns.map(normalizeIsbn).filter(Boolean)));
+    if (canonicalIsbns.length === 0) return [];
+    return await db.select().from(books).where(
+      inArray(
+        sql`regexp_replace(upper(${books.isbn}), '[^0-9X]', '', 'g')`,
+        canonicalIsbns,
+      ),
+    );
   }
 
   async createBook(insertBook: InsertBook): Promise<Book> {

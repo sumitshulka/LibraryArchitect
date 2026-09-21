@@ -92,7 +92,11 @@ export const books = pgTable("books", {
   acquisitionDate: timestamp("acquisition_date"),
   unitPrice: integer("unit_price"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  uniqueIndex("books_isbn_canonical_unique").on(
+    sql`regexp_replace(upper(${table.isbn}), '[^0-9X]', '', 'g')`,
+  ),
+]);
 
 export const circulation = pgTable("circulation", {
   id: serial("id").primaryKey(),

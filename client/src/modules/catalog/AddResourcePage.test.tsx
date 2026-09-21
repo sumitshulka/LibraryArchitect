@@ -107,6 +107,15 @@ describe("AddResourcePage catalog creation", () => {
     });
   });
 
+  it("normalizes ISBN separators before submitting", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.type(screen.getByTestId("input-isbn"), "978-0-13-235088-4");
+
+    expect(screen.getByTestId("input-isbn")).toHaveValue("9780132350884");
+  });
+
   it("blocks submission when required catalog fields are missing", async () => {
     const user = userEvent.setup();
     renderPage();

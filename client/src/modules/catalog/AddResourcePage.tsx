@@ -35,7 +35,8 @@ import { booksApi, resourceTypesApi, categoriesApi, z3950Api, type Z3950SearchRe
 import { toast } from "sonner";
 import { Link } from "wouter";
 import { useCurrency } from "@/lib/useCurrency";
-import { formatIsbn } from "@/lib/isbn";
+import { formatIsbn, normalizeIsbn } from "@/lib/isbn";
+import { IsbnInput } from "@/components/IsbnInput";
 
 export default function AddResourcePage() {
   const [, setLocation] = useLocation();
@@ -86,7 +87,7 @@ export default function AddResourcePage() {
     const params = new URLSearchParams(window.location.search);
     if (params.get("source") !== "z3950") return;
 
-    const importedIsbn = params.get("isbn") || "";
+    const importedIsbn = normalizeIsbn(params.get("isbn") || "");
     const importedTitle = params.get("title") || "";
     if (!importedIsbn && !importedTitle) return;
 
@@ -168,16 +169,17 @@ export default function AddResourcePage() {
   };
 
   const handleImportRecord = (record: Z3950SearchResult) => {
+    const normalizedRecordIsbn = normalizeIsbn(record.isbn);
     setFormData({
       ...formData,
-      isbn: record.isbn,
+      isbn: normalizedRecordIsbn,
       title: record.title,
       author: record.author,
       publisher: record.publisher,
       publishedYear: parseInt(record.year) || new Date().getFullYear(),
       category: record.category,
     });
-    setIsbn(record.isbn);
+    setIsbn(normalizedRecordIsbn);
     setZ3950Results([]);
     setShowZ3950Search(false);
     toast.success("Record imported from " + record.source);
@@ -233,11 +235,11 @@ export default function AddResourcePage() {
             <div className="flex gap-4">
               <div className="flex-1 space-y-2">
                 <Label htmlFor="isbn">ISBN *</Label>
-                <Input
+                <IsbnInput
                   id="isbn"
                   placeholder="Enter ISBN (e.g., 978-0132350884)"
                   value={isbn}
-                  onChange={(e) => handleIsbnChange(e.target.value)}
+                  onValueChange={handleIsbnChange}
                   className={`font-mono ${isbnError ? 'border-red-500' : ''}`}
                   data-testid="input-isbn"
                 />

@@ -65,6 +65,7 @@ import type { Book, Circulation } from "@shared/schema";
 import { format } from "date-fns";
 import { useCurrency } from "@/lib/useCurrency";
 import { formatIsbn } from "@/lib/isbn";
+import { IsbnInput } from "@/components/IsbnInput";
 
 function BookSearchAttributes({ bookId }: { bookId: number }) {
   const queryClient = useQueryClient();
@@ -928,10 +929,10 @@ export function EditBookDialog({ book, open, onOpenChange }: { book: Book | null
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="edit-isbn">ISBN</Label>
-                <Input
+                <IsbnInput
                   id="edit-isbn"
                   value={formData.isbn}
-                  onChange={(e) => setFormData({ ...formData, isbn: e.target.value })}
+                  onValueChange={(value) => setFormData({ ...formData, isbn: value })}
                   data-testid="input-edit-isbn"
                 />
               </div>
