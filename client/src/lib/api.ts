@@ -2064,6 +2064,12 @@ export type CopyAllocationRequest = {
 );
 
 export const allocationsApi = {
+  getLibraries: async (): Promise<Library[]> => {
+    const res = await fetch(`${API_BASE}/allocations/libraries`);
+    if (!res.ok) throw new Error("Failed to fetch allocation libraries");
+    return res.json();
+  },
+
   getUnallocated: async (): Promise<UnallocatedCopyInfo[]> => {
     const res = await fetch(`${API_BASE}/allocations/unallocated`);
     if (!res.ok) throw new Error("Failed to fetch unallocated copies");

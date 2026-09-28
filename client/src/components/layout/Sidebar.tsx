@@ -15,12 +15,14 @@ function SidebarContent({ onLinkClick }: { onLinkClick?: () => void }) {
   const { user } = useAuth();
 
   const isLocalAdmin = user?.role === 'ADMIN' && user?.isLocalUser;
+  const isAdmin = user?.role === 'ADMIN' && (user?.isLocalUser || user?.category === 'STAFF');
   const isPatron = user?.category === 'PATRON';
 
   const visibleItems = navItems.filter(item => {
     if (isPatron) return item.patronVisible === true;
     if (item.patronOnly) return false;
     if (item.localAdminOnly && !isLocalAdmin) return false;
+    if (item.adminOnly && !isAdmin) return false;
     return true;
   });
 

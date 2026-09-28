@@ -79,7 +79,7 @@ export const navItems = [
   { label: 'Digital Resources', icon: FolderOpen, href: '/digital-resources', localAdminOnly: false },
   { label: 'Inventory', icon: Layers, href: '/inventory', localAdminOnly: false },
   { label: 'Search Attributes', icon: Tags, href: '/catalog/search-attributes', localAdminOnly: true },
-  { label: 'Allocations', icon: Package, href: '/allocations', localAdminOnly: true },
+  { label: 'Allocations', icon: Package, href: '/allocations', localAdminOnly: false, adminOnly: true },
   { label: 'Circulation', icon: Repeat, href: '/circulation', localAdminOnly: false },
   { label: 'Reservations', icon: BookmarkCheck, href: '/reservations', localAdminOnly: false, patronVisible: true },
   { label: 'Lost & Damaged', icon: AlertTriangle, href: '/lost-damaged', localAdminOnly: false },

@@ -48,11 +48,13 @@ import MyHistoryPage from "@/modules/patron/MyHistoryPage";
 function ProtectedRoute({
   component: Component,
   localAdminOnly = false,
+  adminOnly = false,
   staffOnly = false,
   patronOnly = false,
 }: {
   component: React.ComponentType;
   localAdminOnly?: boolean;
+  adminOnly?: boolean;
   staffOnly?: boolean;
   patronOnly?: boolean;
 }) {
@@ -79,6 +81,9 @@ function ProtectedRoute({
   }
 
   if (localAdminOnly && (user?.role !== "ADMIN" || !user.isLocalUser)) {
+    return <Redirect to="/" />;
+  }
+  if (adminOnly && (user?.role !== "ADMIN" || (!user.isLocalUser && user.category !== "STAFF"))) {
     return <Redirect to="/" />;
   }
   if (staffOnly && user?.category === "PATRON") return <Redirect to="/" />;
@@ -133,7 +138,7 @@ function AppRouter() {
       <Route path="/digital-resources/repository">{() => <ProtectedRoute component={RepositoryPage} staffOnly />}</Route>
       <Route path="/digital-resources/upload">{() => <ProtectedRoute component={UploadResourcePage} staffOnly />}</Route>
       <Route path="/digital-resources/:id">{() => <ProtectedRoute component={ResourceDetailsPage} staffOnly />}</Route>
-      <Route path="/allocations">{() => <ProtectedRoute component={AllocationsPage} localAdminOnly />}</Route>
+      <Route path="/allocations">{() => <ProtectedRoute component={AllocationsPage} adminOnly />}</Route>
       <Route path="/users">{() => <ProtectedRoute component={UsersPage} staffOnly />}</Route>
       <Route path="/circulation">{() => <ProtectedRoute component={CirculationPage} staffOnly />}</Route>
       <Route path="/circulation/waiver-requests">{() => <ProtectedRoute component={WaiverRequestsPage} staffOnly />}</Route>

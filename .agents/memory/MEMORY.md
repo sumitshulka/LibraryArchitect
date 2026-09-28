@@ -7,3 +7,4 @@
 - [Copy identity during SSN migration](copy-ssn-migration.md) — preserve imported library SSNs separately from system barcodes; barcode labels prefer the imported SSN.
 - [Deterministic PostgreSQL race tests](deterministic-postgres-race-tests.md) — use a secondary advisory lock gate to force one Neon HTTP transaction to reach the contested lock first.
 - [Password invitation completion](password-invitation-completion.md) — store the local password before consuming a one-time setup token; Neon update-returning paths need the CTE workaround.
+- [ERP-admin copy allocation scope](erp-admin-copy-allocation-scope.md) — ERP Library Admins may allocate only to active assigned libraries; keep the expanded permission limited to this workflow.

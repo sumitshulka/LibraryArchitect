@@ -52,10 +52,15 @@ describe("POST /api/allocations/allocate", () => {
     const localAdmin = { id: 303, name: "Local Admin", role: "ADMIN" };
     storageMock.getSession.mockResolvedValue({ userId: localAdmin.id });
     storageMock.getUser.mockResolvedValue(localAdmin);
-    storageMock.getLibrary.mockResolvedValue({ id: 3, name: "Central Library" });
+    storageMock.getLibrary.mockResolvedValue({ id: 3, name: "Central Library", isActive: true });
     storageMock.getBookCopiesByIds.mockResolvedValue(selectedCopies);
     storageMock.getBookCopiesByIdentifiers.mockResolvedValue([]);
     storageMock.allocateCopies.mockResolvedValue(selectedCopies.map((copy) => ({ ...copy, libraryId: 3 })));
+    storageMock.getAllLibraries.mockResolvedValue([
+      { id: 3, name: "Central Library", isActive: true },
+      { id: 4, name: "Science Library", isActive: true },
+      { id: 5, name: "Closed Library", isActive: false },
+    ]);
 
     const app = express();
     app.use(express.json());
@@ -76,6 +81,20 @@ describe("POST /api/allocations/allocate", () => {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-session-id": "test-session" },
       body: JSON.stringify(body),
+    });
+  }
+
+  async function getAllocationLibraries() {
+    const address = httpServer.address() as AddressInfo;
+    return fetch(`http://127.0.0.1:${address.port}/api/allocations/libraries`, {
+      headers: { "x-session-id": "test-session" },
+    });
+  }
+
+  async function getUnallocatedCopies() {
+    const address = httpServer.address() as AddressInfo;
+    return fetch(`http://127.0.0.1:${address.port}/api/allocations/unallocated`, {
+      headers: { "x-session-id": "test-session" },
     });
   }
 
@@ -163,5 +182,108 @@ describe("POST /api/allocations/allocate", () => {
       3,
       { mode: "GENERATE", prefix: "CENTRAL" },
     );
+  });
+
+  it("allows an ERP library admin to list active libraries assigned to them", async () => {
+    const erpAdmin = {
+      id: 404,
+      name: "ERP Library Admin",
+      role: "ADMIN",
+      category: "STAFF",
+      erpIntegrationId: 12,
+    };
+    storageMock.getUser.mockResolvedValue(erpAdmin);
+    storageMock.getMembershipsByUser.mockResolvedValue([
+      { libraryId: 3, isActive: true, expiresAt: null },
+      { libraryId: 4, isActive: false, expiresAt: null },
+      { libraryId: 5, isActive: true, expiresAt: null },
+      { libraryId: 4, isActive: true, expiresAt: new Date("2020-01-01") },
+    ]);
+
+    const response = await getAllocationLibraries();
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual([
+      { id: 3, name: "Central Library", isActive: true },
+    ]);
+  });
+
+  it("allows an ERP library admin to load unallocated copies", async () => {
+    storageMock.getUser.mockResolvedValue({
+      id: 404,
+      name: "ERP Library Admin",
+      role: "ADMIN",
+      category: "STAFF",
+      erpIntegrationId: 12,
+    });
+    storageMock.getUnallocatedCopiesWithBookInfo.mockResolvedValue([{ bookId: 7, totalUnallocatedCopies: 2 }]);
+
+    const response = await getUnallocatedCopies();
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual([{ bookId: 7, totalUnallocatedCopies: 2 }]);
+  });
+
+  it("allows an ERP library admin to allocate copies to an assigned active library", async () => {
+    storageMock.getUser.mockResolvedValue({
+      id: 404,
+      name: "ERP Library Admin",
+      role: "ADMIN",
+      category: "STAFF",
+      erpIntegrationId: 12,
+    });
+    storageMock.getMembershipsByUser.mockResolvedValue([
+      { libraryId: 3, isActive: true, expiresAt: null },
+    ]);
+
+    const response = await allocate({
+      copyIds: [10],
+      libraryId: 3,
+      ssnMode: "GENERATE",
+      ssnPrefix: "CS",
+    });
+
+    expect(response.status).toBe(200);
+    expect(storageMock.allocateCopies).toHaveBeenCalledWith(
+      [10],
+      3,
+      { mode: "GENERATE", prefix: "CS" },
+    );
+  });
+
+  it("rejects an ERP library admin allocation to a library without an active assignment", async () => {
+    storageMock.getUser.mockResolvedValue({
+      id: 404,
+      name: "ERP Library Admin",
+      role: "ADMIN",
+      category: "STAFF",
+      erpIntegrationId: 12,
+    });
+    storageMock.getMembershipsByUser.mockResolvedValue([
+      { libraryId: 3, isActive: true, expiresAt: null },
+    ]);
+    storageMock.getLibrary.mockResolvedValue({ id: 4, name: "Science Library", isActive: true });
+
+    const response = await allocate({
+      copyIds: [10],
+      libraryId: 4,
+      ssnMode: "GENERATE",
+      ssnPrefix: "SCI",
+    });
+
+    expect(response.status).toBe(403);
+    expect(storageMock.getBookCopiesByIds).not.toHaveBeenCalled();
+    expect(storageMock.allocateCopies).not.toHaveBeenCalled();
+  });
+
+  it("keeps local administrators able to choose any active library", async () => {
+    const response = await getAllocationLibraries();
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual([
+      { id: 3, name: "Central Library", isActive: true },
+      { id: 4, name: "Science Library", isActive: true },
+    ]);
+    expect(storageMock.getMembershipsByUser).not.toHaveBeenCalled();
   });
 });

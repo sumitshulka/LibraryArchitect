@@ -578,6 +578,27 @@ async function requireLocalAdmin(req: any, res: any): Promise<any | null> {
   return user;
 }
 
+async function requireBookAllocationAdmin(req: any, res: any): Promise<any | null> {
+  const user = await requireAuthenticatedUser(req, res);
+  if (!user) return null;
+  if (user.role !== "ADMIN" || (user.erpIntegrationId && user.category !== "STAFF")) {
+    res.status(403).json({ error: "Only library administrators can allocate book copies" });
+    return null;
+  }
+  return user;
+}
+
+async function getBookAllocationLibraryScope(user: User): Promise<Set<number> | null> {
+  if (!user.erpIntegrationId) return null;
+  const now = new Date();
+  const memberships = await storage.getMembershipsByUser(user.id);
+  return new Set(
+    memberships
+      .filter((membership) => membership.isActive && (!membership.expiresAt || membership.expiresAt > now))
+      .map((membership) => membership.libraryId),
+  );
+}
+
 async function getAccessibleLibrariesForUser(user: User) {
   const allLibraries = await storage.getAllLibraries();
   if (user.role !== "LIBRARIAN") {
@@ -8293,9 +8314,24 @@ export async function registerRoutes(
   });
 
   // ===== Resource Allocations API =====
+  app.get("/api/allocations/libraries", async (req, res) => {
+    try {
+      const currentUser = await requireBookAllocationAdmin(req, res);
+      if (!currentUser) return;
+      const allowedLibraryIds = await getBookAllocationLibraryScope(currentUser);
+      const libraries = await storage.getAllLibraries();
+      res.json(libraries.filter((library) =>
+        library.isActive && (allowedLibraryIds === null || allowedLibraryIds.has(library.id)),
+      ));
+    } catch (error) {
+      console.error("Error fetching allocation libraries:", error);
+      res.status(500).json({ error: "Failed to fetch allocation libraries" });
+    }
+  });
+
   app.get("/api/allocations/unallocated", async (req, res) => {
     try {
-      const currentUser = await requireLocalAdmin(req, res);
+      const currentUser = await requireBookAllocationAdmin(req, res);
       if (!currentUser) return;
       const unallocatedCopies = await storage.getUnallocatedCopiesWithBookInfo();
       res.json(unallocatedCopies);
@@ -8307,14 +8343,21 @@ export async function registerRoutes(
 
   app.post("/api/allocations/allocate", async (req, res) => {
     try {
-      const currentUser = await requireLocalAdmin(req, res);
+      const currentUser = await requireBookAllocationAdmin(req, res);
       if (!currentUser) return;
       const validated = copyAllocationSchema.parse(req.body);
       const { copyIds, libraryId, ssnMode, ssnPrefix } = validated;
+      const allowedLibraryIds = await getBookAllocationLibraryScope(currentUser);
+      if (allowedLibraryIds !== null && !allowedLibraryIds.has(libraryId)) {
+        return res.status(403).json({ error: "You are not assigned to allocate copies to this library" });
+      }
       
       const library = await storage.getLibrary(libraryId);
       if (!library) {
         return res.status(404).json({ error: "Library not found" });
+      }
+      if (currentUser.erpIntegrationId && !library.isActive) {
+        return res.status(403).json({ error: "You can only allocate copies to active assigned libraries" });
       }
 
       const copies = await storage.getBookCopiesByIds(copyIds);

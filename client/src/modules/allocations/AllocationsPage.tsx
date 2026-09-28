@@ -44,7 +44,7 @@ import {
 } from "@/components/ui/collapsible";
 import { Package, ChevronDown, ChevronRight, Library, Loader2, CheckCircle, AlertCircle, Hash, Upload, X } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { allocationsApi, librariesApi, type UnallocatedCopyInfo } from "@/lib/api";
+import { allocationsApi, type UnallocatedCopyInfo } from "@/lib/api";
 import { appendScannedSsns, parseMappedSsns, parseOrderedSsns } from "./allocation-ssn";
 import { toast } from "sonner";
 
@@ -69,12 +69,10 @@ export default function AllocationsPage() {
     queryFn: allocationsApi.getUnallocated,
   });
 
-  const { data: libraries = [], isLoading: loadingLibraries } = useQuery({
-    queryKey: ["libraries"],
-    queryFn: librariesApi.getAll,
+  const { data: activeLibraries = [], isLoading: loadingLibraries } = useQuery({
+    queryKey: ["allocation-libraries"],
+    queryFn: allocationsApi.getLibraries,
   });
-
-  const activeLibraries = libraries.filter(lib => lib.isActive);
 
   const allocateMutation = useMutation({
     mutationFn: allocationsApi.allocate,
