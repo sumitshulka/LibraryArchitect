@@ -524,7 +524,10 @@ export function registerTransferRoutes(
   app.get("/api/transfers/notifications", async (req, res) => {
     const user = await guards.requireStaff(req, res);
     if (!user) return;
-    res.json(await db.select().from(transferNotifications).where(eq(transferNotifications.recipientId, user.id)).orderBy(sql`${transferNotifications.createdAt} DESC`).limit(50));
+    res.json(await db.select().from(transferNotifications).where(and(
+      eq(transferNotifications.recipientId, user.id),
+      isNull(transferNotifications.readAt),
+    )).orderBy(sql`${transferNotifications.createdAt} DESC`).limit(50));
   });
   app.post("/api/transfers/notifications/:id/read", async (req, res) => {
     const user = await guards.requireStaff(req, res);

@@ -56,17 +56,34 @@ function renderPage() {
 }
 
 describe("TransfersPage withdrawal confirmation", () => {
+  let notificationIsRead = false;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    notificationIsRead = false;
     authState.user = { id: 1, name: "Local Admin", role: "ADMIN", isLocalUser: true };
     apiMocks.getAllLibraries.mockResolvedValue([{ id: 2, name: "Central Library" }]);
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input);
-      const body = path.endsWith("/transfers")
-        ? [pendingRequest]
-        : path.endsWith("/transfers/notifications") || path.endsWith("/transfers/acquisitions")
-          ? []
-          : { success: true, status: "CANCELLED" };
+      let body: unknown;
+      if (path.endsWith("/transfers/notifications/4/read")) {
+        notificationIsRead = true;
+        body = { success: true };
+      } else if (path.endsWith("/transfers/notifications")) {
+        body = notificationIsRead ? [] : [{
+          id: 4,
+          requestId: 1,
+          recipientId: 1,
+          message: "Transfer request #1 needs review",
+          readAt: null,
+        }];
+      } else if (path.endsWith("/transfers")) {
+        body = [pendingRequest];
+      } else if (path.endsWith("/transfers/acquisitions")) {
+        body = [];
+      } else {
+        body = { success: true, status: "CANCELLED" };
+      }
       return { ok: true, json: async () => body } as Response;
     }));
   });
@@ -98,5 +115,16 @@ describe("TransfersPage withdrawal confirmation", () => {
       );
     });
     expect(confirmSpy).not.toHaveBeenCalled();
+  });
+
+  it("removes a notification from the list after it is marked read", async () => {
+    renderPage();
+
+    await screen.findByText("Transfer request #1 needs review");
+    await userEvent.click(screen.getByRole("button", { name: "Mark read" }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("Transfer request #1 needs review")).not.toBeInTheDocument();
+    });
   });
 });
