@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { useAuth } from "@/lib/auth";
 import { libraryAccessApi, librariesApi } from "@/lib/api";
@@ -20,6 +20,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { Search, Truck, ArrowRightLeft, PackageCheck } from "lucide-react";
 
@@ -57,6 +59,10 @@ export default function TransfersPage() {
   const [search, setSearch] = useState("");
   const [reason, setReason] = useState("");
   const [withdrawDialogRequestId, setWithdrawDialogRequestId] = useState<number | null>(null);
+  const [rejectRequestId, setRejectRequestId] = useState<number | null>(null);
+  const [rejectionReason, setRejectionReason] = useState("");
+  const [sourceReviewRequest, setSourceReviewRequest] = useState<any>(null);
+  const [sourceAllocations, setSourceAllocations] = useState<Record<number, { libraryId: number; quantity: number }[]>>({});
   const [selected, setSelected] = useState<Record<number, { quantity: number; sourceId: number; sourceQuantity: number; preferredSources: { libraryId: number; quantity: number }[] }>>({});
   const { data: catalog = [] } = useQuery({
     queryKey: ["transfer-catalog", destinationId, search],
@@ -64,6 +70,13 @@ export default function TransfersPage() {
     enabled: destinationId > 0 && search.trim().length >= 2,
   });
   const { data: requests = [], isLoading } = useQuery({ queryKey: ["transfers"], queryFn: () => api<any[]>("/transfers"), refetchInterval: 15000 });
+  const sourceCatalogQueries = useQueries({
+    queries: (sourceReviewRequest?.items || []).map((item: any) => ({
+      queryKey: ["transfer-approval-catalog", sourceReviewRequest.destinationLibraryId, item.bookId],
+      queryFn: () => api<any[]>(`/transfers/catalog?libraryId=${sourceReviewRequest.destinationLibraryId}&search=${encodeURIComponent(item.book?.isbn || item.book?.title || "")}`),
+      enabled: !!sourceReviewRequest,
+    })),
+  });
   const { data: acquisitionRows = [] } = useQuery({
     queryKey: ["transfer-acquisitions"],
     queryFn: () => api<any[]>("/transfers/acquisitions"),
@@ -78,7 +91,7 @@ export default function TransfersPage() {
   };
   const mutate = useMutation({
     mutationFn: ({ path, body }: { path: string; body: unknown }) => api(path, json(body)),
-    onSuccess: () => { toast.success("Transfer updated"); refresh(); },
+    onSuccess: () => { toast.success("Transfer updated"); setSourceReviewRequest(null); setRejectRequestId(null); setRejectionReason(""); refresh(); },
     onError: (error: Error) => toast.error(error.message),
   });
   const createRequest = useMutation({
@@ -125,25 +138,56 @@ export default function TransfersPage() {
     }
     mutate.mutate({ path: `/transfers/${request.id}/review`, body: { action: "approve", allocations, acquisitions } });
   };
-  const customApprove = (request: any) => {
+  const hasSuggestedSources = (request: any) => request.items.some((item: any) =>
+    (item.legs || []).some((leg: any) => leg.status === "PREFERRED" && leg.requestedQuantity > 0),
+  );
+  const openSourceAllocation = (request: any) => {
+    const initial: Record<number, { libraryId: number; quantity: number }[]> = {};
+    for (const item of request.items) {
+      const byLibrary = new Map<number, number>();
+      for (const leg of (item.legs || []).filter((entry: any) => entry.status === "PREFERRED")) {
+        byLibrary.set(leg.sourceLibraryId, (byLibrary.get(leg.sourceLibraryId) || 0) + leg.requestedQuantity);
+      }
+      initial[item.id] = Array.from(byLibrary, ([libraryId, quantity]) => ({ libraryId, quantity }));
+    }
+    setSourceAllocations(initial);
+    setSourceReviewRequest(request);
+  };
+  const sourceCatalogForItem = (itemId: number) => {
+    const index = (sourceReviewRequest?.items || []).findIndex((item: any) => item.id === itemId);
+    const item = sourceReviewRequest?.items?.[index];
+    const results = sourceCatalogQueries[index]?.data as any[] | undefined;
+    return results?.find((book: any) => book.id === item?.bookId);
+  };
+  const submitSourceAllocation = () => {
+    if (!sourceReviewRequest) return;
     const allocations: any[] = [];
     const acquisitions: any[] = [];
-    const sources = libraries.map((library: any) => `${library.id}: ${library.name}`).join("\n");
-    for (const item of request.items) {
-      const preferred = item.legs.filter((leg: any) => leg.status === "PREFERRED");
-      const suggested = preferred.map((leg: any) => `${leg.sourceLibraryId}:${leg.requestedQuantity}`).join(",");
-      const value = window.prompt(`Source allocations for ${item.book?.title} (libraryId:quantity pairs). Leave blank to send all to acquisition.\nAvailable libraries:\n${sources}`, suggested);
-      if (value === null) return;
-      let rows: any[];
-      try { rows = parseAllocations(value, item.id); }
-      catch (error) { toast.error((error as Error).message); return; }
+    for (const item of sourceReviewRequest.items) {
+      const rows = sourceAllocations[item.id] || [];
       const total = rows.reduce((sum, row) => sum + row.quantity, 0);
-      if (total > item.requestedQuantity) { toast.error(`Source quantities exceed the request for ${item.book?.title}`); return; }
-      allocations.push(...rows);
+      if (rows.some(row => !Number.isInteger(row.libraryId) || row.libraryId < 1 || !Number.isInteger(row.quantity) || row.quantity < 1)) {
+        toast.error(`Choose a source and valid quantity for ${item.book?.title}`);
+        return;
+      }
+      if (total > item.requestedQuantity) {
+        toast.error(`Source quantities exceed the request for ${item.book?.title}`);
+        return;
+      }
+      const book = sourceCatalogForItem(item.id);
+      const sources = book?.sources || [];
+      for (const row of rows) {
+        const source = sources.find((entry: any) => entry.libraryId === row.libraryId);
+        if (!source || row.quantity > source.quantity) {
+          toast.error(`The selected source does not have enough available copies for ${item.book?.title}`);
+          return;
+        }
+        allocations.push({ itemId: item.id, libraryId: row.libraryId, quantity: row.quantity });
+      }
       const queued = item.requestedQuantity - total;
       if (queued > 0) acquisitions.push({ itemId: item.id, quantity: queued });
     }
-    mutate.mutate({ path: `/transfers/${request.id}/review`, body: { action: "approve", allocations, acquisitions } });
+    mutate.mutate({ path: `/transfers/${sourceReviewRequest.id}/review`, body: { action: "approve", allocations, acquisitions } });
   };
   const resolveShortfall = (request: any) => {
     const allocations: any[] = [];
@@ -280,14 +324,9 @@ export default function TransfersPage() {
               onClick={() => setWithdrawDialogRequestId(request.id)}
             >Withdraw request</Button>}
             {reviewOnly && localAdmin && request.status === "PENDING_REVIEW" && <div className="flex gap-2">
-              <Button onClick={() => approve(request)}><PackageCheck className="mr-2 h-4 w-4" />Approve suggested sources</Button>
-              <Button variant="outline" onClick={() => {
-                customApprove(request);
-              }}>Choose sources</Button>
-              <Button variant="outline" onClick={() => {
-                const reason = window.prompt("Reason for rejection");
-                if (reason?.trim()) mutate.mutate({ path: `/transfers/${request.id}/review`, body: { action: "reject", reason } });
-              }}>Reject</Button>
+              <Button onClick={() => approve(request)} disabled={!hasSuggestedSources(request)}><PackageCheck className="mr-2 h-4 w-4" />Approve suggested sources</Button>
+              <Button variant="outline" onClick={() => openSourceAllocation(request)}>Choose sources</Button>
+              <Button variant="outline" onClick={() => { setRejectRequestId(request.id); setRejectionReason(""); }}>Reject</Button>
             </div>}
             {reviewOnly && localAdmin && request.status === "NEEDS_REALLOCATION" && <Button onClick={() => resolveShortfall(request)}>Resolve shortfall</Button>}
             {request.rejectionReason && <p className="text-sm text-destructive">Reason: {request.rejectionReason}</p>}
@@ -312,12 +351,9 @@ export default function TransfersPage() {
               {item.acquisitions.map((entry: any) => <div key={entry.id} className="mt-2 text-sm">Acquisition queue: {entry.quantity} · {entry.status}</div>)}
             </div>)}
             {request.status === "PENDING_REVIEW" && <div className="flex flex-wrap gap-2">
-              <Button onClick={() => approve(request)}><PackageCheck className="mr-2 h-4 w-4" />Approve suggested sources</Button>
-              <Button variant="outline" onClick={() => customApprove(request)}>Choose sources</Button>
-              <Button variant="outline" onClick={() => {
-                const reason = window.prompt("Reason for rejection");
-                if (reason?.trim()) mutate.mutate({ path: `/transfers/${request.id}/review`, body: { action: "reject", reason } });
-              }}>Reject</Button>
+              <Button onClick={() => approve(request)} disabled={!hasSuggestedSources(request)}><PackageCheck className="mr-2 h-4 w-4" />Approve suggested sources</Button>
+              <Button variant="outline" onClick={() => openSourceAllocation(request)}>Choose sources</Button>
+              <Button variant="outline" onClick={() => { setRejectRequestId(request.id); setRejectionReason(""); }}>Reject</Button>
             </div>}
             {request.status === "NEEDS_REALLOCATION" && <Button onClick={() => resolveShortfall(request)}>Resolve shortfall</Button>}
             {request.status === "PENDING_REVIEW" && localAdmin && <Button
@@ -371,5 +407,162 @@ export default function TransfersPage() {
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+    <Dialog
+      open={!!sourceReviewRequest}
+      onOpenChange={open => { if (!open && !mutate.isPending) setSourceReviewRequest(null); }}
+    >
+      <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Choose transfer sources</DialogTitle>
+          <DialogDescription>
+            Assign requested copies to libraries with available stock. Any remaining quantity will be sent to the Acquisition Queue.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          {(sourceReviewRequest?.items || []).map((item: any, itemIndex: number) => {
+            const results = sourceCatalogQueries[itemIndex]?.data as any[] | undefined;
+            const book = results?.find((entry: any) => entry.id === item.bookId);
+            const sources = book?.sources || [];
+            const rows = sourceAllocations[item.id] || [];
+            const allocated = rows.reduce((sum, row) => sum + (Number(row.quantity) || 0), 0);
+            const remainder = Math.max(0, item.requestedQuantity - allocated);
+
+            return <section key={item.id} className="space-y-3 rounded-lg border p-4">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <h3 className="font-semibold">{item.book?.title || "Book"}</h3>
+                  <p className="text-sm text-muted-foreground">Requested: {item.requestedQuantity} copies · ISBN {item.book?.isbn || "—"}</p>
+                </div>
+                <Badge variant="outline">{allocated} allocated · {remainder} to acquisition</Badge>
+              </div>
+              {sourceCatalogQueries[itemIndex]?.isLoading && <p className="text-sm text-muted-foreground">Checking available copies…</p>}
+              {!sourceCatalogQueries[itemIndex]?.isLoading && !sources.length && <p className="text-sm text-amber-700">No other library has available copies. The full amount can go to acquisition.</p>}
+              <div className="space-y-2">
+                {rows.map((row, rowIndex) => {
+                  const selectedSource = sources.find((entry: any) => entry.libraryId === row.libraryId);
+                  const usedByOtherRows = rows.filter((_, index) => index !== rowIndex).map(entry => entry.libraryId);
+                  return <div key={`${item.id}-${rowIndex}`} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_150px_auto]">
+                    <div className="space-y-1">
+                      <Label htmlFor={`transfer-source-${item.id}-${rowIndex}`}>Source library</Label>
+                      <select
+                        id={`transfer-source-${item.id}-${rowIndex}`}
+                        className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                        value={row.libraryId || ""}
+                        onChange={event => {
+                          const libraryId = Number(event.target.value);
+                          setSourceAllocations(current => ({
+                            ...current,
+                            [item.id]: rows.map((entry, index) => index === rowIndex ? { ...entry, libraryId } : entry),
+                          }));
+                        }}
+                      >
+                        <option value="">Choose available library</option>
+                        {row.libraryId > 0 && !selectedSource && <option value={row.libraryId} disabled>Previously selected source is no longer available</option>}
+                        {sources.filter((source: any) => !usedByOtherRows.includes(source.libraryId)).map((source: any) => (
+                          <option key={source.libraryId} value={source.libraryId}>{source.libraryName} · {source.quantity} available</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor={`transfer-quantity-${item.id}-${rowIndex}`}>Quantity</Label>
+                      <Input
+                        id={`transfer-quantity-${item.id}-${rowIndex}`}
+                        aria-label={`Quantity from source ${rowIndex + 1}`}
+                        type="number"
+                        min={1}
+                        max={selectedSource?.quantity}
+                        value={row.quantity}
+                        onChange={event => {
+                          const quantity = Number(event.target.value);
+                          setSourceAllocations(current => ({
+                            ...current,
+                            [item.id]: rows.map((entry, index) => index === rowIndex ? { ...entry, quantity } : entry),
+                          }));
+                        }}
+                      />
+                      {selectedSource && <p className="text-xs text-muted-foreground">{selectedSource.quantity} available</p>}
+                    </div>
+                    <div className="flex items-end">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setSourceAllocations(current => ({
+                          ...current,
+                          [item.id]: rows.filter((_, index) => index !== rowIndex),
+                        }))}
+                      >Remove</Button>
+                    </div>
+                  </div>;
+                })}
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!sources.length || rows.length >= sources.length}
+                onClick={() => setSourceAllocations(current => ({
+                  ...current,
+                  [item.id]: [...rows, { libraryId: 0, quantity: 1 }],
+                }))}
+              >Add source library</Button>
+              {remainder > 0 && <p className="text-sm text-muted-foreground">{remainder} unallocated {remainder === 1 ? "copy" : "copies"} will be added to the Acquisition Queue.</p>}
+            </section>;
+          })}
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => setSourceReviewRequest(null)} disabled={mutate.isPending}>Cancel</Button>
+          <Button type="button" onClick={submitSourceAllocation} disabled={mutate.isPending}>
+            {mutate.isPending ? "Approving…" : "Approve allocations"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    <Dialog
+      open={rejectRequestId !== null}
+      onOpenChange={open => {
+        if (!open && !mutate.isPending) {
+          setRejectRequestId(null);
+          setRejectionReason("");
+        }
+      }}
+    >
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Reject transfer request?</DialogTitle>
+          <DialogDescription>
+            Enter a reason for rejecting request #{rejectRequestId}. The reason will be saved in the transfer history and shared with the requester.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2">
+          <Label htmlFor="transfer-rejection-reason">Rejection reason <span className="text-destructive">*</span></Label>
+          <Textarea
+            id="transfer-rejection-reason"
+            value={rejectionReason}
+            onChange={event => setRejectionReason(event.target.value)}
+            placeholder="Explain why this transfer request is being rejected"
+            rows={4}
+            required
+            aria-required="true"
+          />
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => { setRejectRequestId(null); setRejectionReason(""); }} disabled={mutate.isPending}>Cancel</Button>
+          <Button
+            type="button"
+            variant="destructive"
+            disabled={!rejectionReason.trim() || mutate.isPending || rejectRequestId === null}
+            onClick={() => {
+              if (rejectRequestId !== null && rejectionReason.trim()) {
+                mutate.mutate({
+                  path: `/transfers/${rejectRequestId}/review`,
+                  body: { action: "reject", reason: rejectionReason.trim() },
+                });
+              }
+            }}
+          >{mutate.isPending ? "Rejecting…" : "Reject request"}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </MainLayout>;
 }

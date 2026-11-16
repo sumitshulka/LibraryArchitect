@@ -39,15 +39,30 @@ const pendingRequest = {
   events: [],
 };
 
-function renderPage() {
+const reviewRequest = {
+  ...pendingRequest,
+  items: [{
+    id: 11,
+    requestId: 1,
+    bookId: 8,
+    requestedQuantity: 3,
+    book: { id: 8, title: "Example Book", isbn: "9780000000008" },
+    legs: [],
+    acquisitions: [],
+  }],
+};
+
+let requestRows: any[] = [pendingRequest];
+
+function renderPage(path = "/transfers") {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <Router hook={() => ["/transfers", vi.fn()]}>
-        <Route path="/transfers">
+      <Router hook={() => [path, vi.fn()]}>
+        <Route path={path}>
           <TransfersPage />
         </Route>
       </Router>
@@ -61,6 +76,7 @@ describe("TransfersPage withdrawal confirmation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     notificationIsRead = false;
+    requestRows = [pendingRequest];
     authState.user = { id: 1, name: "Local Admin", role: "ADMIN", isLocalUser: true };
     apiMocks.getAllLibraries.mockResolvedValue([{ id: 2, name: "Central Library" }]);
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
@@ -69,6 +85,16 @@ describe("TransfersPage withdrawal confirmation", () => {
       if (path.endsWith("/transfers/notifications/4/read")) {
         notificationIsRead = true;
         body = { success: true };
+      } else if (path.startsWith("/api/transfers/catalog")) {
+        body = [{
+          id: 8,
+          title: "Example Book",
+          sources: [
+            { libraryId: 4, libraryName: "West Library", quantity: 2 },
+            { libraryId: 5, libraryName: "East Library", quantity: 5 },
+          ],
+          localInventory: { total: 1, byStatus: { AVAILABLE: 1 } },
+        }];
       } else if (path.endsWith("/transfers/notifications")) {
         body = notificationIsRead ? [] : [{
           id: 4,
@@ -78,7 +104,7 @@ describe("TransfersPage withdrawal confirmation", () => {
           readAt: null,
         }];
       } else if (path.endsWith("/transfers")) {
-        body = [pendingRequest];
+        body = requestRows;
       } else if (path.endsWith("/transfers/acquisitions")) {
         body = [];
       } else {
@@ -126,5 +152,67 @@ describe("TransfersPage withdrawal confirmation", () => {
     await waitFor(() => {
       expect(screen.queryByText("Transfer request #1 needs review")).not.toBeInTheDocument();
     });
+  });
+
+  it("lets an admin choose available sources and queues the unallocated remainder", async () => {
+    requestRows = [reviewRequest];
+    renderPage("/transfer-approvals");
+
+    expect(await screen.findByRole("button", { name: "Approve suggested sources" })).toBeDisabled();
+    await userEvent.click(await screen.findByRole("button", { name: "Choose sources" }));
+    await screen.findByRole("heading", { name: "Choose transfer sources" });
+    await userEvent.click(await screen.findByRole("button", { name: "Add source library" }));
+    await screen.findByRole("option", { name: "West Library · 2 available" });
+    await userEvent.selectOptions(screen.getByLabelText("Source library"), "4");
+    await userEvent.clear(screen.getByLabelText("Quantity from source 1"));
+    await userEvent.type(screen.getByLabelText("Quantity from source 1"), "2");
+    await userEvent.click(screen.getByRole("button", { name: "Approve allocations" }));
+
+    await waitFor(() => {
+      const call = vi.mocked(fetch).mock.calls.find(([url]) => String(url) === "/api/transfers/1/review");
+      expect(call).toBeDefined();
+      expect(JSON.parse(String(call?.[1]?.body))).toEqual({
+        action: "approve",
+        allocations: [{ itemId: 11, libraryId: 4, quantity: 2 }],
+        acquisitions: [{ itemId: 11, quantity: 1 }],
+      });
+    });
+  });
+
+  it("enables suggested-source approval when the request includes a source", async () => {
+    requestRows = [{
+      ...reviewRequest,
+      items: [{
+        ...reviewRequest.items[0],
+        legs: [{ id: 21, sourceLibraryId: 4, requestedQuantity: 1, status: "PREFERRED" }],
+      }],
+    }];
+    renderPage("/transfer-approvals");
+
+    expect(await screen.findByRole("button", { name: "Approve suggested sources" })).toBeEnabled();
+  });
+
+  it("collects a required rejection reason in the application dialog", async () => {
+    const promptSpy = vi.spyOn(window, "prompt");
+    renderPage("/transfer-approvals");
+
+    await userEvent.click(await screen.findByRole("button", { name: /^Reject$/ }));
+    const dialog = screen.getByRole("dialog");
+    const submit = within(dialog).getByRole("button", { name: "Reject request" });
+    expect(submit).toBeDisabled();
+
+    await userEvent.type(screen.getByLabelText(/Rejection reason/), "No copies can be transferred");
+    expect(submit).toBeEnabled();
+    await userEvent.click(submit);
+
+    await waitFor(() => {
+      const call = vi.mocked(fetch).mock.calls.find(([url]) => String(url) === "/api/transfers/1/review");
+      expect(call).toBeDefined();
+      expect(JSON.parse(String(call?.[1]?.body))).toEqual({
+        action: "reject",
+        reason: "No copies can be transferred",
+      });
+    });
+    expect(promptSpy).not.toHaveBeenCalled();
   });
 });
