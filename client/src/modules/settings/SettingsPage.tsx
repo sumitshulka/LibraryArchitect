@@ -3488,6 +3488,24 @@ export default function SettingsPage() {
     currencyMutation.mutate(currencyCode);
   };
 
+  const showInternalSsnInAcquisitions = systemConfigs.find(
+    (config) => config.key === "acquisitions_show_internal_ssn",
+  )?.value === "true";
+  const acquisitionsSsnSettingMutation = useMutation({
+    mutationFn: (enabled: boolean) => configApi.set({
+      key: "acquisitions_show_internal_ssn",
+      value: enabled ? "true" : "false",
+      category: "reports",
+      description: "Show Internal SSNs in the Acquisitions report and downloads",
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["system-config"] });
+      queryClient.invalidateQueries({ queryKey: ["acquisitions-report"] });
+      toast.success("Acquisitions report setting saved");
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
   const erpCatalogLimitConfig = systemConfigs.find(c => c.key === "erp_catalog_limit");
   const [catalogLimitValue, setCatalogLimitValue] = useState("");
 
@@ -3699,6 +3717,34 @@ export default function SettingsPage() {
                         <SelectItem value="gmt">London (GMT)</SelectItem>
                       </SelectContent>
                     </Select>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Acquisitions Report</CardTitle>
+                  <CardDescription>
+                    Choose whether Internal SSN numbers appear in the report and its downloads.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="acquisitions-internal-ssn">
+                        Include Internal SSN numbers
+                      </Label>
+                      <p className="text-sm text-muted-foreground">
+                        Enable this for organizations that use Internal SSNs.
+                      </p>
+                    </div>
+                    <Switch
+                      id="acquisitions-internal-ssn"
+                      checked={showInternalSsnInAcquisitions}
+                      onCheckedChange={(enabled) => acquisitionsSsnSettingMutation.mutate(enabled)}
+                      disabled={acquisitionsSsnSettingMutation.isPending}
+                      data-testid="switch-acquisitions-internal-ssn"
+                    />
                   </div>
                 </CardContent>
               </Card>

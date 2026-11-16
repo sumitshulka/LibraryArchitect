@@ -74,6 +74,7 @@ vi.mock("@/modules/catalog/Z3950Search", () => ({
 
 const mockedGetCategories = vi.mocked(categoriesApi.getAll);
 const mockedGetConfig = vi.mocked(configApi.getAll);
+const mockedSetConfig = vi.mocked(configApi.set);
 const mockedGetResourceTypes = vi.mocked(resourceTypesApi.getAll);
 const mockedAuditIdentifiers = vi.mocked(bookCopyIdentifiersApi.audit);
 const mockedIdentifierHistory = vi.mocked(bookCopyIdentifiersApi.history);
@@ -152,6 +153,22 @@ describe("SettingsPage", () => {
     expect(
       screen.getByRole("tab", { name: "General" }),
     ).toHaveAttribute("data-state", "inactive");
+  });
+
+  it("saves the organization setting to show Internal SSNs in Acquisitions", async () => {
+    mockedSetConfig.mockResolvedValue({} as never);
+    const user = userEvent.setup();
+    renderSettings("/settings");
+
+    const toggle = await screen.findByTestId("switch-acquisitions-internal-ssn");
+    await user.click(toggle);
+
+    await waitFor(() => expect(mockedSetConfig).toHaveBeenCalledWith({
+      key: "acquisitions_show_internal_ssn",
+      value: "true",
+      category: "reports",
+      description: "Show Internal SSNs in the Acquisitions report and downloads",
+    }));
   });
 
   it("keeps General selected when opened without a section query", async () => {

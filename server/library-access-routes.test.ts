@@ -112,6 +112,45 @@ describe("library access authorization and messages", () => {
     expect((await response.json()).map((library: { id: number }) => library.id)).toEqual([1]);
   });
 
+  it("returns Internal SSNs in acquisitions data only when the organization setting is enabled", async () => {
+    currentUser = admin;
+    storageMock.getAllBookCopies.mockResolvedValue([{
+      id: 70,
+      bookId: 170,
+      barcode: "BC-70",
+      internalSSN: "SYS-70",
+      libraryId: 1,
+      acquisitionDate: new Date("2026-07-12T11:00:00.000Z"),
+      acquisitionSource: "Donation",
+      price: null,
+      status: "AVAILABLE",
+      condition: "NEW",
+    }]);
+    storageMock.getAllBooks.mockResolvedValue([{
+      id: 170,
+      title: "Acquired title",
+      isbn: "9780000000070",
+      author: "Author",
+      category: "History",
+      format: "PHYSICAL",
+      unitPrice: 0,
+    }]);
+    storageMock.getSystemConfig.mockResolvedValue({ value: "true" });
+
+    let response = await request("/api/reports/acquisitions");
+    expect(response.status).toBe(200);
+    const enabledReport = await response.json();
+    expect(enabledReport.showInternalSsn).toBe(true);
+    expect(enabledReport.copies[0].internalSSN).toBe("SYS-70");
+
+    storageMock.getSystemConfig.mockResolvedValue(undefined);
+    response = await request("/api/reports/acquisitions");
+    expect(response.status).toBe(200);
+    const defaultReport = await response.json();
+    expect(defaultReport.showInternalSsn).toBe(false);
+    expect(defaultReport.copies[0]).not.toHaveProperty("internalSSN");
+  });
+
   it("blocks a librarian from an unassigned library on the server", async () => {
     currentUser = librarian;
     storageMock.getMembershipsByUser.mockResolvedValue([]);

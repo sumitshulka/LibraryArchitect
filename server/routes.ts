@@ -3066,6 +3066,7 @@ export async function registerRoutes(
         storage.getAllBooks(),
         storage.getAllLibraries(),
       ]);
+      const showInternalSsn = (await storage.getSystemConfig("acquisitions_show_internal_ssn"))?.value === "true";
       const bookMap = new Map(allBooks.map(b => [b.id, b]));
       const libMap = new Map(allLibraries.map(l => [l.id, l]));
 
@@ -3109,6 +3110,7 @@ export async function registerRoutes(
           priceSource: (c.price != null && c.price > 0) ? 'copy' : 'book',
           status: c.status,
           condition: c.condition || '',
+          ...(showInternalSsn ? { internalSSN: c.internalSSN || '' } : {}),
         };
       });
 
@@ -3180,6 +3182,7 @@ export async function registerRoutes(
         byStatus,
         byCondition,
         timeSeries,
+        showInternalSsn,
         copies: enriched,
         filters: { sources: allSources, categories: allCategories, statuses: allStatuses, conditions: allConditions, formats: allFormats },
       });

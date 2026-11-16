@@ -298,6 +298,7 @@ describe("ReportsPage fines and revenue export", () => {
           id: 11,
           acquisitionDate: "2026-07-12T11:00:00.000Z",
           barcode: "BC-001",
+          internalSSN: "SYS-001",
           bookTitle: 'A "quoted" title',
           bookIsbn: "9780000000002",
           author: 'Writer, "W"',
@@ -319,6 +320,7 @@ describe("ReportsPage fines and revenue export", () => {
         datedCopies: 1,
         uniqueTitles: 1,
       },
+      showInternalSsn: true,
       timeSeries: [],
       byLibrary: [],
       bySource: [],
@@ -350,13 +352,121 @@ describe("ReportsPage fines and revenue export", () => {
     const csvBlob = createObjectURL.mock.calls[0][0] as Blob;
     const csv = await csvBlob.text();
     expect(csv).toContain(
-      '"Acquisition Date","Barcode","Title","ISBN","Author","Category","Format","Library","Source","Price","Price Source","Status","Condition"',
+      '"Acquisition Date","Barcode","Internal SSN","Title","ISBN","Author","Category","Format","Library","Source","Price","Price Source","Status","Condition"',
     );
     expect(csv).toContain(
-      '"2026-07-12","BC-001","A ""quoted"" title","9780000000002","Writer, ""W""","History","HARDCOVER","North, Library","Vendor ""One""","123.45","INVOICE","AVAILABLE","NEW"',
+      '"2026-07-12","BC-001","SYS-001","A ""quoted"" title","9780000000002","Writer, ""W""","History","HARDCOVER","North, Library","Vendor ""One""","123.45","INVOICE","AVAILABLE","NEW"',
     );
+    expect(screen.getByText("SYS-001")).toBeInTheDocument();
     expect(anchorClick).toHaveBeenCalled();
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:acquisitions");
+  });
+
+  it("hides Internal SSN from the report and export when the organization setting is off", async () => {
+    mockedAcquisitions.mockResolvedValue({
+      copies: [{
+        id: 12,
+        acquisitionDate: "2026-07-12T11:00:00.000Z",
+        barcode: "BC-002",
+        internalSSN: "SYS-002",
+        bookTitle: "Another title",
+        bookIsbn: "9780000000003",
+        author: "Another author",
+        category: "History",
+        format: "HARDCOVER",
+        libraryName: "North Library",
+        acquisitionSource: "Vendor",
+        price: 1000,
+        priceSource: "copy",
+        status: "AVAILABLE",
+        condition: "NEW",
+      }],
+      showInternalSsn: false,
+      totals: {
+        totalSpend: 1000,
+        pricedCopies: 1,
+        avgUnitPrice: 1000,
+        totalCopies: 1,
+        datedCopies: 1,
+        uniqueTitles: 1,
+      },
+      timeSeries: [],
+      byLibrary: [],
+      bySource: [],
+      byCategory: [],
+      byFormat: [],
+      byStatus: [],
+      byCondition: [],
+    });
+    const createObjectURL = vi.fn<(object: Blob | MediaSource) => string>(() => "blob:acquisitions-hidden-ssn");
+    vi.stubGlobal("URL", { ...URL, createObjectURL, revokeObjectURL: vi.fn() });
+
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole("tab", { name: "Acquisitions" }));
+    await waitFor(() => expect(screen.getByTestId("row-acq-copy-12")).toBeInTheDocument());
+    expect(screen.queryByText("SYS-002")).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId("button-acq-export"));
+    const csv = await (createObjectURL.mock.calls[0][0] as Blob).text();
+    expect(csv).not.toContain("Internal SSN");
+    expect(csv).not.toContain("SYS-002");
+  });
+
+  it("includes the enabled Internal SSN column in the Excel workbook", async () => {
+    mockedAcquisitions.mockResolvedValue({
+      copies: [{
+        id: 13,
+        acquisitionDate: "2026-07-12T11:00:00.000Z",
+        barcode: "BC-003",
+        internalSSN: "SYS-003",
+        bookTitle: "Excel title",
+        bookIsbn: "9780000000004",
+        author: "Excel author",
+        category: "History",
+        format: "HARDCOVER",
+        libraryName: "North Library",
+        acquisitionSource: "Vendor",
+        price: 1000,
+        priceSource: "copy",
+        status: "AVAILABLE",
+        condition: "NEW",
+      }],
+      showInternalSsn: true,
+      totals: {
+        totalSpend: 1000,
+        pricedCopies: 1,
+        avgUnitPrice: 1000,
+        totalCopies: 1,
+        datedCopies: 1,
+        uniqueTitles: 1,
+      },
+      timeSeries: [],
+      byLibrary: [],
+      bySource: [],
+      byCategory: [],
+      byFormat: [],
+      byStatus: [],
+      byCondition: [],
+    });
+    const createObjectURL = vi.fn<(object: Blob | MediaSource) => string>(() => "blob:acquisitions-xlsx");
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    vi.stubGlobal("URL", { ...URL, createObjectURL, revokeObjectURL: vi.fn() });
+
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole("tab", { name: "Acquisitions" }));
+    await waitFor(() => expect(screen.getByTestId("row-acq-copy-13")).toBeInTheDocument());
+
+    await user.click(screen.getByTestId("button-acq-export-excel"));
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
+    const XLSX = await import("xlsx");
+    const workbook = XLSX.read(await (createObjectURL.mock.calls[0][0] as Blob).arrayBuffer(), { type: "array" });
+    const rows = XLSX.utils.sheet_to_json(workbook.Sheets.Acquisitions, { header: 1 }) as unknown[][];
+
+    expect(rows[0]).toContain("Internal SSN");
+    expect(rows[1][2]).toBe("SYS-003");
+    expect(anchorClick).toHaveBeenCalled();
   });
 
   it("exports all acquisition copies when results exceed the visible table limit", async () => {

@@ -781,24 +781,56 @@ function AcquisitionsReport() {
     queryKey: ["acquisitions-report", filters],
     queryFn: () => acquisitionsReportApi.get(filters),
   });
+  const showInternalSsn = data?.showInternalSsn === true;
 
   const activeFilterCount = [source, category, status, condition, fmt].filter(v => v !== "ALL").length + (q.trim() ? 1 : 0);
 
-  const exportCsv = () => {
+  const getExportRows = () => {
     if (!data?.copies?.length) return;
-    const rows = [
-      ["Acquisition Date", "Barcode", "Title", "ISBN", "Author", "Category", "Format", "Library", "Source", "Price", "Price Source", "Status", "Condition"],
+    return [
+      [
+        "Acquisition Date",
+        "Barcode",
+        ...(showInternalSsn ? ["Internal SSN"] : []),
+        "Title", "ISBN", "Author", "Category", "Format", "Library", "Source", "Price", "Price Source", "Status", "Condition",
+      ],
       ...data.copies.map((c: any) => [
         c.acquisitionDate ? new Date(c.acquisitionDate).toISOString().slice(0, 10) : "",
-        c.barcode, c.bookTitle, c.bookIsbn, c.author, c.category, c.format,
+        c.barcode,
+        ...(showInternalSsn ? [c.internalSSN || ""] : []),
+        c.bookTitle, c.bookIsbn, c.author, c.category, c.format,
         c.libraryName, c.acquisitionSource, (c.price / 100).toFixed(2), c.priceSource,
         c.status, c.condition ?? "",
       ]),
     ];
+  };
+
+  const exportCsv = () => {
+    const rows = getExportRows();
+    if (!rows) return;
     const csv = rows.map((r: any[]) => r.map((x: any) => `"${String(x).replace(/"/g, '""')}"`).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a"); a.href = url; a.download = `acquisitions-${from}-to-${to}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportExcel = async () => {
+    const rows = getExportRows();
+    if (!rows) return;
+    const XLSX = await import("xlsx");
+    const worksheet = XLSX.utils.aoa_to_sheet(rows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Acquisitions");
+    const contents = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+    const blob = new Blob([contents], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `acquisitions-${from}-to-${to}.xlsx`;
+    a.click();
     URL.revokeObjectURL(url);
   };
 
@@ -964,6 +996,10 @@ function AcquisitionsReport() {
                 <Download className="w-5 h-5" />
                 <span className="text-xs">Export CSV</span>
               </Button>
+              <Button onClick={exportExcel} disabled={!data.copies.length} className="h-full flex flex-col gap-1 px-5 bg-blue-600 hover:bg-blue-700 text-white" data-testid="button-acq-export-excel">
+                <Download className="w-5 h-5" />
+                <span className="text-xs">Export Excel</span>
+              </Button>
             </div>
           </div>
 
@@ -991,6 +1027,7 @@ function AcquisitionsReport() {
                         <TableHead>Acq. Date</TableHead>
                         <TableHead>Title / Author</TableHead>
                         <TableHead>Barcode</TableHead>
+                        {showInternalSsn && <TableHead>Internal SSN</TableHead>}
                         <TableHead>Library</TableHead>
                         <TableHead>Source</TableHead>
                         <TableHead>Category</TableHead>
@@ -1011,6 +1048,9 @@ function AcquisitionsReport() {
                             <div className="text-xs text-muted-foreground">{c.author}</div>
                           </TableCell>
                           <TableCell className="text-xs font-mono">{c.barcode}</TableCell>
+                          {showInternalSsn && (
+                            <TableCell className="text-xs font-mono">{c.internalSSN || "—"}</TableCell>
+                          )}
                           <TableCell className="text-sm whitespace-nowrap">{c.libraryName}</TableCell>
                           <TableCell className="text-sm">{c.acquisitionSource || "—"}</TableCell>
                           <TableCell className="text-sm">{c.category || "—"}</TableCell>
