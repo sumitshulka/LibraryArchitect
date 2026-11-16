@@ -3,6 +3,7 @@ import { navItems, navGroups } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { useQuery } from "@tanstack/react-query";
 
 
 interface SidebarProps {
@@ -17,6 +18,19 @@ function SidebarContent({ onLinkClick }: { onLinkClick?: () => void }) {
   const isLocalAdmin = user?.role === 'ADMIN' && user?.isLocalUser;
   const isAdmin = user?.role === 'ADMIN' && (user?.isLocalUser || user?.category === 'STAFF');
   const isPatron = user?.category === 'PATRON';
+  const { data: transferRequests = [] } = useQuery({
+    queryKey: ["transfers"],
+    queryFn: async () => {
+      const response = await fetch("/api/transfers");
+      if (!response.ok) throw new Error("Failed to load transfer approvals");
+      return response.json() as Promise<any[]>;
+    },
+    enabled: isLocalAdmin,
+    refetchInterval: 15000,
+  });
+  const pendingApprovalCount = transferRequests.filter((request: any) =>
+    ["PENDING_REVIEW", "NEEDS_REALLOCATION"].includes(request.status),
+  ).length;
 
   const visibleItems = navItems.filter(item => {
     if (isPatron) return item.patronVisible === true;
@@ -69,15 +83,26 @@ function SidebarContent({ onLinkClick }: { onLinkClick?: () => void }) {
                   href={item.href}
                   onClick={onLinkClick}
                   className={cn(
-                    "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors cursor-pointer",
+                    "flex items-center justify-between gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors cursor-pointer",
                     isActive
                       ? "bg-sidebar-primary text-sidebar-primary-foreground"
                       : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                   )}
                   data-testid={`link-nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
                 >
-                  <item.icon className="h-4 w-4" />
-                  {item.label}
+                  <span className="flex min-w-0 items-center gap-3">
+                    <item.icon className="h-4 w-4" />
+                    <span className="truncate">{item.label}</span>
+                  </span>
+                  {item.href === "/transfer-approvals" && pendingApprovalCount > 0 && (
+                    <span
+                      className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-orange-500 px-1 text-xs font-semibold leading-none text-white"
+                      aria-label={`${pendingApprovalCount} pending approvals`}
+                      data-testid="transfer-approval-count"
+                    >
+                      {pendingApprovalCount}
+                    </span>
+                  )}
                 </Link>
               );
             })}

@@ -48,7 +48,7 @@ export default function TransfersPage() {
   const [pathname] = useLocation();
   const queueOnly = pathname === "/transfers/acquisitions";
   const reviewOnly = pathname === "/transfer-approvals";
-  const showTransferNotifications = !queueOnly && !reviewOnly;
+  const showTransferNotifications = reviewOnly;
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const localAdmin = user?.role === "ADMIN" && user.isLocalUser;

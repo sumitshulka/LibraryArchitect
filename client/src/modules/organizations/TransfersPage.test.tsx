@@ -144,7 +144,7 @@ describe("TransfersPage withdrawal confirmation", () => {
   });
 
   it("removes a notification from the list after it is marked read", async () => {
-    renderPage();
+    renderPage("/transfer-approvals");
 
     await screen.findByText("Transfer request #1 needs review");
     await userEvent.click(screen.getByRole("button", { name: "Mark read" }));
@@ -155,9 +155,9 @@ describe("TransfersPage withdrawal confirmation", () => {
   });
 
   it.each([
-    ["/transfer-approvals", "Transfer Approvals"],
+    ["/transfers", "Library Transfers"],
     ["/transfers/acquisitions", "Acquisition Queue"],
-  ])("keeps transfer notifications off %s", async (path, heading) => {
+  ])("keeps approval notifications off %s", async (path, heading) => {
     renderPage(path);
 
     await screen.findByRole("heading", { name: heading });
