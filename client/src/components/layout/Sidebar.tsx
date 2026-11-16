@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useQuery } from "@tanstack/react-query";
+import { moduleForPath } from "@shared/staff-modules";
 
 
 interface SidebarProps {
@@ -37,6 +38,8 @@ function SidebarContent({ onLinkClick }: { onLinkClick?: () => void }) {
     if (item.patronOnly) return false;
     if (item.localAdminOnly && !isLocalAdmin) return false;
     if (item.adminOnly && !isAdmin) return false;
+    const moduleId = moduleForPath(item.href);
+    if (!isLocalAdmin && moduleId && user?.moduleRestrictions?.includes(moduleId)) return false;
     return true;
   });
 

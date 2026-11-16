@@ -301,6 +301,17 @@ export const usersApi = {
     return res.json();
   },
 
+  updateModuleRestrictions: async (id: number, moduleRestrictions: string[]): Promise<{ moduleRestrictions: string[] }> => {
+    const res = await fetch(`${API_BASE}/users/${id}/module-restrictions`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ moduleRestrictions }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to update module permissions");
+    return data;
+  },
+
   delete: async (id: number): Promise<void> => {
     const res = await fetch(`${API_BASE}/users/${id}`, {
       method: "DELETE",

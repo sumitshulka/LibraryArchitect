@@ -10,6 +10,7 @@ interface User {
   role: string;
   category: string;
   isLocalUser: boolean;
+  moduleRestrictions?: string[];
 }
 
 interface AuthContextType {

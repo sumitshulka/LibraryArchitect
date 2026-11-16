@@ -48,6 +48,7 @@ export const users = pgTable("users", {
   category: userCategoryEnum("category").notNull().default('PATRON'),
   role: userRoleEnum("role").notNull().default('STUDENT'),
   status: userStatusEnum("status").notNull().default('ACTIVE'),
+  moduleRestrictions: jsonb("module_restrictions").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   joinedDate: timestamp("joined_date").notNull().defaultNow(),
   avatarUrl: text("avatar_url"),
   phone: text("phone"),

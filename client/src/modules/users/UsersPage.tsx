@@ -47,6 +47,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Plus, Search, MoreHorizontal, Mail, Shield, Users, UserCog, Pencil, Trash2, Building2, RefreshCw, Library as LibraryIcon, X, History, PlusCircle, MinusCircle, CheckCircle2, Clock3, AlertCircle, KeyRound } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { PatronPagination } from "@/modules/patron/patronShared";
+import { STAFF_MODULES } from "@shared/staff-modules";
 
 export default function UsersPage() {
   const { user: currentUser } = useAuth();
@@ -56,6 +57,8 @@ export default function UsersPage() {
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [allocatingUser, setAllocatingUser] = useState<User | null>(null);
+  const [permissionUser, setPermissionUser] = useState<User | null>(null);
+  const [restrictedModules, setRestrictedModules] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const pageSize = 20;
 
@@ -117,6 +120,15 @@ export default function UsersPage() {
     onError: (error: Error) => {
       toast.error(error.message);
     },
+  });
+  const modulePermissionsMutation = useMutation({
+    mutationFn: () => usersApi.updateModuleRestrictions(permissionUser!.id, restrictedModules),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      toast.success("Module permissions updated");
+      setPermissionUser(null);
+    },
+    onError: (error: Error) => toast.error(error.message),
   });
 
   const users = activeTab === 'STAFF' ? staffUsers : patronUsers;
@@ -385,9 +397,12 @@ export default function UsersPage() {
                               <DropdownMenuItem onClick={() => setAllocatingUser(user)}>
                                 <LibraryIcon className="mr-2 h-4 w-4" /> Manage Libraries
                               </DropdownMenuItem>
-                              <DropdownMenuItem>
+                              {!(user.role === "ADMIN" && !user.erpIntegrationId) && <DropdownMenuItem onClick={() => {
+                                setPermissionUser(user);
+                                setRestrictedModules((user as any).moduleRestrictions || []);
+                              }}>
                                 <Shield className="mr-2 h-4 w-4" /> Permissions
-                              </DropdownMenuItem>
+                              </DropdownMenuItem>}
                             </>
                           )}
                           <DropdownMenuSeparator />
@@ -410,6 +425,37 @@ export default function UsersPage() {
           </div>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={!!permissionUser} onOpenChange={open => { if (!open && !modulePermissionsMutation.isPending) setPermissionUser(null); }}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Module permissions for {permissionUser?.name}</DialogTitle>
+            <DialogDescription>
+              {permissionUser?.role} remains the platform role. Select modules to remove from this user; permissions cannot add access beyond the role.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid max-h-[55vh] gap-2 overflow-y-auto sm:grid-cols-2">
+            {STAFF_MODULES.filter(module => !module.adminOnly || permissionUser?.role === "ADMIN").map(module => (
+              <label key={module.id} className="flex items-center gap-2 rounded border p-3 text-sm">
+                <input
+                  type="checkbox"
+                  checked={restrictedModules.includes(module.id)}
+                  onChange={event => setRestrictedModules(current =>
+                    event.target.checked ? [...current, module.id] : current.filter(id => id !== module.id),
+                  )}
+                />
+                <span>Remove {module.label}</span>
+              </label>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setPermissionUser(null)} disabled={modulePermissionsMutation.isPending}>Cancel</Button>
+            <Button type="button" onClick={() => modulePermissionsMutation.mutate()} disabled={modulePermissionsMutation.isPending || !permissionUser}>
+              {modulePermissionsMutation.isPending ? "Saving…" : "Save permissions"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
         <DialogContent className="max-w-lg">

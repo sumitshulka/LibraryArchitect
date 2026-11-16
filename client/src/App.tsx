@@ -45,6 +45,7 @@ import MyLoansPage from "@/modules/patron/MyLoansPage";
 import MyFinesPage from "@/modules/patron/MyFinesPage";
 import MyHistoryPage from "@/modules/patron/MyHistoryPage";
 import TransfersPage from "@/modules/organizations/TransfersPage";
+import { moduleForPath } from "@shared/staff-modules";
 
 function ProtectedRoute({
   component: Component,
@@ -89,6 +90,12 @@ function ProtectedRoute({
   }
   if (staffOnly && user?.category === "PATRON") return <Redirect to="/" />;
   if (patronOnly && user?.category !== "PATRON") return <Redirect to="/" />;
+  const restrictedModule = moduleForPath(location);
+  if (
+    !(user?.role === "ADMIN" && user.isLocalUser)
+    && restrictedModule
+    && user?.moduleRestrictions?.includes(restrictedModule)
+  ) return <Redirect to="/" />;
 
   if (isLibrarian && isLoadingLibraryAccess) {
     return (

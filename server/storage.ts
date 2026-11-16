@@ -772,7 +772,7 @@ export class DBStorage implements IStorage {
   async createUser(insertUser: InsertUser): Promise<User> {
     const [user] = await returningViaCte<User>(
       db.insert(users)
-        .values(nullifyForInsert(insertUser))
+        .values(nullifyForInsert(insertUser) as any)
         .returning()
     );
     if (!user) {
@@ -784,7 +784,7 @@ export class DBStorage implements IStorage {
   async updateUser(id: number, updateData: Partial<InsertUser>): Promise<User | undefined> {
     const [user] = await returningViaCte<User>(
       db.update(users)
-        .set(nullifyForInsert(updateData))
+        .set(nullifyForInsert(updateData) as any)
         .where(eq(users.id, id))
         .returning()
     );

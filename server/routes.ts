@@ -37,6 +37,7 @@ import { eq, and, gt, desc, isNull, or } from "drizzle-orm";
 import multer from "multer";
 import { setupSwagger } from "./swagger";
 import { logAudit, invalidateAuditConfigCache } from "./audit";
+import { STAFF_MODULES, moduleForApiPath } from "@shared/staff-modules";
 import { registerReservationRoutes, resolveLibraryReservationDays } from "./reservations";
 import { registerErpExtraRoutes } from "./erp-extra";
 import { registerDigitalResourceRoutes } from "./digital-resources";
@@ -543,6 +544,12 @@ async function requireStaff(req: any, res: any): Promise<any | null> {
     res.status(403).json({ error: "Staff access required" });
     return null;
   }
+  const restricted = Array.isArray(user.moduleRestrictions) ? user.moduleRestrictions : [];
+  const moduleId = moduleForApiPath(req.path);
+  if (moduleId && restricted.includes(moduleId) && !(user.role === "ADMIN" && !user.erpIntegrationId)) {
+    res.status(403).json({ error: "Your account does not have access to this module" });
+    return null;
+  }
   return user;
 }
 
@@ -553,6 +560,15 @@ async function requireAuthenticatedUser(req: any, res: any): Promise<any | null>
   if (!session) { res.status(401).json({ error: "Invalid session" }); return null; }
   const user = await storage.getUser(session.userId);
   if (!user) { res.status(401).json({ error: "User not found" }); return null; }
+  const moduleId = user.category === "STAFF" ? moduleForApiPath(req.path) : null;
+  if (
+    moduleId
+    && user.moduleRestrictions?.includes(moduleId)
+    && !(user.role === "ADMIN" && !user.erpIntegrationId)
+  ) {
+    res.status(403).json({ error: "Your account does not have access to this module" });
+    return null;
+  }
   return user;
 }
 
@@ -1623,6 +1639,33 @@ export async function registerRoutes(
       console.error("Error updating user:", error);
       res.status(500).json({ error: "Failed to update user" });
     }
+  });
+
+  app.patch("/api/users/:id/module-restrictions", async (req, res) => {
+    const currentUser = await requireLocalAdmin(req, res);
+    if (!currentUser) return;
+    const id = Number(req.params.id);
+    const target = await storage.getUser(id);
+    if (!target) return res.status(404).json({ error: "User not found" });
+    if (target.category !== "STAFF" || (target.role === "ADMIN" && !target.erpIntegrationId)) {
+      return res.status(403).json({ error: "Permissions can only be restricted for non-local-admin staff" });
+    }
+    const restrictions = req.body?.moduleRestrictions;
+    const knownModules = new Set(STAFF_MODULES.map(module => module.id));
+    if (!Array.isArray(restrictions) || restrictions.some((id: unknown) => typeof id !== "string" || !knownModules.has(id as any))) {
+      return res.status(400).json({ error: "Choose valid staff modules" });
+    }
+    const moduleRestrictions = Array.from(new Set(restrictions as string[]));
+    const updated = await storage.updateUser(id, { moduleRestrictions });
+    if (!updated) return res.status(404).json({ error: "User not found" });
+    logAudit(req, {
+      category: "USER_MANAGEMENT",
+      action: "USER_MODULE_RESTRICTIONS_UPDATED",
+      targetType: "user",
+      targetId: String(id),
+      details: { moduleRestrictions },
+    });
+    res.json({ moduleRestrictions: updated.moduleRestrictions });
   });
 
   app.delete("/api/users/:id", async (req, res) => {
@@ -5252,6 +5295,7 @@ export async function registerRoutes(
           role: result.user.role,
           category: result.user.category,
           isLocalUser: !result.user.erpIntegrationId && !!result.user.password,
+          moduleRestrictions: result.user.moduleRestrictions ?? [],
         },
       });
     } catch (error) {

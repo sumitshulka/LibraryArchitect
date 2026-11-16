@@ -1,10 +1,10 @@
 ---
 name: Staff module access
-description: User decision about assigning application modules to staff roles.
+description: User decision about limiting each staff member to a subset of their role's modules.
 ---
 
-Assign module access by staff role rather than by individual staff member. Enforce the role's access on both application pages and API requests.
+Apply module restrictions per staff member as a deny list layered over the assigned platform role. A user restriction can only remove access the role already grants; it cannot grant or override access. Local administrators always retain full, uneditable access.
 
-**Why:** The user chose role-based access because the same role should have consistent module access; per-user exceptions are not wanted.
+**Why:** The user clarified that role assignments remain authoritative, while individual permissions may further reduce a user's available modules.
 
-**How to apply:** Manage module grants at the role level, make the effect on all users in that role clear, and keep local administrators from locking themselves out.
+**How to apply:** Offer only modules the assigned role can access, enforce restrictions in navigation, protected pages, and API requests, and bypass restrictions for local administrators.
