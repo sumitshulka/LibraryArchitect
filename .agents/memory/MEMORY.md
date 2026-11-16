@@ -10,3 +10,4 @@
 - [ERP-admin copy allocation scope](erp-admin-copy-allocation-scope.md) — ERP Library Admins may allocate only to active assigned libraries; keep the expanded permission limited to this workflow.
 - [Accession number backfill](accession-number-backfill.md) — when accession numbering is configured, number eligible copies already in inventory as well as future copies.
 - [Accession numbers during transfers](accession-number-transfers.md) — library-scoped transfers archive the source number and assign the destination library’s next number at receipt.
+- [Staff module access](staff-module-access.md) — module permissions should be assigned by staff role, not individually; API and page access must both enforce them.
