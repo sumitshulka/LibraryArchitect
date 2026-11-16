@@ -570,7 +570,7 @@ export function LibraryDashboardPage() {
                     Pending Transfers
                   </CardTitle>
                   <CardDescription>
-                    Inter-library book transfers
+                    Outstanding approved copy quantities
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -582,7 +582,7 @@ export function LibraryDashboardPage() {
                   <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
                     <div className="flex items-center gap-2">
                       <ArrowDownToLine className="h-4 w-4 text-blue-600" />
-                      <span className="text-sm font-medium text-blue-700">Incoming</span>
+                      <span className="text-sm font-medium text-blue-700">Incoming copies</span>
                     </div>
                     <Badge variant="secondary" data-testid="metric-transfers-in">
                       {dashboard.pendingTransfersIn}
@@ -591,7 +591,7 @@ export function LibraryDashboardPage() {
                   <div className="flex items-center justify-between p-3 bg-orange-50 rounded-lg">
                     <div className="flex items-center gap-2">
                       <ArrowUpFromLine className="h-4 w-4 text-orange-600" />
-                      <span className="text-sm font-medium text-orange-700">Outgoing</span>
+                      <span className="text-sm font-medium text-orange-700">Outgoing copies</span>
                     </div>
                     <Badge variant="secondary" data-testid="metric-transfers-out">
                       {dashboard.pendingTransfersOut}

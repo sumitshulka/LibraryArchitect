@@ -186,6 +186,7 @@ export interface LibraryAccessRequestWithDetails extends LibraryAccessRequest {
 }
 import { db, nullifyForInsert, returningViaCte } from "./db";
 import { eq, and, or, like, desc, asc, sql, isNull, isNotNull, inArray } from "drizzle-orm";
+import { calculatePendingTransferQuantities } from "./transfer-metrics";
 
 export type BookCopyIdentifierField = "barcode" | "internalSSN" | "userDefinedSSN";
 
@@ -2534,27 +2535,32 @@ export class DBStorage implements IStorage {
     const transfersIn = await db.select().from(bookTransfers)
       .where(and(
         eq(bookTransfers.destinationLibraryId, libraryId),
-        eq(bookTransfers.status, 'PENDING')
+        inArray(bookTransfers.status, ["APPROVED", "IN_TRANSIT"])
       ));
     
     const transfersOut = await db.select().from(bookTransfers)
       .where(and(
         eq(bookTransfers.sourceLibraryId, libraryId),
-        eq(bookTransfers.status, 'PENDING')
+        inArray(bookTransfers.status, ["APPROVED", "IN_TRANSIT"])
       ));
 
-    const newTransfersIn = await db.select({ id: transferRequests.id }).from(transferRequests)
-      .where(and(
-        eq(transferRequests.destinationLibraryId, libraryId),
-        sql`${transferRequests.status} NOT IN ('COMPLETED', 'REJECTED')`,
-      ));
-    const newTransfersOut = await db.select({ id: transferLegs.id }).from(transferLegs)
+    const newTransferLegs = await db.select({
+      sourceLibraryId: transferLegs.sourceLibraryId,
+      destinationLibraryId: transferRequests.destinationLibraryId,
+      requestStatus: transferRequests.status,
+      status: transferLegs.status,
+      approvedQuantity: transferLegs.approvedQuantity,
+      acceptedQuantity: transferLegs.acceptedQuantity,
+      receivedQuantity: transferLegs.receivedQuantity,
+    }).from(transferLegs)
       .innerJoin(transferRequestItems, eq(transferRequestItems.id, transferLegs.itemId))
       .innerJoin(transferRequests, eq(transferRequests.id, transferRequestItems.requestId))
       .where(and(
-        eq(transferLegs.sourceLibraryId, libraryId),
+        or(eq(transferRequests.destinationLibraryId, libraryId), eq(transferLegs.sourceLibraryId, libraryId)),
+        sql`${transferRequests.status} NOT IN ('COMPLETED', 'REJECTED', 'CANCELLED')`,
         sql`${transferLegs.status} IN ('AWAITING_SOURCE', 'ACCEPTED', 'IN_TRANSIT', 'DISCREPANCY')`,
       ));
+    const newTransferCounts = calculatePendingTransferQuantities(newTransferLegs, libraryId);
 
     const memberships = await db.select().from(libraryMemberships)
       .where(and(
@@ -2587,8 +2593,8 @@ export class DBStorage implements IStorage {
       totalFinesPaid,
       totalFinesWaived,
       
-      pendingTransfersIn: transfersIn.length + newTransfersIn.length,
-      pendingTransfersOut: transfersOut.length + newTransfersOut.length,
+      pendingTransfersIn: transfersIn.length + newTransferCounts.incoming,
+      pendingTransfersOut: transfersOut.length + newTransferCounts.outgoing,
       
       totalMembers: memberships.length,
     };

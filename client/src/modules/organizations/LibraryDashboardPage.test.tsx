@@ -173,4 +173,21 @@ describe("LibraryDashboardPage policy overrides", () => {
     expect(screen.queryByTestId("input-lib-policy-loanPeriodDays")).not.toBeInTheDocument();
     expect(screen.getByText("View only. Only system admins can edit policy overrides.")).toBeInTheDocument();
   });
+
+  it("shows incoming and outgoing approved copy quantities", async () => {
+    apiMocks.getDashboard.mockResolvedValue({
+      ...dashboard,
+      pendingTransfersIn: 7,
+      pendingTransfersOut: 3,
+    });
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("metric-transfers-in")).toHaveTextContent("7");
+      expect(screen.getByTestId("metric-transfers-out")).toHaveTextContent("3");
+    });
+    expect(screen.getByText("Incoming copies")).toBeInTheDocument();
+    expect(screen.getByText("Outgoing copies")).toBeInTheDocument();
+  });
 });

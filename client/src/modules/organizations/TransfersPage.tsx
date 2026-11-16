@@ -50,7 +50,7 @@ export default function TransfersPage() {
   const { data: catalog = [] } = useQuery({
     queryKey: ["transfer-catalog", destinationId, search],
     queryFn: () => api<any[]>(`/transfers/catalog?libraryId=${destinationId}&search=${encodeURIComponent(search)}`),
-    enabled: destinationId > 0,
+    enabled: destinationId > 0 && search.trim().length >= 2,
   });
   const { data: requests = [], isLoading } = useQuery({ queryKey: ["transfers"], queryFn: () => api<any[]>("/transfers"), refetchInterval: 15000 });
   const { data: acquisitionRows = [] } = useQuery({
@@ -83,6 +83,10 @@ export default function TransfersPage() {
     onError: (error: Error) => toast.error(error.message),
   });
   const mine = useMemo(() => requests, [requests]);
+  const withdrawnRequests = useMemo(
+    () => requests.filter((request: any) => request.status === "CANCELLED"),
+    [requests],
+  );
   const reviewRequests = useMemo(
     () => requests.filter((request: any) => ["PENDING_REVIEW", "NEEDS_REALLOCATION"].includes(request.status)),
     [requests],
@@ -163,9 +167,9 @@ export default function TransfersPage() {
             ? "Track new-copy requests routed from transfer approvals."
             : "Request books from other libraries and track source acceptance, handover, and receipt."}</p>
       </header>
-      {!!notifications.length && <Card>
-        <CardHeader><CardTitle>Transfer notifications</CardTitle></CardHeader>
-        <CardContent className="space-y-2">{notifications.map((notification: any) => <div key={notification.id} className="flex items-center justify-between gap-3 rounded border p-3 text-sm">
+      {!!notifications.length && <Card className="border-orange-300 bg-orange-50 dark:border-orange-800 dark:bg-orange-950">
+        <CardHeader><CardTitle className="text-orange-950 dark:text-orange-100">Transfer notifications</CardTitle></CardHeader>
+        <CardContent className="space-y-2">{notifications.map((notification: any) => <div key={notification.id} className="flex items-center justify-between gap-3 rounded border border-orange-200 bg-white p-3 text-sm text-orange-950 dark:border-orange-800 dark:bg-orange-900 dark:text-orange-50">
           <span>{notification.message}</span><Button size="sm" variant="outline" onClick={() => mutate.mutate({ path: `/transfers/notifications/${notification.id}/read`, body: {} })}>Mark read</Button>
         </div>)}</CardContent>
       </Card>}
@@ -175,14 +179,18 @@ export default function TransfersPage() {
         <CardContent className="space-y-4">
           <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_2fr]">
             {localAdmin && <div><Label>Requesting library</Label><select className="mt-2 h-10 w-full rounded-md border bg-background px-3" value={destinationId} onChange={e => setLibraryId(Number(e.target.value))}>{libraries.map((library: any) => <option key={library.id} value={library.id}>{library.name}</option>)}</select></div>}
-            <div><Label htmlFor="transfer-search">Search catalog</Label><div className="mt-2 flex gap-2"><Input id="transfer-search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Title, author, or ISBN" /><Button variant="outline" type="button"><Search className="h-4 w-4" /></Button></div></div>
+            <div><Label htmlFor="transfer-search">Search catalog</Label><div className="mt-2 flex gap-2"><Input id="transfer-search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Enter at least 2 characters" /><Button variant="outline" type="button" aria-label="Search catalog" disabled={search.trim().length < 2} onClick={() => queryClient.invalidateQueries({ queryKey: ["transfer-catalog", destinationId, search] })}><Search className="h-4 w-4" /></Button></div></div>
           </div>
-          <div><Label htmlFor="transfer-reason">Reason for request</Label><Input id="transfer-reason" value={reason} onChange={e => setReason(e.target.value)} placeholder="Why are these copies needed?" /></div>
+          <div className="space-y-2 rounded-lg border border-sky-200 bg-sky-50 p-4 dark:border-sky-900 dark:bg-sky-950/50">
+            <Label htmlFor="transfer-reason">Reason for request <span className="text-destructive" aria-hidden="true">*</span></Label>
+            <Input id="transfer-reason" value={reason} onChange={e => setReason(e.target.value)} placeholder="Why are these copies needed?" required aria-required="true" className="border-sky-200 bg-white dark:border-sky-800 dark:bg-background" />
+            <p className="text-xs text-sky-900 dark:text-sky-100">A reason is required before this request can be submitted.</p>
+          </div>
           <div className="space-y-3">
             {catalog.map((book: any) => {
               const row = selected[book.id] || { quantity: 0, sourceId: 0, sourceQuantity: 1, preferredSources: [] };
               return <div key={book.id} className="grid gap-3 rounded-lg border p-3 md:grid-cols-[1fr_100px_1fr_100px_auto] md:items-end">
-                <div><div className="font-medium">{book.title}</div><div className="text-sm text-muted-foreground">{book.author} · {book.isbn}</div><div className="text-xs text-muted-foreground">{book.sources.map((source: any) => `${source.libraryName}: ${source.quantity}`).join(" · ") || "No available copies"}</div></div>
+                <div><div className="font-medium">{book.title}</div><div className="text-sm text-muted-foreground">{book.author} · {book.isbn}</div><div className="mt-1 text-xs font-medium text-primary">Your library: {book.localInventory?.total ?? 0} copies{book.localInventory?.total ? ` · ${Object.entries(book.localInventory.byStatus || {}).map(([status, quantity]) => `${status.toLowerCase()}: ${quantity}`).join(", ")}` : ""}</div><div className="text-xs text-muted-foreground">{book.sources.map((source: any) => `${source.libraryName}: ${source.quantity} available`).join(" · ") || "No available copies in other libraries"}</div></div>
                 <div><Label>Request</Label><Input type="number" min="0" value={row.quantity} onChange={e => setBook(book.id, { quantity: Number(e.target.value) })} /></div>
                 <div><Label>Preferred source</Label><select className="h-10 w-full rounded-md border bg-background px-2" value={row.sourceId} onChange={e => setBook(book.id, { sourceId: Number(e.target.value) })}><option value={0}>No preference</option>{book.sources.map((source: any) => <option key={source.libraryId} value={source.libraryId}>{source.libraryName} ({source.quantity} available)</option>)}</select></div>
                 <div><Label>From source</Label><Input type="number" min="1" value={row.sourceQuantity} onChange={e => setBook(book.id, { sourceQuantity: Number(e.target.value) })} /></div>
@@ -196,7 +204,7 @@ export default function TransfersPage() {
                 })}</div>}
               </div>;
             })}
-            {!catalog.length && <p className="py-4 text-center text-sm text-muted-foreground">{search ? "No matching books found." : "Search the catalog to begin."}</p>}
+            {!catalog.length && <p className="py-4 text-center text-sm text-muted-foreground">{search.trim().length < 2 ? "Enter at least 2 characters to search the global catalog." : "No matching books found."}</p>}
           </div>
           <div className="flex justify-end"><Button disabled={!reason.trim() || !Object.values(selected).some(row => row.quantity > 0 && row.preferredSources.reduce((sum, source) => sum + source.quantity, 0) <= row.quantity) || createRequest.isPending} onClick={() => createRequest.mutate()}>Submit transfer request</Button></div>
         </CardContent>
@@ -216,7 +224,7 @@ export default function TransfersPage() {
       {!queueOnly && !reviewOnly && <section className="space-y-4">
         <h2 className="text-xl font-semibold">Requests and active transfers</h2>
         {isLoading && <p className="text-sm text-muted-foreground">Loading transfers…</p>}
-        {mine.map((request: any) => <Card key={request.id}>
+        {mine.filter((request: any) => request.status !== "CANCELLED").map((request: any) => <Card key={request.id}>
           <CardHeader className="flex flex-row items-start justify-between gap-4">
             <div><CardTitle>Request #{request.id} · {request.destination?.name}</CardTitle><CardDescription>{request.reason} · {new Date(request.createdAt).toLocaleString()}</CardDescription></div>
             <Badge variant={request.status === "REJECTED" ? "destructive" : "secondary"}>{request.status}</Badge>
@@ -254,6 +262,16 @@ export default function TransfersPage() {
               </div>)}
               {item.acquisitions.map((acquisition: any) => <div key={acquisition.id} className="text-sm text-muted-foreground">Acquisition queue: {acquisition.quantity} · {acquisition.status}</div>)}
             </div>)}
+            {request.status === "PENDING_REVIEW" && (localAdmin || request.requestedBy === user?.id) && <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                if (window.confirm("Withdraw this request before approval? Its audit history will be kept.")) {
+                  mutate.mutate({ path: `/transfers/${request.id}/withdraw`, body: {} });
+                }
+              }}
+            >Withdraw request</Button>}
             {reviewOnly && localAdmin && request.status === "PENDING_REVIEW" && <div className="flex gap-2">
               <Button onClick={() => approve(request)}><PackageCheck className="mr-2 h-4 w-4" />Approve suggested sources</Button>
               <Button variant="outline" onClick={() => {
@@ -295,12 +313,34 @@ export default function TransfersPage() {
               }}>Reject</Button>
             </div>}
             {request.status === "NEEDS_REALLOCATION" && <Button onClick={() => resolveShortfall(request)}>Resolve shortfall</Button>}
+            {request.status === "PENDING_REVIEW" && localAdmin && <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                if (window.confirm("Withdraw this request before approval? Its audit history will be kept.")) {
+                  mutate.mutate({ path: `/transfers/${request.id}/withdraw`, body: {} });
+                }
+              }}
+            >Withdraw request</Button>}
             <Separator />
             <details><summary className="cursor-pointer text-sm font-medium">History ({request.events.length})</summary><div className="mt-2 space-y-1 text-xs text-muted-foreground">{request.events.map((entry: any) => <div key={entry.id}>{new Date(entry.createdAt).toLocaleString()} · {entry.actorName} · {entry.action} · {JSON.stringify(entry.details)}</div>)}</div></details>
           </CardContent>
         </Card>)}
         {!reviewRequests.length && !isLoading && <Card><CardContent className="py-10 text-center text-sm text-muted-foreground">No requests are awaiting review.</CardContent></Card>}
       </section>}
+      {!!withdrawnRequests.length && <details className="rounded-lg border p-4">
+        <summary className="cursor-pointer font-medium">Withdrawn requests ({withdrawnRequests.length})</summary>
+        <div className="mt-3 space-y-3">
+          {withdrawnRequests.map((request: any) => <div key={request.id} className="rounded-md bg-muted/30 p-3">
+            <div className="font-medium">Request #{request.id} · {request.destination?.name}</div>
+            <p className="text-sm text-muted-foreground">{request.reason} · {new Date(request.createdAt).toLocaleString()}</p>
+            <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+              {request.events.map((entry: any) => <div key={entry.id}>{new Date(entry.createdAt).toLocaleString()} · {entry.actorName || "Admin"} · {entry.action} · {JSON.stringify(entry.details)}</div>)}
+            </div>
+          </div>)}
+        </div>
+      </details>}
       {(!reviewOnly && !queueOnly) && <div className="flex gap-4 text-sm"><Link href="/libraries" className="text-primary underline">Libraries</Link><Truck className="h-4 w-4 text-muted-foreground" /></div>}
     </div>
   </MainLayout>;

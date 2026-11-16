@@ -8,6 +8,8 @@ import {
 } from "@shared/schema";
 import { db, nullifyForInsert, returningViaCte } from "./db";
 import { storage } from "./storage";
+import { canWithdrawTransferRequest } from "./transfer-metrics";
+import { buildTransferCatalogResults } from "./transfer-catalog";
 
 type Guard = (req: any, res: any) => Promise<User | null>;
 type LibraryGuard = (req: any, res: any, libraryId: number) => Promise<User | null>;
@@ -64,9 +66,21 @@ export function registerTransferRoutes(
     if (!Number.isInteger(libraryId) || libraryId < 1) return res.status(400).json({ error: "Choose a library" });
     if (!await checkLibrary(req, res, user, libraryId)) return;
     const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
+    if (search.length < 2) return res.json([]);
     const bookRows = await db.select().from(books).where(search
       ? or(ilike(books.title, `%${search}%`), ilike(books.author, `%${search}%`), ilike(books.isbn, `%${search}%`))
-      : sql`true`).limit(100);
+      : sql`true`).orderBy(asc(books.title)).limit(25);
+    if (!bookRows.length) return res.json([]);
+    const ownCounts = await db.select({
+      bookId: bookCopies.bookId,
+      status: bookCopies.status,
+      quantity: sql<number>`count(*)::int`,
+    }).from(bookCopies)
+      .where(and(
+        eq(bookCopies.libraryId, libraryId),
+        inArray(bookCopies.bookId, bookRows.map(book => book.id)),
+      ))
+      .groupBy(bookCopies.bookId, bookCopies.status);
     const copies = await db.select({
       bookId: bookCopies.bookId, libraryId: bookCopies.libraryId, libraryName: libraries.name,
       quantity: sql<number>`count(*)::int`,
@@ -75,7 +89,11 @@ export function registerTransferRoutes(
         inArray(bookCopies.bookId, bookRows.map(book => book.id)),
         sql`NOT EXISTS (SELECT 1 FROM transfer_copy_reservations r WHERE r.copy_id = ${bookCopies.id} AND r.released_at IS NULL)`))
       .groupBy(bookCopies.bookId, bookCopies.libraryId, libraries.name);
-    res.json(bookRows.map(book => ({ ...book, sources: copies.filter(row => row.bookId === book.id) })));
+    res.json(buildTransferCatalogResults(
+      bookRows,
+      ownCounts,
+      copies.filter(row => row.libraryId !== null).map(row => ({ ...row, libraryId: Number(row.libraryId) })),
+    ));
   });
 
   app.get("/api/transfers", async (req, res) => {
@@ -212,6 +230,48 @@ export function registerTransferRoutes(
       console.error("[transfers] Request saved but notifications could not be sent:", error);
     }
     res.status(201).json(request);
+  });
+
+  app.post("/api/transfers/:id/withdraw", async (req, res) => {
+    const user = await guards.requireStaff(req, res);
+    if (!user) return;
+    if (user.role === "ADMIN" && user.erpIntegrationId) {
+      return res.status(403).json({ error: "Local administrator access required" });
+    }
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: "Invalid transfer request" });
+    const request = (await db.select().from(transferRequests).where(eq(transferRequests.id, id)))[0];
+    if (!request) return res.status(404).json({ error: "Transfer request not found" });
+    const isLocalAdmin = user.role === "ADMIN" && !user.erpIntegrationId;
+    if (!isLocalAdmin && !await checkLibrary(req, res, user, request.destinationLibraryId)) return;
+    if (request.status !== "PENDING_REVIEW") {
+      return res.status(409).json({ error: "A request can only be withdrawn before approval" });
+    }
+    if (!canWithdrawTransferRequest(request.requestedBy, user.id, isLocalAdmin, request.status)) {
+      return res.status(403).json({ error: "Only the requesting admin or a local admin can withdraw this request" });
+    }
+
+    const result = await db.execute(sql`
+      WITH updated AS (
+        UPDATE transfer_requests
+        SET status = 'CANCELLED', updated_at = NOW()
+        WHERE id = ${id}::integer
+          AND status = 'PENDING_REVIEW'
+          AND (${isLocalAdmin}::boolean OR requested_by = ${user.id}::integer)
+        RETURNING id
+      ), logged AS (
+        INSERT INTO transfer_events (request_id, leg_id, actor_id, action, details)
+        SELECT id, NULL, ${user.id}::integer, 'REQUEST_WITHDRAWN',
+          jsonb_build_object('withdrawnBy', ${user.id}::integer)
+        FROM updated
+        RETURNING request_id
+      )
+      SELECT request_id AS id FROM logged
+    `) as unknown as { rows?: Array<{ id: number }> };
+    if (!result.rows?.length) {
+      return res.status(409).json({ error: "The request is no longer pending approval" });
+    }
+    res.json({ success: true, status: "CANCELLED" });
   });
 
   app.post("/api/transfers/:id/review", async (req, res) => {
