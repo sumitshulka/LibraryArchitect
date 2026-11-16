@@ -359,4 +359,29 @@ describe.skipIf(!testDatabaseUrl)("book copy identifiers against PostgreSQL", ()
     expect(libraryNumbered.map((copy) => copy.accessionNumber).sort()).toEqual(["40", "41", "42"]);
     expect(await storage.hasAccessionNumberCollisions()).toBe(false);
   });
+
+  it("returns saved system configuration on both create and update", async () => {
+    const key = `${runId}-setting`;
+    try {
+      const created = await storage.setSystemConfig({
+        key,
+        value: "ORGANIZATION",
+        category: "test",
+        description: "Configuration return regression",
+      });
+      expect(created.key).toBe(key);
+      expect(created.value).toBe("ORGANIZATION");
+
+      const updated = await storage.setSystemConfig({
+        key,
+        value: "LIBRARY",
+        category: "test",
+        description: "Configuration return regression",
+      });
+      expect(updated.key).toBe(key);
+      expect(updated.value).toBe("LIBRARY");
+    } finally {
+      await db.execute(sql`DELETE FROM system_config WHERE key = ${key}`);
+    }
+  });
 });

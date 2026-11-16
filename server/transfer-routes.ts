@@ -135,12 +135,8 @@ export function registerTransferRoutes(
       return res.status(400).json({ error: "Every book needs a valid quantity" });
     }
     if (!await checkLibrary(req, res, user, destinationLibraryId)) return;
-    const [request] = await returningViaCte<any>(db.insert(transferRequests).values({
-      destinationLibraryId, requestedBy: user.id, reason: String(reason).trim(),
-    }).returning());
     const sourcePairs = items.flatMap((item: any) => Array.isArray(item.preferredSources) ? item.preferredSources : []);
     if (sourcePairs.some((source: any) => !Number.isInteger(source.libraryId) || !Number.isInteger(source.quantity) || source.quantity < 1 || source.libraryId === destinationLibraryId)) {
-      await db.delete(transferRequests).where(eq(transferRequests.id, request.id));
       return res.status(400).json({ error: "Preferred sources must be other libraries with positive quantities" });
     }
     if (sourcePairs.length) {
@@ -148,40 +144,73 @@ export function registerTransferRoutes(
         .where(inArray(libraries.id, sourcePairs.map((source: any) => source.libraryId)));
       if (sourceLibraries.length !== new Set(sourcePairs.map((source: any) => source.libraryId)).size
         || sourceLibraries.some(library => !library.isActive)) {
-        await db.delete(transferRequests).where(eq(transferRequests.id, request.id));
         return res.status(400).json({ error: "A preferred source library is unavailable" });
       }
     }
     for (const item of items) {
       const preferredTotal = (Array.isArray(item.preferredSources) ? item.preferredSources : []).reduce((sum: number, source: any) => sum + source.quantity, 0);
       if (preferredTotal > item.quantity) {
-        await db.delete(transferRequests).where(eq(transferRequests.id, request.id));
         return res.status(400).json({ error: "Preferred source quantities cannot exceed the requested quantity" });
       }
     }
-    const recipients = await localAdmins();
-    for (const item of items) {
-      if (!Number.isInteger(item.bookId) || !Number.isInteger(item.quantity) || item.quantity < 1) continue;
-      const [created] = await returningViaCte<any>(db.insert(transferRequestItems).values({
-        requestId: request.id, bookId: item.bookId, requestedQuantity: item.quantity,
+
+    let request: any;
+    let requestId: number | null = null;
+    let recipients: Array<{ id: number }> = [];
+    try {
+      recipients = await localAdmins();
+      const [createdRequest] = await returningViaCte<any>(db.insert(transferRequests).values({
+        destinationLibraryId, requestedBy: user.id, reason: String(reason).trim(),
       }).returning());
-      for (const preferred of (Array.isArray(item.preferredSources) ? item.preferredSources : [])) {
-        if (!Number.isInteger(preferred.libraryId) || !Number.isInteger(preferred.quantity) || preferred.quantity < 1) continue;
-        await db.insert(transferLegs).values({
-          itemId: created.id, sourceLibraryId: preferred.libraryId, requestedQuantity: preferred.quantity,
-          approvedQuantity: 0, status: "PREFERRED",
-        });
+      if (!createdRequest) throw new Error("Transfer request was not returned after insert");
+      request = createdRequest;
+      const createdRequestId = createdRequest.id as number;
+      requestId = createdRequestId;
+
+      for (const item of items) {
+        const [created] = await returningViaCte<any>(db.insert(transferRequestItems).values({
+          requestId: createdRequestId, bookId: item.bookId, requestedQuantity: item.quantity,
+        }).returning());
+        if (!created) throw new Error("Transfer request item was not returned after insert");
+        for (const preferred of (Array.isArray(item.preferredSources) ? item.preferredSources : [])) {
+          await db.insert(transferLegs).values({
+            itemId: created.id, sourceLibraryId: preferred.libraryId, requestedQuantity: preferred.quantity,
+            approvedQuantity: 0, status: "PREFERRED",
+          });
+        }
       }
+
+      await event(createdRequestId, null, user.id, "REQUESTED", {
+        reason,
+        items: items.map((item: any) => ({
+          bookId: item.bookId,
+          quantity: item.quantity,
+          preferredSources: item.preferredSources || [],
+        })),
+      });
+    } catch (error) {
+      let rollbackComplete = requestId === null;
+      if (requestId !== null) {
+        try {
+          await db.delete(transferRequests).where(eq(transferRequests.id, requestId));
+          rollbackComplete = true;
+        } catch (rollbackError) {
+          console.error("[transfers] Failed to remove partial request:", rollbackError);
+        }
+      }
+      console.error("[transfers] Request creation failed:", error);
+      return res.status(500).json({
+        error: rollbackComplete
+          ? "Transfer request could not be saved. No request was retained."
+          : "Transfer request processing failed; refresh the page before trying again.",
+      });
     }
-    await event(request.id, null, user.id, "REQUESTED", {
-      reason,
-      items: items.map((item: any) => ({
-        bookId: item.bookId,
-        quantity: item.quantity,
-        preferredSources: item.preferredSources || [],
-      })),
-    });
-    await notify(request.id, recipients.map(row => row.id), `Transfer request #${request.id} needs review`);
+
+    try {
+      await notify(request.id, recipients.map(row => row.id), `Transfer request #${request.id} needs review`);
+    } catch (error) {
+      console.error("[transfers] Request saved but notifications could not be sent:", error);
+    }
     res.status(201).json(request);
   });
 

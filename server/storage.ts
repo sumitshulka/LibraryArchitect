@@ -1141,13 +1141,19 @@ export class DBStorage implements IStorage {
     const existing = await this.getSystemConfig(insertConfig.key);
     
     if (existing) {
-      const [config] = await db.update(systemConfig)
-        .set({ ...insertConfig, updatedAt: new Date() })
-        .where(eq(systemConfig.key, insertConfig.key))
-        .returning();
+      const [config] = await returningViaCte<SystemConfig>(
+        db.update(systemConfig)
+          .set({ ...insertConfig, updatedAt: new Date() })
+          .where(eq(systemConfig.key, insertConfig.key))
+          .returning(),
+      );
+      if (!config) throw new Error("Configuration update was not returned by the database");
       return config;
     } else {
-      const [config] = await db.insert(systemConfig).values(insertConfig).returning();
+      const [config] = await returningViaCte<SystemConfig>(
+        db.insert(systemConfig).values(insertConfig).returning(),
+      );
+      if (!config) throw new Error("Configuration insert was not returned by the database");
       return config;
     }
   }
