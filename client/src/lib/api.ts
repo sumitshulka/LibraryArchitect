@@ -617,6 +617,7 @@ export interface CirculationListRecord extends Circulation {
   copyInternalSSN: string | null;
   copyUserDefinedSSN: string | null;
   copyBarcode: string | null;
+  copyAccessionNumber: string | null;
   libraryName: string | null;
   accruedFine?: number;
   daysOverdue?: number;

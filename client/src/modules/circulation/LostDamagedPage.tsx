@@ -79,7 +79,7 @@ interface HistoryEntry {
 }
 
 interface Book { id: number; title: string; isbn: string; author: string; }
-interface BookCopy { id: number; barcode: string; bookId: number; internalSSN?: string; }
+interface BookCopy { id: number; barcode: string; bookId: number; internalSSN?: string; userDefinedSSN?: string; accessionNumber?: string | null; }
 interface LibraryUser { id: number; name: string; role: string; email: string; }
 interface Library { id: number; name: string; code: string; }
 
@@ -283,7 +283,7 @@ function CreateReportDialog({ open, onOpenChange }: { open: boolean; onOpenChang
                     <SelectItem value="__none__">— Not specified —</SelectItem>
                     {copies.map((c: BookCopy) => (
                       <SelectItem key={c.id} value={String(c.id)}>
-                        {c.barcode} {c.internalSSN ? `(${c.internalSSN})` : ""}
+                        {c.accessionNumber ? `Accession ${c.accessionNumber} · ` : ""}{c.barcode} {c.userDefinedSSN || c.internalSSN ? `(${c.userDefinedSSN || c.internalSSN})` : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>

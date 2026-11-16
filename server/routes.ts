@@ -1694,6 +1694,7 @@ export async function registerRoutes(
             copyInternalSSN: copy?.internalSSN || null,
             copyUserDefinedSSN: copy?.userDefinedSSN || null,
             copyBarcode: copy?.barcode || null,
+            copyAccessionNumber: copy?.accessionNumber || null,
             libraryName: c.libraryId ? libraryMap.get(c.libraryId)?.name || null : "Unallocated",
             accruedFine: c.fineAmount ?? 0,
             daysOverdue: 0,
@@ -1713,6 +1714,7 @@ export async function registerRoutes(
           copyInternalSSN: copy?.internalSSN || null,
           copyUserDefinedSSN: copy?.userDefinedSSN || null,
           copyBarcode: copy?.barcode || null,
+          copyAccessionNumber: copy?.accessionNumber || null,
           libraryName: c.libraryId ? libraryMap.get(c.libraryId)?.name || null : "Unallocated",
           accruedFine: calc.fineCents,
           daysOverdue: calc.daysOverdue,
@@ -1762,6 +1764,7 @@ export async function registerRoutes(
           bookAuthor: book?.author || "Unknown author",
           coverUrl: book?.coverUrl || null,
           copyBarcode: copy?.barcode || null,
+          copyAccessionNumber: copy?.accessionNumber || null,
           libraryName: library?.name || null,
           fineOutstanding,
           damageOutstanding,
@@ -3813,6 +3816,19 @@ export async function registerRoutes(
       const currentUser = await requireLocalAdmin(req, res);
       if (!currentUser) return;
       const validated = insertSystemConfigSchema.parse(req.body);
+      if (validated.key === "accession_number_scope") {
+        if (!["OFF", "ORGANIZATION", "LIBRARY"].includes(validated.value)) {
+          return res.status(400).json({ error: "Accession numbering scope must be OFF, ORGANIZATION, or LIBRARY" });
+        }
+        if (validated.value === "ORGANIZATION" && await storage.hasAccessionNumberCollisions()) {
+          return res.status(409).json({
+            error: "Organization-wide numbering cannot be enabled while duplicate accession numbers exist. Resolve the duplicates first.",
+          });
+        }
+        if (validated.value !== "OFF") {
+          await storage.assignMissingAccessionNumbers(validated.value as "ORGANIZATION" | "LIBRARY");
+        }
+      }
       const config = await storage.setSystemConfig(validated);
       if (validated.key === CIRCULATION_POLICY_KEY) invalidateCirculationPolicyCache();
       const isSensitive = /pass|token|secret|private.?key|client.?secret/i.test(validated.key);
@@ -4514,6 +4530,7 @@ export async function registerRoutes(
       let createdBooks = 0;
       let createdCopies = 0;
       let skippedRows = 0;
+      const createdCopyIds: number[] = [];
       const errors: { rowId: number; message: string }[] = [];
       
       for (const row of rows) {
@@ -4560,7 +4577,7 @@ export async function registerRoutes(
             const ssn = generateSSN();
             const barcode = `BC-${bookId}-${Date.now()}-${c}`;
             
-            await storage.createBookCopy({
+            const createdCopy = await storage.createBookCopy({
               bookId,
               libraryId: null,
               barcode,
@@ -4574,6 +4591,7 @@ export async function registerRoutes(
               price: row.price || null,
               notes: `Bulk imported on ${new Date().toISOString().split('T')[0]}`,
             });
+            createdCopyIds.push(createdCopy.id);
             createdCopies++;
           }
         } catch (err: any) {
@@ -4581,6 +4599,9 @@ export async function registerRoutes(
         }
       }
       
+      if ((await storage.getSystemConfig("accession_number_scope"))?.value === "ORGANIZATION") {
+        await storage.assignMissingAccessionNumbers("ORGANIZATION", createdCopyIds);
+      }
       logAudit(req, { category: 'CATALOG', action: 'BULK_UPLOAD', details: { createdBooks, createdCopies, skippedRows, errorCount: errors.length } });
       res.json({
         createdBooks,
@@ -4861,6 +4882,7 @@ export async function registerRoutes(
       const tokenLabel = sanitizeImportToken(previewToken.slice(0, 10).toUpperCase());
       let createdBooks = 0;
       let createdCopies = 0;
+      const createdCopyIds: number[] = [];
       const errors: Array<{ row: number; message: string }> = [];
       const resolvedBookIds = new Map<string, number>();
 
@@ -4904,7 +4926,7 @@ export async function registerRoutes(
         const sequence = String(copyNumber).padStart(6, "0");
         const generatedBarcode = `INV-${tokenLabel}-${sequence}`;
         const generatedSSN = `SSN-${sanitizeImportToken(details.ssnPrefix || "IMPORT")}-${tokenLabel}-${sequence}`;
-        await storage.createBookCopy({
+        const createdCopy = await storage.createBookCopy({
           bookId,
           libraryId: library.id,
           barcode: details.existingBarcode || generatedBarcode,
@@ -4920,6 +4942,7 @@ export async function registerRoutes(
           notes: `Inventory import ${previewToken}`,
           allocatedAt: new Date(),
         });
+        createdCopyIds.push(createdCopy.id);
         createdCopies += 1;
       };
 
@@ -4956,6 +4979,10 @@ export async function registerRoutes(
         }
       }
 
+      const accessionScope = (await storage.getSystemConfig("accession_number_scope"))?.value;
+      if (accessionScope === "ORGANIZATION" || accessionScope === "LIBRARY") {
+        await storage.assignMissingAccessionNumbers(accessionScope, createdCopyIds);
+      }
       const result = {
         success: errors.length === 0,
         previewToken,
@@ -8216,7 +8243,12 @@ export async function registerRoutes(
         }
       }
       
-      const copy = await storage.createBookCopy(validated);
+      let copy = await storage.createBookCopy(validated);
+      const accessionScope = (await storage.getSystemConfig("accession_number_scope"))?.value;
+      if (accessionScope === "ORGANIZATION" || (accessionScope === "LIBRARY" && copy.libraryId !== null)) {
+        await storage.assignMissingAccessionNumbers(accessionScope, [copy.id]);
+        copy = (await storage.getBookCopy(copy.id)) || copy;
+      }
       res.status(201).json(copy);
     } catch (error) {
       if (error instanceof z.ZodError) {

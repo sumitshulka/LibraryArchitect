@@ -3506,6 +3506,23 @@ export default function SettingsPage() {
     onError: (error: Error) => toast.error(error.message),
   });
 
+  const accessionNumberScope = systemConfigs.find(
+    (config) => config.key === "accession_number_scope",
+  )?.value || "OFF";
+  const accessionNumberScopeMutation = useMutation({
+    mutationFn: (scope: string) => configApi.set({
+      key: "accession_number_scope",
+      value: scope,
+      category: "inventory",
+      description: "Controls whether copy accession numbers are assigned organization-wide or per library",
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["system-config"] });
+      toast.success("Accession number settings saved");
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
   const erpCatalogLimitConfig = systemConfigs.find(c => c.key === "erp_catalog_limit");
   const [catalogLimitValue, setCatalogLimitValue] = useState("");
 
@@ -3746,6 +3763,35 @@ export default function SettingsPage() {
                       data-testid="switch-acquisitions-internal-ssn"
                     />
                   </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Accession Number Settings</CardTitle>
+                  <CardDescription>
+                    Assign a sequential accession number to each copy during acquisition or library allocation.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <Label htmlFor="accession-number-scope">Numbering scope</Label>
+                  <Select
+                    value={accessionNumberScope}
+                    onValueChange={(scope) => accessionNumberScopeMutation.mutate(scope)}
+                    disabled={accessionNumberScopeMutation.isPending}
+                  >
+                    <SelectTrigger id="accession-number-scope" data-testid="select-accession-number-scope">
+                      <SelectValue placeholder="Choose numbering scope" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="OFF">Disabled</SelectItem>
+                      <SelectItem value="ORGANIZATION">Unique across the organization</SelectItem>
+                      <SelectItem value="LIBRARY">Unique within each library</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-sm text-muted-foreground">
+                    Existing copies are numbered when a scope is selected. Organization-wide numbers are assigned during acquisition; library numbers are assigned after allocation.
+                  </p>
                 </CardContent>
               </Card>
 

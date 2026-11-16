@@ -46,6 +46,7 @@ if (testDatabaseUrl) {
 
 const runId = `book-copy-db-test-${randomUUID()}`;
 let bookId: number;
+let libraryId: number;
 let storage: InstanceType<typeof DBStorage>;
 
 type DatabaseRow = Record<string, unknown>;
@@ -131,6 +132,15 @@ describe.skipIf(!testDatabaseUrl)("book copy identifiers against PostgreSQL", ()
       SELECT id FROM inserted
     `);
     bookId = Number((result.rows as DatabaseRow[])[0]?.id);
+    const libraryResult = await db.execute(sql`
+      WITH inserted AS (
+        INSERT INTO libraries (name, code)
+        VALUES (${`${runId} library`}, ${`${runId}-library`})
+        RETURNING id
+      )
+      SELECT id FROM inserted
+    `);
+    libraryId = Number((libraryResult.rows as DatabaseRow[])[0]?.id);
     storage = new DBStorage();
   });
 
@@ -138,6 +148,7 @@ describe.skipIf(!testDatabaseUrl)("book copy identifiers against PostgreSQL", ()
     if (!db || !bookId) return;
     await removeTestCopies();
     await db.execute(sql`DELETE FROM books WHERE id = ${bookId}`);
+    if (libraryId) await db.execute(sql`DELETE FROM libraries WHERE id = ${libraryId}`);
   });
 
   it.each([
@@ -316,5 +327,36 @@ describe.skipIf(!testDatabaseUrl)("book copy identifiers against PostgreSQL", ()
       (await storage.auditBookCopyIdentifierCollisions())
         .some((entry) => entry.identifier === identifier),
     ).toBe(false);
+  });
+
+  it("assigns sequential organization and per-library accession numbers safely", async () => {
+    const organizationCopies = await Promise.all([1, 2].map((index) => storage.createBookCopy({
+      bookId,
+      libraryId: null,
+      barcode: `${runId}-org-${index}`,
+    })));
+    await Promise.all([
+      storage.assignMissingAccessionNumbers("ORGANIZATION", organizationCopies.map((copy) => copy.id)),
+      storage.assignMissingAccessionNumbers("ORGANIZATION", organizationCopies.map((copy) => copy.id)),
+    ]);
+    const organizationNumbered = await storage.getBookCopiesByIds(organizationCopies.map((copy) => copy.id));
+    expect(organizationNumbered.every((copy) => /^\d+$/.test(copy.accessionNumber || ""))).toBe(true);
+    expect(new Set(organizationNumbered.map((copy) => copy.accessionNumber)).size).toBe(2);
+
+    const seeded = await storage.createBookCopy({
+      bookId,
+      libraryId,
+      barcode: `${runId}-library-seed`,
+      accessionNumber: "40",
+    });
+    const libraryCopies = await Promise.all([1, 2].map((index) => storage.createBookCopy({
+      bookId,
+      libraryId,
+      barcode: `${runId}-library-${index}`,
+    })));
+    await storage.assignMissingAccessionNumbers("LIBRARY", libraryCopies.map((copy) => copy.id));
+    const libraryNumbered = await storage.getBookCopiesByIds([seeded.id, ...libraryCopies.map((copy) => copy.id)]);
+    expect(libraryNumbered.map((copy) => copy.accessionNumber).sort()).toEqual(["40", "41", "42"]);
+    expect(await storage.hasAccessionNumberCollisions()).toBe(false);
   });
 });

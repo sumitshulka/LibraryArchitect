@@ -6,7 +6,8 @@ import {
   transferAcquisitionItems, transferEvents, transferNotifications,
   type User,
 } from "@shared/schema";
-import { db, returningViaCte } from "./db";
+import { db, nullifyForInsert, returningViaCte } from "./db";
+import { storage } from "./storage";
 
 type Guard = (req: any, res: any) => Promise<User | null>;
 type LibraryGuard = (req: any, res: any, libraryId: number) => Promise<User | null>;
@@ -16,7 +17,7 @@ export function registerTransferRoutes(
   guards: { requireStaff: Guard; requireLocalAdmin: Guard; requireLibraryAccess: LibraryGuard },
 ) {
   const event = async (requestId: number, legId: number | null, actorId: number, action: string, details: unknown = {}) => {
-    await db.insert(transferEvents).values({ requestId, legId, actorId, action, details });
+    await db.insert(transferEvents).values(nullifyForInsert({ requestId, legId, actorId, action, details }));
   };
   const notify = async (requestId: number, recipientIds: number[], message: string) => {
     const unique = Array.from(new Set(recipientIds));
@@ -372,9 +373,20 @@ export function registerTransferRoutes(
     if (quantity < (leg.acceptedQuantity || 0) && !String(req.body?.discrepancy || "").trim()) return res.status(400).json({ error: "Describe the receipt discrepancy" });
     const condition = String(req.body?.condition || "GOOD").toUpperCase();
     if (!["GOOD", "DAMAGED"].includes(condition)) return res.status(400).json({ error: "Choose GOOD or DAMAGED condition" });
+    const accessionScope = (await storage.getSystemConfig("accession_number_scope"))?.value;
     const reservations = await db.select({ copyId: transferCopyReservations.copyId }).from(transferCopyReservations).where(and(eq(transferCopyReservations.legId, legId), isNull(transferCopyReservations.releasedAt)));
     const receivedIds = reservations.slice(0, quantity).map(row => row.copyId);
-    if (receivedIds.length) await db.update(bookCopies).set({ libraryId: request.destinationLibraryId, status: condition === "DAMAGED" ? "DAMAGED" : "AVAILABLE", updatedAt: new Date() }).where(inArray(bookCopies.id, receivedIds));
+    if (receivedIds.length) {
+      await db.update(bookCopies).set({
+        libraryId: request.destinationLibraryId,
+        ...(accessionScope === "LIBRARY" ? { accessionNumber: null } : {}),
+        status: condition === "DAMAGED" ? "DAMAGED" : "AVAILABLE",
+        updatedAt: new Date(),
+      }).where(inArray(bookCopies.id, receivedIds));
+      if (accessionScope === "LIBRARY") {
+        await storage.assignMissingAccessionNumbers("LIBRARY", receivedIds);
+      }
+    }
     const receivedSet = new Set(receivedIds);
     const notReceivedIds = reservations.map(row => row.copyId).filter(id => !receivedSet.has(id));
     if (notReceivedIds.length) await db.update(bookCopies).set({ status: "AVAILABLE", updatedAt: new Date() }).where(inArray(bookCopies.id, notReceivedIds));

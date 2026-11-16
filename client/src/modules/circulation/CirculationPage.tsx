@@ -518,7 +518,7 @@ export default function CirculationPage() {
       const result = await circulationApi.lookupBook(isbnInput.trim());
       await handleBookSelect(result.book, result.copy?.id);
     } catch (error) {
-      setBookError(error instanceof Error ? error.message : "No book found with that ISBN, SSN, or barcode");
+      setBookError(error instanceof Error ? error.message : "No book found with that ISBN, SSN, barcode, or accession number");
       setResolvedBook(null);
     } finally {
       setIsLookingUpBook(false);
@@ -598,7 +598,7 @@ export default function CirculationPage() {
   });
 
   const [returnDialogId, setReturnDialogId] = useState<number | null>(null);
-  const [returnDialogMeta, setReturnDialogMeta] = useState<{ title?: string; borrower?: string }>({});
+  const [returnDialogMeta, setReturnDialogMeta] = useState<{ title?: string; borrower?: string; accessionNumber?: string | null }>({});
   const { format: formatMoney } = useCurrency();
 
   const returnMutation = useMutation({
@@ -747,6 +747,7 @@ export default function CirculationPage() {
       record.bookIsbn?.toLowerCase().includes(search) ||
       record.copySSN?.toLowerCase().includes(search) ||
       record.copyBarcode?.toLowerCase().includes(search) ||
+      record.copyAccessionNumber?.toLowerCase().includes(search) ||
       record.libraryName?.toLowerCase().includes(search);
   });
 
@@ -903,6 +904,9 @@ export default function CirculationPage() {
                                Copy: {selectedCopy.userDefinedSSN || selectedCopy.internalSSN || selectedCopy.barcode}
                              </p>
                            )}
+                            {selectedCopy?.accessionNumber && (
+                              <p className="text-muted-foreground">Accession: {selectedCopy.accessionNumber}</p>
+                            )}
                         </div>
                       )}
                     </>
@@ -970,6 +974,11 @@ export default function CirculationPage() {
                               <p className="text-xs text-muted-foreground mt-0.5">
                                 Barcode: {copy.barcode}
                               </p>
+                              {copy.accessionNumber && (
+                                <p className="text-xs text-muted-foreground">
+                                  Accession: {copy.accessionNumber}
+                                </p>
+                              )}
                               {copy.shelfLocation && (
                                 <p className="text-xs text-muted-foreground">
                                   Shelf: {copy.shelfLocation}
@@ -1013,6 +1022,7 @@ export default function CirculationPage() {
                           <p className="truncate text-sm font-medium">{book.title}</p>
                           <p className="truncate text-xs text-muted-foreground">
                             {formatIsbn(book.isbn)} · {copy.userDefinedSSN || copy.internalSSN || copy.barcode}
+                            {copy.accessionNumber ? ` · Accession ${copy.accessionNumber}` : ""}
                           </p>
                         </div>
                         <Button
@@ -1288,6 +1298,9 @@ export default function CirculationPage() {
                         <span className="text-muted-foreground">
                           Barcode: {record.copyBarcode || "—"}
                         </span>
+                        <span className="text-muted-foreground">
+                          Accession: {record.copyAccessionNumber || "—"}
+                        </span>
                       </div>
                     </TableCell>
                     <TableCell className="text-sm">
@@ -1351,7 +1364,11 @@ export default function CirculationPage() {
                           size="sm"
                           onClick={() => {
                             setReturnDialogId(record.id);
-                            setReturnDialogMeta({ title: book?.title || record.bookTitle || undefined, borrower: user?.name });
+                            setReturnDialogMeta({
+                              title: book?.title || record.bookTitle || undefined,
+                              borrower: user?.name,
+                              accessionNumber: record.copyAccessionNumber,
+                            });
                           }}
                           data-testid={`button-return-${record.id}`}
                         >
@@ -1415,6 +1432,7 @@ export default function CirculationPage() {
                             <p className="text-xs text-muted-foreground">Book {index + 1}</p>
                             <p className="truncate text-sm font-medium" data-testid={index === 0 ? "text-confirm-title" : undefined}>{book.title}</p>
                             <p className="text-xs text-muted-foreground">by {book.author}</p>
+                            {copy.accessionNumber && <p className="text-xs text-muted-foreground">Accession: {copy.accessionNumber}</p>}
                           </div>
                           <div className="shrink-0 text-right text-xs">
                             <p className="font-mono">{formatIsbn(book.isbn)}</p>
@@ -1478,6 +1496,7 @@ export default function CirculationPage() {
         circulationId={returnDialogId}
         bookTitle={returnDialogMeta.title}
         borrowerName={returnDialogMeta.borrower}
+        accessionNumber={returnDialogMeta.accessionNumber}
         onClose={() => setReturnDialogId(null)}
       />
       <ReviewerDetailsDialog

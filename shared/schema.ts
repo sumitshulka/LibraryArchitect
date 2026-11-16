@@ -417,6 +417,7 @@ export const bookCopies = pgTable("book_copies", {
   barcode: text("barcode").notNull().unique(),
   internalSSN: text("internal_ssn").unique(),
   userDefinedSSN: text("user_defined_ssn"),
+  accessionNumber: text("accession_number"),
   callNumber: text("call_number"),
   shelfLocation: text("shelf_location"),
   status: copyStatusEnum("status").notNull().default('AVAILABLE'),
@@ -432,6 +433,7 @@ export const bookCopies = pgTable("book_copies", {
   uniqueIndex("book_copies_barcode_lower_unique").on(sql`lower(${table.barcode})`),
   uniqueIndex("book_copies_internal_ssn_lower_unique").on(sql`lower(${table.internalSSN})`),
   uniqueIndex("book_copies_user_defined_ssn_lower_unique").on(sql`lower(${table.userDefinedSSN})`),
+  uniqueIndex("book_copies_library_accession_lower_unique").on(table.libraryId, sql`lower(${table.accessionNumber})`),
 ]);
 
 export const bookTransfers = pgTable("book_transfers", {

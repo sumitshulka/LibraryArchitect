@@ -21,10 +21,11 @@ interface ReturnBookDialogProps {
   circulationId: number | null;
   bookTitle?: string;
   borrowerName?: string;
+  accessionNumber?: string | null;
   onClose: () => void;
 }
 
-export function ReturnBookDialog({ circulationId, bookTitle, borrowerName, onClose }: ReturnBookDialogProps) {
+export function ReturnBookDialog({ circulationId, bookTitle, borrowerName, accessionNumber, onClose }: ReturnBookDialogProps) {
   const open = circulationId !== null;
   const { format, currency } = useCurrency();
   const { user } = useAuth();
@@ -144,7 +145,9 @@ export function ReturnBookDialog({ circulationId, bookTitle, borrowerName, onClo
       <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="dialog-return-book">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2"><BookCopy className="h-5 w-5" /> Return Book</DialogTitle>
-          <DialogDescription>{bookTitle ? `${bookTitle} · ${borrowerName ?? ""}` : "Process the return"}</DialogDescription>
+          <DialogDescription>
+            {bookTitle ? `${bookTitle} · ${borrowerName ?? ""}${accessionNumber ? ` · Accession ${accessionNumber}` : ""}` : "Process the return"}
+          </DialogDescription>
         </DialogHeader>
 
         {isLoadingPreview || !preview ? (

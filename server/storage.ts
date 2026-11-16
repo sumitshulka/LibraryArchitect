@@ -185,7 +185,7 @@ export interface LibraryAccessRequestWithDetails extends LibraryAccessRequest {
   resolvedByName: string | null;
 }
 import { db, nullifyForInsert, returningViaCte } from "./db";
-import { eq, and, or, like, desc, asc, sql, isNull, inArray } from "drizzle-orm";
+import { eq, and, or, like, desc, asc, sql, isNull, isNotNull, inArray } from "drizzle-orm";
 
 export type BookCopyIdentifierField = "barcode" | "internalSSN" | "userDefinedSSN";
 
@@ -533,6 +533,8 @@ export interface IStorage {
   auditBookCopyIdentifierCollisions(): Promise<BookCopyIdentifierCollision[]>;
   createBookCopy(bookCopy: InsertBookCopy): Promise<BookCopy>;
   createBookCopies(bookId: number, quantity: number, shelfLocation?: string, acquisitionDate?: Date, acquisitionSource?: string, price?: number): Promise<BookCopy[]>;
+  assignMissingAccessionNumbers(mode: "ORGANIZATION" | "LIBRARY", copyIds?: number[]): Promise<void>;
+  hasAccessionNumberCollisions(): Promise<boolean>;
   updateBookCopy(id: number, bookCopy: Partial<InsertBookCopy>): Promise<BookCopy | undefined>;
   deleteBookCopy(id: number): Promise<boolean>;
   getAllBookCopies(): Promise<BookCopy[]>;
@@ -1536,6 +1538,7 @@ export class DBStorage implements IStorage {
         eq(bookCopies.barcode, identifier),
         eq(bookCopies.internalSSN, identifier),
         eq(bookCopies.userDefinedSSN, identifier),
+        eq(bookCopies.accessionNumber, identifier),
       )
     );
     return bookCopy;
@@ -1569,7 +1572,7 @@ export class DBStorage implements IStorage {
     const mutation = sql`
       WITH inserted AS (
         INSERT INTO book_copies (
-          book_id, library_id, barcode, internal_ssn, user_defined_ssn,
+          book_id, library_id, barcode, internal_ssn, user_defined_ssn, accession_number,
           call_number, shelf_location, status, condition, acquisition_date,
           acquisition_source, price, notes, allocated_at
         )
@@ -1579,6 +1582,7 @@ export class DBStorage implements IStorage {
           ${sqlValue(insertBookCopy.barcode)},
           ${sqlValue(insertBookCopy.internalSSN)},
           ${sqlValue(insertBookCopy.userDefinedSSN)},
+          ${sqlValue(insertBookCopy.accessionNumber)},
           ${sqlValue(insertBookCopy.callNumber)},
           ${sqlValue(insertBookCopy.shelfLocation)},
           ${sqlValue(insertBookCopy.status || "AVAILABLE")},
@@ -1634,8 +1638,82 @@ export class DBStorage implements IStorage {
         price: price || null,
       }));
     }
+
+    const accessionMode = (await this.getSystemConfig("accession_number_scope"))?.value;
+    if (accessionMode === "ORGANIZATION") {
+      await this.assignMissingAccessionNumbers("ORGANIZATION", copies.map((copy) => copy.id));
+    }
     
     return copies;
+  }
+
+  async assignMissingAccessionNumbers(mode: "ORGANIZATION" | "LIBRARY", copyIds?: number[]): Promise<void> {
+    const candidates = await db.select({
+      id: bookCopies.id,
+      libraryId: bookCopies.libraryId,
+    }).from(bookCopies).where(and(
+      isNull(bookCopies.accessionNumber),
+      copyIds ? inArray(bookCopies.id, copyIds) : undefined,
+      mode === "LIBRARY" ? isNotNull(bookCopies.libraryId) : undefined,
+    ));
+
+    const groups = new Map<string, { libraryId: number | null; ids: number[] }>();
+    for (const copy of candidates) {
+      const key = mode === "ORGANIZATION" ? "organization" : `library:${copy.libraryId}`;
+      const group = groups.get(key) ?? { libraryId: copy.libraryId, ids: [] };
+      group.ids.push(copy.id);
+      groups.set(key, group);
+    }
+
+    for (const group of Array.from(groups.values())) {
+      const ids = sql.join(group.ids.map((id: number) => sql`${id}::integer`), sql`, `);
+      const scopeFilter = mode === "ORGANIZATION"
+        ? sql`TRUE`
+        : sql`library_id = ${group.libraryId}::integer`;
+      const lockKey = mode === "ORGANIZATION"
+        ? "accession-number:organization"
+        : `accession-number:library:${group.libraryId}`;
+      await db.execute(sql`
+        WITH lock AS MATERIALIZED (
+          SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))
+        ),
+        current_max AS (
+          SELECT COALESCE(MAX(
+            CASE WHEN accession_number ~ '^[0-9]+$' THEN accession_number::bigint END
+          ), 0)::bigint AS value
+          FROM book_copies CROSS JOIN lock
+          WHERE ${scopeFilter}
+        ),
+        pending AS (
+          SELECT id FROM book_copies CROSS JOIN lock
+          WHERE id IN (${ids})
+            AND accession_number IS NULL
+            AND (${scopeFilter})
+        ),
+        numbered AS (
+          SELECT pending.id,
+            current_max.value + ROW_NUMBER() OVER (ORDER BY pending.id) AS accession
+          FROM pending CROSS JOIN current_max
+        )
+        UPDATE book_copies AS target
+        SET accession_number = numbered.accession::text,
+            updated_at = NOW()
+        FROM numbered
+        WHERE target.id = numbered.id
+      `);
+    }
+  }
+
+  async hasAccessionNumberCollisions(): Promise<boolean> {
+    const result = await db.execute(sql`
+      SELECT 1
+      FROM book_copies
+      WHERE accession_number IS NOT NULL
+      GROUP BY lower(accession_number)
+      HAVING COUNT(*) > 1
+      LIMIT 1
+    `) as unknown as { rows?: unknown[] };
+    return (result.rows?.length ?? 0) > 0;
   }
 
   async updateBookCopy(id: number, updateData: Partial<InsertBookCopy>): Promise<BookCopy | undefined> {
@@ -1960,7 +2038,11 @@ export class DBStorage implements IStorage {
       throw new Error("Allocation changed while it was being processed; no copies were allocated");
     }
 
-    const allocatedCopies = await this.getBookCopiesByIds(copyIds);
+    let allocatedCopies = await this.getBookCopiesByIds(copyIds);
+    if ((await this.getSystemConfig("accession_number_scope"))?.value === "LIBRARY") {
+      await this.assignMissingAccessionNumbers("LIBRARY", copyIds);
+      allocatedCopies = await this.getBookCopiesByIds(copyIds);
+    }
     const copyOrder = new Map(copyIds.map((id, index) => [id, index]));
     return allocatedCopies.sort((a, b) => (copyOrder.get(a.id) ?? 0) - (copyOrder.get(b.id) ?? 0));
   }
