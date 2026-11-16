@@ -104,6 +104,9 @@ import {
   libraries,
   bookCopies,
   bookTransfers,
+  transferRequests,
+  transferRequestItems,
+  transferLegs,
   libraryMemberships,
   staffAllocationLogs,
   libraryAccessRequests,
@@ -2452,6 +2455,19 @@ export class DBStorage implements IStorage {
         eq(bookTransfers.status, 'PENDING')
       ));
 
+    const newTransfersIn = await db.select({ id: transferRequests.id }).from(transferRequests)
+      .where(and(
+        eq(transferRequests.destinationLibraryId, libraryId),
+        sql`${transferRequests.status} NOT IN ('COMPLETED', 'REJECTED')`,
+      ));
+    const newTransfersOut = await db.select({ id: transferLegs.id }).from(transferLegs)
+      .innerJoin(transferRequestItems, eq(transferRequestItems.id, transferLegs.itemId))
+      .innerJoin(transferRequests, eq(transferRequests.id, transferRequestItems.requestId))
+      .where(and(
+        eq(transferLegs.sourceLibraryId, libraryId),
+        sql`${transferLegs.status} IN ('AWAITING_SOURCE', 'ACCEPTED', 'IN_TRANSIT', 'DISCREPANCY')`,
+      ));
+
     const memberships = await db.select().from(libraryMemberships)
       .where(and(
         eq(libraryMemberships.libraryId, libraryId),
@@ -2483,8 +2499,8 @@ export class DBStorage implements IStorage {
       totalFinesPaid,
       totalFinesWaived,
       
-      pendingTransfersIn: transfersIn.length,
-      pendingTransfersOut: transfersOut.length,
+      pendingTransfersIn: transfersIn.length + newTransfersIn.length,
+      pendingTransfersOut: transfersOut.length + newTransfersOut.length,
       
       totalMembers: memberships.length,
     };

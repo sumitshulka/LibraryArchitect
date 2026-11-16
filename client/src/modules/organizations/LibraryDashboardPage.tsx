@@ -574,6 +574,11 @@ export function LibraryDashboardPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  <Link href="/transfers">
+                    <Button variant="outline" className="w-full" data-testid="button-open-transfers">
+                      Open transfer requests
+                    </Button>
+                  </Link>
                   <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
                     <div className="flex items-center gap-2">
                       <ArrowDownToLine className="h-4 w-4 text-blue-600" />

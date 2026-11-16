@@ -44,6 +44,7 @@ import StudentDashboardPage from "@/modules/patron/StudentDashboardPage";
 import MyLoansPage from "@/modules/patron/MyLoansPage";
 import MyFinesPage from "@/modules/patron/MyFinesPage";
 import MyHistoryPage from "@/modules/patron/MyHistoryPage";
+import TransfersPage from "@/modules/organizations/TransfersPage";
 
 function ProtectedRoute({
   component: Component,
@@ -150,6 +151,8 @@ function AppRouter() {
       <Route path="/organizations">{() => <ProtectedRoute component={OrganizationsPage} staffOnly />}</Route>
       <Route path="/organizations/libraries/:libraryId">{() => <ProtectedRoute component={LibraryDashboardPage} staffOnly />}</Route>
       <Route path="/organizations/libraries/:libraryId/resources">{() => <ProtectedRoute component={LibraryResourcesPage} staffOnly />}</Route>
+      <Route path="/transfers/acquisitions">{() => <ProtectedRoute component={TransfersPage} localAdminOnly />}</Route>
+      <Route path="/transfers">{() => <ProtectedRoute component={TransfersPage} staffOnly />}</Route>
       <Route path="/reports">{() => <ProtectedRoute component={ReportsPage} staffOnly />}</Route>
       <Route path="/audit-logs">{() => <ProtectedRoute component={AuditLogsPage} staffOnly />}</Route>
       <Route path="/messages">{() => <ProtectedRoute component={MessagesPage} staffOnly />}</Route>

@@ -41,6 +41,7 @@ import { registerReservationRoutes, resolveLibraryReservationDays } from "./rese
 import { registerErpExtraRoutes } from "./erp-extra";
 import { registerDigitalResourceRoutes } from "./digital-resources";
 import { registerLostDamagedRoutes } from "./lost-damaged";
+import { registerTransferRoutes } from "./transfer-routes";
 import { loadNotificationSetup, saveNotificationSetup, toPublicNotificationSetup, type NotificationSetup } from "./notification-setup";
 import { emitNotification, retryNotificationAttempt, sendProviderTest, verifyNotificationProvider, type NotificationAttempt } from "./notification-service";
 import { normalizeIsbn } from "@shared/isbn";
@@ -8458,7 +8459,21 @@ export async function registerRoutes(
   // ===== Book Transfers API =====
   app.get("/api/book-transfers", async (req, res) => {
     try {
+      const currentUser = await requireStaff(req, res);
+      if (!currentUser) return;
       const { sourceLibraryId, destinationLibraryId, status } = req.query;
+      if (currentUser.role === "LIBRARIAN") {
+        const memberships = await storage.getMembershipsByUser(currentUser.id);
+        const now = new Date();
+        const ids = new Set(memberships.filter((membership) =>
+          membership.isActive && (!membership.expiresAt || membership.expiresAt > now),
+        ).map((membership) => membership.libraryId));
+        if (sourceLibraryId && !ids.has(Number(sourceLibraryId))) return res.status(403).json({ error: "Library access required" });
+        if (destinationLibraryId && !ids.has(Number(destinationLibraryId))) return res.status(403).json({ error: "Library access required" });
+        const transfers = await storage.getPendingTransfers();
+        return res.json(transfers.filter((transfer) => ids.has(transfer.sourceLibraryId) || ids.has(transfer.destinationLibraryId)));
+      }
+      if (currentUser.erpIntegrationId) return res.status(403).json({ error: "Local administrator access required" });
       
       if (status === 'PENDING') {
         const transfers = await storage.getPendingTransfers();
@@ -8485,11 +8500,23 @@ export async function registerRoutes(
 
   app.get("/api/book-transfers/:id", async (req, res) => {
     try {
+      const currentUser = await requireStaff(req, res);
+      if (!currentUser) return;
       const id = parseInt(req.params.id);
       const transfer = await storage.getBookTransfer(id);
       
       if (!transfer) {
         return res.status(404).json({ error: "Book transfer not found" });
+      }
+      if (currentUser.role === "LIBRARIAN") {
+        const memberships = await storage.getMembershipsByUser(currentUser.id);
+        const now = new Date();
+        const allowed = memberships.some((membership) => membership.isActive
+          && (!membership.expiresAt || membership.expiresAt > now)
+          && (membership.libraryId === transfer.sourceLibraryId || membership.libraryId === transfer.destinationLibraryId));
+        if (!allowed) return res.status(403).json({ error: "Library access required" });
+      } else if (currentUser.erpIntegrationId) {
+        return res.status(403).json({ error: "Local administrator access required" });
       }
       
       res.json(transfer);
@@ -9952,6 +9979,7 @@ export async function registerRoutes(
     }
   });
 
+  registerTransferRoutes(app, { requireStaff, requireLocalAdmin, requireLibraryAccess });
   registerReservationRoutes(app);
   registerErpExtraRoutes(app);
   registerDigitalResourceRoutes(app);

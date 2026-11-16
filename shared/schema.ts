@@ -450,6 +450,87 @@ export const bookTransfers = pgTable("book_transfers", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// New multi-book transfer workflow. The legacy book_transfers table remains
+// untouched so existing one-copy records stay readable.
+export const transferRequests = pgTable("transfer_requests", {
+  id: serial("id").primaryKey(),
+  destinationLibraryId: integer("destination_library_id").notNull().references(() => libraries.id),
+  requestedBy: integer("requested_by").notNull().references(() => users.id),
+  status: text("status").notNull().default("PENDING_REVIEW"),
+  reason: text("reason").notNull(),
+  rejectionReason: text("rejection_reason"),
+  reviewedBy: integer("reviewed_by").references(() => users.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const transferRequestItems = pgTable("transfer_request_items", {
+  id: serial("id").primaryKey(),
+  requestId: integer("request_id").notNull().references(() => transferRequests.id, { onDelete: "cascade" }),
+  bookId: integer("book_id").notNull().references(() => books.id),
+  requestedQuantity: integer("requested_quantity").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const transferLegs = pgTable("transfer_legs", {
+  id: serial("id").primaryKey(),
+  itemId: integer("item_id").notNull().references(() => transferRequestItems.id, { onDelete: "cascade" }),
+  sourceLibraryId: integer("source_library_id").notNull().references(() => libraries.id),
+  requestedQuantity: integer("requested_quantity").notNull(),
+  approvedQuantity: integer("approved_quantity").notNull(),
+  acceptedQuantity: integer("accepted_quantity"),
+  receivedQuantity: integer("received_quantity"),
+  status: text("status").notNull().default("AWAITING_SOURCE"),
+  sourceNote: text("source_note"),
+  handoverType: text("handover_type"),
+  handoverDetails: jsonb("handover_details"),
+  receivedCondition: text("received_condition"),
+  discrepancyNote: text("discrepancy_note"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const transferCopyReservations = pgTable("transfer_copy_reservations", {
+  id: serial("id").primaryKey(),
+  legId: integer("leg_id").notNull().references(() => transferLegs.id, { onDelete: "cascade" }),
+  copyId: integer("copy_id").notNull().references(() => bookCopies.id),
+  releasedAt: timestamp("released_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("transfer_copy_reservations_active_copy")
+    .on(table.copyId)
+    .where(sql`${table.releasedAt} IS NULL`),
+]);
+
+export const transferAcquisitionItems = pgTable("transfer_acquisition_items", {
+  id: serial("id").primaryKey(),
+  requestId: integer("request_id").notNull().references(() => transferRequests.id, { onDelete: "cascade" }),
+  itemId: integer("item_id").notNull().references(() => transferRequestItems.id, { onDelete: "cascade" }),
+  quantity: integer("quantity").notNull(),
+  status: text("status").notNull().default("QUEUED"),
+  notes: text("notes"),
+  createdBy: integer("created_by").notNull().references(() => users.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const transferEvents = pgTable("transfer_events", {
+  id: serial("id").primaryKey(),
+  requestId: integer("request_id").notNull().references(() => transferRequests.id, { onDelete: "cascade" }),
+  legId: integer("leg_id").references(() => transferLegs.id, { onDelete: "set null" }),
+  actorId: integer("actor_id").notNull().references(() => users.id),
+  action: text("action").notNull(),
+  details: jsonb("details").notNull().default({}),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const transferNotifications = pgTable("transfer_notifications", {
+  id: serial("id").primaryKey(),
+  recipientId: integer("recipient_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  requestId: integer("request_id").notNull().references(() => transferRequests.id, { onDelete: "cascade" }),
+  message: text("message").notNull(),
+  readAt: timestamp("read_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const libraryMemberships = pgTable("library_memberships", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull().references(() => users.id),
