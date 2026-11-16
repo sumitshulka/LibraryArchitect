@@ -463,8 +463,17 @@ export function registerTransferRoutes(
     const condition = String(req.body?.condition || "GOOD").toUpperCase();
     if (!["GOOD", "DAMAGED"].includes(condition)) return res.status(400).json({ error: "Choose GOOD or DAMAGED condition" });
     const accessionScope = (await storage.getSystemConfig("accession_number_scope"))?.value;
-    const reservations = await db.select({ copyId: transferCopyReservations.copyId }).from(transferCopyReservations).where(and(eq(transferCopyReservations.legId, legId), isNull(transferCopyReservations.releasedAt)));
+    if (accessionScope === "LIBRARY" && quantity > 0 && req.body?.catalogCardConfirmed !== true) {
+      return res.status(400).json({ error: "Confirm the receiving catalog card will be updated before recording receipt" });
+    }
+    const reservations = await db.select({
+      copyId: transferCopyReservations.copyId,
+      accessionNumber: bookCopies.accessionNumber,
+    }).from(transferCopyReservations)
+      .innerJoin(bookCopies, eq(bookCopies.id, transferCopyReservations.copyId))
+      .where(and(eq(transferCopyReservations.legId, legId), isNull(transferCopyReservations.releasedAt)));
     const receivedIds = reservations.slice(0, quantity).map(row => row.copyId);
+    const sourceAccessionByCopy = new Map(reservations.map(row => [row.copyId, row.accessionNumber]));
     if (receivedIds.length) {
       await db.update(bookCopies).set({
         libraryId: request.destinationLibraryId,
@@ -476,6 +485,17 @@ export function registerTransferRoutes(
         await storage.assignMissingAccessionNumbers("LIBRARY", receivedIds);
       }
     }
+    const receivedCopies = receivedIds.length
+      ? await db.select({ id: bookCopies.id, accessionNumber: bookCopies.accessionNumber })
+        .from(bookCopies).where(inArray(bookCopies.id, receivedIds))
+      : [];
+    const accessionChanges = accessionScope === "LIBRARY"
+      ? receivedCopies.map(copy => ({
+        copyId: copy.id,
+        sourceAccessionNumber: sourceAccessionByCopy.get(copy.id) || null,
+        destinationAccessionNumber: copy.accessionNumber,
+      }))
+      : [];
     const receivedSet = new Set(receivedIds);
     const notReceivedIds = reservations.map(row => row.copyId).filter(id => !receivedSet.has(id));
     if (notReceivedIds.length) await db.update(bookCopies).set({ status: "AVAILABLE", updatedAt: new Date() }).where(inArray(bookCopies.id, notReceivedIds));
@@ -487,12 +507,13 @@ export function registerTransferRoutes(
     }).where(eq(transferLegs.id, legId));
     await event(item.requestId, legId, user.id, quantity === (leg.acceptedQuantity || 0) ? "RECEIVED" : "RECEIPT_DISCREPANCY", {
       quantity, expected: leg.acceptedQuantity, condition, discrepancy: req.body.discrepancy || "",
+      ...(accessionChanges.length ? { accessionChanges, catalogCardConfirmed: true } : {}),
     });
     if (quantity < (leg.acceptedQuantity || 0)) {
       await db.update(transferRequests).set({ status: "NEEDS_REALLOCATION", updatedAt: new Date() }).where(eq(transferRequests.id, item.requestId));
     } else await syncCompletion(item.requestId, user.id);
     await notify(item.requestId, (await members(leg.sourceLibraryId)).map(row => row.userId), `Transfer leg #${legId} receipt was recorded`);
-    res.json({ success: true });
+    res.json({ success: true, accessionChanges });
   });
 
   app.get("/api/transfers/acquisitions", async (req, res) => {

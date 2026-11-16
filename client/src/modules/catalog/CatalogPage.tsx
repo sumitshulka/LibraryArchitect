@@ -731,6 +731,18 @@ export function BookHistoryDialog({
                         <div className="text-xs text-muted-foreground">
                           {library.presentCopies} present of {library.totalCopies} total
                         </div>
+                        {!!library.accessionNumbers?.length && (
+                          <div className="mt-2">
+                            <div className="mb-1 text-[11px] text-muted-foreground">Accession numbers</div>
+                            <div className="flex flex-wrap gap-1">
+                              {library.accessionNumbers.map((number) => (
+                                <Badge key={`${library.libraryId}-${number}`} variant="outline" className="font-mono text-[10px]">
+                                  {number}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                       <div className="flex flex-wrap gap-2 text-xs">
                         <Badge variant="outline" className="text-green-700">{library.availableCopies} available</Badge>

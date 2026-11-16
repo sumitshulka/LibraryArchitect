@@ -9,3 +9,4 @@
 - [Password invitation completion](password-invitation-completion.md) — store the local password before consuming a one-time setup token; Neon update-returning paths need the CTE workaround.
 - [ERP-admin copy allocation scope](erp-admin-copy-allocation-scope.md) — ERP Library Admins may allocate only to active assigned libraries; keep the expanded permission limited to this workflow.
 - [Accession number backfill](accession-number-backfill.md) — when accession numbering is configured, number eligible copies already in inventory as well as future copies.
+- [Accession numbers during transfers](accession-number-transfers.md) — library-scoped transfers archive the source number and assign the destination library’s next number at receipt.

@@ -62,6 +62,11 @@ export default function TransfersPage() {
   const [withdrawDialogRequestId, setWithdrawDialogRequestId] = useState<number | null>(null);
   const [rejectRequestId, setRejectRequestId] = useState<number | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
+  const [receiptTarget, setReceiptTarget] = useState<{ request: any; item: any; leg: any } | null>(null);
+  const [receiptQuantity, setReceiptQuantity] = useState("");
+  const [receiptCondition, setReceiptCondition] = useState("GOOD");
+  const [receiptDiscrepancy, setReceiptDiscrepancy] = useState("");
+  const [catalogCardConfirmed, setCatalogCardConfirmed] = useState(false);
   const [sourceReviewRequest, setSourceReviewRequest] = useState<any>(null);
   const [sourceAllocations, setSourceAllocations] = useState<Record<number, { libraryId: number; quantity: number }[]>>({});
   const [acquisitionQuantities, setAcquisitionQuantities] = useState<Record<number, number>>({});
@@ -94,10 +99,25 @@ export default function TransfersPage() {
     queryClient.invalidateQueries({ queryKey: ["transfer-catalog"] });
     queryClient.invalidateQueries({ queryKey: ["transfer-acquisitions"] });
     queryClient.invalidateQueries({ queryKey: ["transfer-notifications"] });
+    queryClient.invalidateQueries({ queryKey: ["book-history"] });
+    queryClient.invalidateQueries({ queryKey: ["books"] });
   };
   const mutate = useMutation({
     mutationFn: ({ path, body }: { path: string; body: unknown }) => api(path, json(body)),
-    onSuccess: () => { toast.success("Transfer updated"); setSourceReviewRequest(null); setRejectRequestId(null); setRejectionReason(""); refresh(); },
+    onSuccess: (result: any) => {
+      const assignedAccessionNumbers = (result?.accessionChanges || [])
+        .map((change: any) => change.destinationAccessionNumber)
+        .filter((number: unknown): number is string => typeof number === "string" && !!number);
+      toast.success(assignedAccessionNumbers.length
+        ? `Receipt recorded. New accession numbers: ${assignedAccessionNumbers.join(", ")}`
+        : "Transfer updated");
+      setSourceReviewRequest(null);
+      setRejectRequestId(null);
+      setRejectionReason("");
+      setReceiptTarget(null);
+      setCatalogCardConfirmed(false);
+      refresh();
+    },
     onError: (error: Error) => toast.error(error.message),
   });
   const createRequest = useMutation({
@@ -334,13 +354,11 @@ export default function TransfersPage() {
                   if (Object.values(details).every(value => !!value?.trim())) mutate.mutate({ path: `/transfers/legs/${leg.id}/dispatch`, body: { type: type.toUpperCase(), details } });
                 }}>Record handover</Button>}
                 {leg.status === "IN_TRANSIT" && canActForDestination && <Button size="sm" onClick={() => {
-                  const value = Number(window.prompt(`Received quantity (up to ${leg.acceptedQuantity})`, String(leg.acceptedQuantity)));
-                  if (Number.isInteger(value) && value >= 0) {
-                    const condition = window.prompt("Condition: GOOD, DAMAGED, or MIXED", "GOOD") || "GOOD";
-                    const discrepancy = value < leg.acceptedQuantity ? window.prompt("Describe the missing quantity or discrepancy", "") : "";
-                    if (value < leg.acceptedQuantity && !discrepancy?.trim()) return;
-                    mutate.mutate({ path: `/transfers/legs/${leg.id}/receive`, body: { quantity: value, condition, discrepancy } });
-                  }
+                  setReceiptTarget({ request, item, leg });
+                  setReceiptQuantity(String(leg.acceptedQuantity));
+                  setReceiptCondition("GOOD");
+                  setReceiptDiscrepancy("");
+                  setCatalogCardConfirmed(false);
                 }}>Record receipt</Button>}
               </div>)}
               {item.acquisitions.map((acquisition: any) => <div key={acquisition.id} className="text-sm text-muted-foreground">Acquisition queue: {acquisition.quantity} · {acquisition.status}</div>)}
@@ -576,6 +594,105 @@ export default function TransfersPage() {
           <Button type="button" onClick={submitSourceAllocation} disabled={mutate.isPending}>
             {mutate.isPending ? "Approving…" : "Approve allocations"}
           </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    <Dialog
+      open={!!receiptTarget}
+      onOpenChange={open => {
+        if (!open && !mutate.isPending) {
+          setReceiptTarget(null);
+          setCatalogCardConfirmed(false);
+        }
+      }}
+    >
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Confirm transfer receipt</DialogTitle>
+          <DialogDescription>
+            Record the copies received for {receiptTarget?.item.book?.title || "this book"} from {receiptTarget?.leg.source?.name || "the source library"}.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="transfer-receipt-quantity">Copies received</Label>
+            <Input
+              id="transfer-receipt-quantity"
+              type="number"
+              min={0}
+              max={receiptTarget?.leg.acceptedQuantity || 0}
+              value={receiptQuantity}
+              onChange={event => setReceiptQuantity(event.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">Up to {receiptTarget?.leg.acceptedQuantity || 0} copies were dispatched.</p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="transfer-receipt-condition">Condition</Label>
+            <select
+              id="transfer-receipt-condition"
+              className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+              value={receiptCondition}
+              onChange={event => setReceiptCondition(event.target.value)}
+            >
+              <option value="GOOD">Good</option>
+              <option value="DAMAGED">Damaged</option>
+            </select>
+          </div>
+          {Number(receiptQuantity) < (receiptTarget?.leg.acceptedQuantity || 0) && (
+            <div className="space-y-2">
+              <Label htmlFor="transfer-receipt-discrepancy">Missing copies or discrepancy</Label>
+              <Textarea
+                id="transfer-receipt-discrepancy"
+                value={receiptDiscrepancy}
+                onChange={event => setReceiptDiscrepancy(event.target.value)}
+                placeholder="Explain the difference between dispatched and received copies"
+                rows={3}
+              />
+            </div>
+          )}
+          {Number(receiptQuantity) > 0 && (
+            <div className="space-y-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+              <p>
+                If accession numbering is unique per library, the received copies will get new accession numbers for this library. Update the catalog card to match the numbers shown after receipt.
+              </p>
+              <label className="flex cursor-pointer items-start gap-2">
+                <input
+                  type="checkbox"
+                  checked={catalogCardConfirmed}
+                  onChange={event => setCatalogCardConfirmed(event.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>I understand that I must update the catalog card if new accession numbers are assigned.</span>
+              </label>
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => setReceiptTarget(null)} disabled={mutate.isPending}>Cancel</Button>
+          <Button
+            type="button"
+            disabled={
+              !receiptTarget
+              || !Number.isInteger(Number(receiptQuantity))
+              || Number(receiptQuantity) < 0
+              || Number(receiptQuantity) > (receiptTarget?.leg.acceptedQuantity || 0)
+              || (Number(receiptQuantity) < (receiptTarget?.leg.acceptedQuantity || 0) && !receiptDiscrepancy.trim())
+              || (Number(receiptQuantity) > 0 && !catalogCardConfirmed)
+              || mutate.isPending
+            }
+            onClick={() => {
+              if (!receiptTarget) return;
+              mutate.mutate({
+                path: `/transfers/legs/${receiptTarget.leg.id}/receive`,
+                body: {
+                  quantity: Number(receiptQuantity),
+                  condition: receiptCondition,
+                  discrepancy: receiptDiscrepancy.trim(),
+                  catalogCardConfirmed,
+                },
+              });
+            }}
+          >{mutate.isPending ? "Recording…" : "Confirm receipt"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

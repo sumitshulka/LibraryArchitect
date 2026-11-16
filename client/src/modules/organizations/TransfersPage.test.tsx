@@ -154,6 +154,51 @@ describe("TransfersPage withdrawal confirmation", () => {
     });
   });
 
+  it("requires catalog-card confirmation before recording a received transfer", async () => {
+    requestRows = [{
+      ...pendingRequest,
+      status: "APPROVED",
+      items: [{
+        id: 11,
+        requestId: 1,
+        bookId: 8,
+        requestedQuantity: 2,
+        book: { id: 8, title: "Example Book", isbn: "9780000000008" },
+        legs: [{
+          id: 21,
+          sourceLibraryId: 4,
+          approvedQuantity: 2,
+          acceptedQuantity: 2,
+          status: "IN_TRANSIT",
+          source: { name: "West Library" },
+        }],
+        acquisitions: [],
+      }],
+    }];
+    renderPage();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Record receipt" }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText(/If accession numbering is unique per library/i)).toBeInTheDocument();
+    const confirmReceipt = within(dialog).getByRole("button", { name: "Confirm receipt" });
+    expect(confirmReceipt).toBeDisabled();
+
+    await userEvent.click(within(dialog).getByRole("checkbox"));
+    expect(confirmReceipt).toBeEnabled();
+    await userEvent.click(confirmReceipt);
+
+    await waitFor(() => {
+      const call = vi.mocked(fetch).mock.calls.find(([url]) => String(url) === "/api/transfers/legs/21/receive");
+      expect(call).toBeDefined();
+      expect(JSON.parse(String(call?.[1]?.body))).toEqual({
+        quantity: 2,
+        condition: "GOOD",
+        discrepancy: "",
+        catalogCardConfirmed: true,
+      });
+    });
+  });
+
   it.each([
     ["/transfers", "Library Transfers"],
     ["/transfers/acquisitions", "Acquisition Queue"],

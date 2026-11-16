@@ -213,6 +213,7 @@ export interface BookHistoryConditionRecord {
 export interface BookHistoryLibraryCount {
   libraryId: number;
   libraryName: string;
+  accessionNumbers?: string[];
   totalCopies: number;
   presentCopies: number;
   availableCopies: number;

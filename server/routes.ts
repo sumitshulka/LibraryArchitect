@@ -991,6 +991,7 @@ export async function registerRoutes(
       const counts = new Map<number, {
         libraryId: number;
         libraryName: string;
+        accessionNumbers: string[];
         totalCopies: number;
         presentCopies: number;
         availableCopies: number;
@@ -1012,6 +1013,7 @@ export async function registerRoutes(
         const count = counts.get(libraryId) ?? {
           libraryId,
           libraryName: library?.name ?? "Unallocated",
+          accessionNumbers: [],
           totalCopies: 0,
           presentCopies: 0,
           availableCopies: 0,
@@ -1019,6 +1021,7 @@ export async function registerRoutes(
           damagedCopies: 0,
           lostCopies: 0,
         };
+        if (copy.accessionNumber) count.accessionNumbers.push(copy.accessionNumber);
         count.totalCopies += 1;
         if (copy.status !== "LOST") count.presentCopies += 1;
         if (copy.status === "AVAILABLE") count.availableCopies += 1;
