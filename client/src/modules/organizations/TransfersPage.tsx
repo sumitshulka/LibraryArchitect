@@ -63,6 +63,7 @@ export default function TransfersPage() {
   const [rejectionReason, setRejectionReason] = useState("");
   const [sourceReviewRequest, setSourceReviewRequest] = useState<any>(null);
   const [sourceAllocations, setSourceAllocations] = useState<Record<number, { libraryId: number; quantity: number }[]>>({});
+  const [acquisitionQuantities, setAcquisitionQuantities] = useState<Record<number, number>>({});
   const [selected, setSelected] = useState<Record<number, { quantity: number; sourceId: number; sourceQuantity: number; preferredSources: { libraryId: number; quantity: number }[] }>>({});
   const { data: catalog = [] } = useQuery({
     queryKey: ["transfer-catalog", destinationId, search],
@@ -143,15 +144,32 @@ export default function TransfersPage() {
   );
   const openSourceAllocation = (request: any) => {
     const initial: Record<number, { libraryId: number; quantity: number }[]> = {};
+    const acquisitionInitial: Record<number, number> = {};
     for (const item of request.items) {
       const byLibrary = new Map<number, number>();
       for (const leg of (item.legs || []).filter((entry: any) => entry.status === "PREFERRED")) {
         byLibrary.set(leg.sourceLibraryId, (byLibrary.get(leg.sourceLibraryId) || 0) + leg.requestedQuantity);
       }
       initial[item.id] = Array.from(byLibrary, ([libraryId, quantity]) => ({ libraryId, quantity }));
+      const preferredTotal = initial[item.id].reduce((sum, row) => sum + row.quantity, 0);
+      acquisitionInitial[item.id] = Math.max(0, item.requestedQuantity - preferredTotal);
     }
     setSourceAllocations(initial);
+    setAcquisitionQuantities(acquisitionInitial);
     setSourceReviewRequest(request);
+  };
+  const updateItemSourceAllocations = (item: any, nextRows: { libraryId: number; quantity: number }[]) => {
+    const previousRows = sourceAllocations[item.id] || [];
+    const previousTotal = previousRows.reduce((sum, row) => sum + (Number(row.quantity) || 0), 0);
+    const nextTotal = nextRows.reduce((sum, row) => sum + (Number(row.quantity) || 0), 0);
+    setSourceAllocations(current => ({ ...current, [item.id]: nextRows }));
+    setAcquisitionQuantities(current => {
+      const currentQuantity = current[item.id] ?? Math.max(0, item.requestedQuantity - previousTotal);
+      return {
+        ...current,
+        [item.id]: Math.max(0, Math.min(item.requestedQuantity, currentQuantity + previousTotal - nextTotal)),
+      };
+    });
   };
   const sourceCatalogForItem = (itemId: number) => {
     const index = (sourceReviewRequest?.items || []).findIndex((item: any) => item.id === itemId);
@@ -166,12 +184,18 @@ export default function TransfersPage() {
     for (const item of sourceReviewRequest.items) {
       const rows = sourceAllocations[item.id] || [];
       const total = rows.reduce((sum, row) => sum + row.quantity, 0);
+      const acquisitionQuantity = acquisitionQuantities[item.id] ?? Math.max(0, item.requestedQuantity - total);
       if (rows.some(row => !Number.isInteger(row.libraryId) || row.libraryId < 1 || !Number.isInteger(row.quantity) || row.quantity < 1)) {
         toast.error(`Choose a source and valid quantity for ${item.book?.title}`);
         return;
       }
       if (total > item.requestedQuantity) {
         toast.error(`Source quantities exceed the request for ${item.book?.title}`);
+        return;
+      }
+      if (!Number.isInteger(acquisitionQuantity) || acquisitionQuantity < 0
+        || total + acquisitionQuantity !== item.requestedQuantity) {
+        toast.error(`Assign all ${item.requestedQuantity} copies of ${item.book?.title} to libraries or the Acquisition Queue`);
         return;
       }
       const book = sourceCatalogForItem(item.id);
@@ -184,8 +208,7 @@ export default function TransfersPage() {
         }
         allocations.push({ itemId: item.id, libraryId: row.libraryId, quantity: row.quantity });
       }
-      const queued = item.requestedQuantity - total;
-      if (queued > 0) acquisitions.push({ itemId: item.id, quantity: queued });
+      if (acquisitionQuantity > 0) acquisitions.push({ itemId: item.id, quantity: acquisitionQuantity });
     }
     mutate.mutate({ path: `/transfers/${sourceReviewRequest.id}/review`, body: { action: "approve", allocations, acquisitions } });
   };
@@ -324,7 +347,7 @@ export default function TransfersPage() {
               onClick={() => setWithdrawDialogRequestId(request.id)}
             >Withdraw request</Button>}
             {reviewOnly && localAdmin && request.status === "PENDING_REVIEW" && <div className="flex gap-2">
-              <Button onClick={() => approve(request)} disabled={!hasSuggestedSources(request)}><PackageCheck className="mr-2 h-4 w-4" />Approve suggested sources</Button>
+              <Button onClick={() => approve(request)} disabled={!hasSuggestedSources(request)}><PackageCheck className="mr-2 h-4 w-4" />Approve sources and queue remainder</Button>
               <Button variant="outline" onClick={() => openSourceAllocation(request)}>Choose sources</Button>
               <Button variant="outline" onClick={() => { setRejectRequestId(request.id); setRejectionReason(""); }}>Reject</Button>
             </div>}
@@ -348,10 +371,23 @@ export default function TransfersPage() {
               <div className="font-medium">{item.book?.title}</div>
               <div className="text-sm text-muted-foreground">Requested {item.requestedQuantity} · ISBN {item.book?.isbn}</div>
               {item.legs.map((leg: any) => <div key={leg.id} className="mt-2 text-sm">{leg.source?.name} · {leg.requestedQuantity} requested from this source · {leg.status}</div>)}
+              {request.status === "PENDING_REVIEW" && (() => {
+                const suggested = item.legs
+                  .filter((leg: any) => leg.status === "PREFERRED")
+                  .reduce((sum: number, leg: any) => sum + leg.requestedQuantity, 0);
+                const suggestedTransfer = Math.min(suggested, item.requestedQuantity);
+                const acquisitionRemainder = item.requestedQuantity - suggestedTransfer;
+                return <div className="mt-3 rounded-md border border-orange-200 bg-orange-50 p-3 text-sm text-orange-950 dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-100">
+                  <p className="font-medium">If you approve the suggestions:</p>
+                  <p>{suggestedTransfer} {suggestedTransfer === 1 ? "copy" : "copies"} will transfer from suggested libraries.</p>
+                  <p>{acquisitionRemainder} {acquisitionRemainder === 1 ? "copy" : "copies"} will be added to the Acquisition Queue.</p>
+                  <p className="mt-1 text-xs">Use “Choose sources” to change the split or select full acquisition.</p>
+                </div>;
+              })()}
               {item.acquisitions.map((entry: any) => <div key={entry.id} className="mt-2 text-sm">Acquisition queue: {entry.quantity} · {entry.status}</div>)}
             </div>)}
             {request.status === "PENDING_REVIEW" && <div className="flex flex-wrap gap-2">
-              <Button onClick={() => approve(request)} disabled={!hasSuggestedSources(request)}><PackageCheck className="mr-2 h-4 w-4" />Approve suggested sources</Button>
+              <Button onClick={() => approve(request)} disabled={!hasSuggestedSources(request)}><PackageCheck className="mr-2 h-4 w-4" />Approve sources and queue remainder</Button>
               <Button variant="outline" onClick={() => openSourceAllocation(request)}>Choose sources</Button>
               <Button variant="outline" onClick={() => { setRejectRequestId(request.id); setRejectionReason(""); }}>Reject</Button>
             </div>}
@@ -415,7 +451,7 @@ export default function TransfersPage() {
         <DialogHeader>
           <DialogTitle>Choose transfer sources</DialogTitle>
           <DialogDescription>
-            Assign requested copies to libraries with available stock. Any remaining quantity will be sent to the Acquisition Queue.
+            For each book, divide the requested copies between available libraries and the Acquisition Queue. Each quantity must be assigned before approval.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
@@ -425,7 +461,10 @@ export default function TransfersPage() {
             const sources = book?.sources || [];
             const rows = sourceAllocations[item.id] || [];
             const allocated = rows.reduce((sum, row) => sum + (Number(row.quantity) || 0), 0);
-            const remainder = Math.max(0, item.requestedQuantity - allocated);
+            const acquisitionQuantity = acquisitionQuantities[item.id] ?? Math.max(0, item.requestedQuantity - allocated);
+            const assigned = allocated + acquisitionQuantity;
+            const unassigned = Math.max(0, item.requestedQuantity - assigned);
+            const excess = Math.max(0, assigned - item.requestedQuantity);
 
             return <section key={item.id} className="space-y-3 rounded-lg border p-4">
               <div className="flex flex-wrap items-start justify-between gap-2">
@@ -433,7 +472,37 @@ export default function TransfersPage() {
                   <h3 className="font-semibold">{item.book?.title || "Book"}</h3>
                   <p className="text-sm text-muted-foreground">Requested: {item.requestedQuantity} copies · ISBN {item.book?.isbn || "—"}</p>
                 </div>
-                <Badge variant="outline">{allocated} allocated · {remainder} to acquisition</Badge>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-3">
+                <div className="rounded-md bg-muted/50 p-3">
+                  <p className="text-xs text-muted-foreground">Library transfers</p>
+                  <p className="text-lg font-semibold">{allocated} copies</p>
+                </div>
+                <div className="rounded-md border border-orange-200 bg-orange-50 p-3 text-orange-950 dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-100">
+                  <Label htmlFor={`acquisition-quantity-${item.id}`} className="text-xs">Send to Acquisition Queue</Label>
+                  <Input
+                    id={`acquisition-quantity-${item.id}`}
+                    aria-label={`Copies to Acquisition Queue for ${item.book?.title || "book"}`}
+                    className="mt-1 bg-white dark:bg-background"
+                    type="number"
+                    min={0}
+                    max={item.requestedQuantity}
+                    value={acquisitionQuantity}
+                    onChange={event => setAcquisitionQuantities(current => ({
+                      ...current,
+                      [item.id]: event.target.value === "" ? 0 : Number(event.target.value),
+                    }))}
+                  />
+                  <p className="mt-1 text-xs">{acquisitionQuantity === item.requestedQuantity
+                    ? "Full request goes to acquisition."
+                    : acquisitionQuantity > 0
+                      ? "Partial request goes to acquisition."
+                      : "No copies will go to acquisition."}</p>
+                </div>
+                <div className={`rounded-md p-3 ${unassigned || excess ? "bg-amber-100 text-amber-950 dark:bg-amber-950/50 dark:text-amber-100" : "bg-green-50 text-green-900 dark:bg-green-950/40 dark:text-green-100"}`}>
+                  <p className="text-xs">Request allocation</p>
+                  <p className="text-lg font-semibold">{unassigned ? `${unassigned} unassigned` : excess ? `${excess} over request` : "Fully assigned"}</p>
+                </div>
               </div>
               {sourceCatalogQueries[itemIndex]?.isLoading && <p className="text-sm text-muted-foreground">Checking available copies…</p>}
               {!sourceCatalogQueries[itemIndex]?.isLoading && !sources.length && <p className="text-sm text-amber-700">No other library has available copies. The full amount can go to acquisition.</p>}
@@ -450,10 +519,7 @@ export default function TransfersPage() {
                         value={row.libraryId || ""}
                         onChange={event => {
                           const libraryId = Number(event.target.value);
-                          setSourceAllocations(current => ({
-                            ...current,
-                            [item.id]: rows.map((entry, index) => index === rowIndex ? { ...entry, libraryId } : entry),
-                          }));
+                          updateItemSourceAllocations(item, rows.map((entry, index) => index === rowIndex ? { ...entry, libraryId } : entry));
                         }}
                       >
                         <option value="">Choose available library</option>
@@ -473,11 +539,8 @@ export default function TransfersPage() {
                         max={selectedSource?.quantity}
                         value={row.quantity}
                         onChange={event => {
-                          const quantity = Number(event.target.value);
-                          setSourceAllocations(current => ({
-                            ...current,
-                            [item.id]: rows.map((entry, index) => index === rowIndex ? { ...entry, quantity } : entry),
-                          }));
+                          const quantity = event.target.value === "" ? 0 : Number(event.target.value);
+                          updateItemSourceAllocations(item, rows.map((entry, index) => index === rowIndex ? { ...entry, quantity } : entry));
                         }}
                       />
                       {selectedSource && <p className="text-xs text-muted-foreground">{selectedSource.quantity} available</p>}
@@ -487,10 +550,7 @@ export default function TransfersPage() {
                         type="button"
                         variant="ghost"
                         size="sm"
-                        onClick={() => setSourceAllocations(current => ({
-                          ...current,
-                          [item.id]: rows.filter((_, index) => index !== rowIndex),
-                        }))}
+                        onClick={() => updateItemSourceAllocations(item, rows.filter((_, index) => index !== rowIndex))}
                       >Remove</Button>
                     </div>
                   </div>;
@@ -501,12 +561,8 @@ export default function TransfersPage() {
                 variant="outline"
                 size="sm"
                 disabled={!sources.length || rows.length >= sources.length}
-                onClick={() => setSourceAllocations(current => ({
-                  ...current,
-                  [item.id]: [...rows, { libraryId: 0, quantity: 1 }],
-                }))}
+                onClick={() => updateItemSourceAllocations(item, [...rows, { libraryId: 0, quantity: 1 }])}
               >Add source library</Button>
-              {remainder > 0 && <p className="text-sm text-muted-foreground">{remainder} unallocated {remainder === 1 ? "copy" : "copies"} will be added to the Acquisition Queue.</p>}
             </section>;
           })}
         </div>

@@ -158,14 +158,19 @@ describe("TransfersPage withdrawal confirmation", () => {
     requestRows = [reviewRequest];
     renderPage("/transfer-approvals");
 
-    expect(await screen.findByRole("button", { name: "Approve suggested sources" })).toBeDisabled();
+    expect(await screen.findByRole("button", { name: "Approve sources and queue remainder" })).toBeDisabled();
     await userEvent.click(await screen.findByRole("button", { name: "Choose sources" }));
     await screen.findByRole("heading", { name: "Choose transfer sources" });
+    const acquisitionInput = screen.getByLabelText("Copies to Acquisition Queue for Example Book");
+    expect(acquisitionInput).toHaveValue(3);
+    expect(screen.getByText("Full request goes to acquisition.")).toBeInTheDocument();
     await userEvent.click(await screen.findByRole("button", { name: "Add source library" }));
     await screen.findByRole("option", { name: "West Library · 2 available" });
     await userEvent.selectOptions(screen.getByLabelText("Source library"), "4");
     await userEvent.clear(screen.getByLabelText("Quantity from source 1"));
     await userEvent.type(screen.getByLabelText("Quantity from source 1"), "2");
+    expect(acquisitionInput).toHaveValue(1);
+    expect(screen.getByText("Partial request goes to acquisition.")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Approve allocations" }));
 
     await waitFor(() => {
@@ -189,7 +194,27 @@ describe("TransfersPage withdrawal confirmation", () => {
     }];
     renderPage("/transfer-approvals");
 
-    expect(await screen.findByRole("button", { name: "Approve suggested sources" })).toBeEnabled();
+    expect(await screen.findByRole("button", { name: "Approve sources and queue remainder" })).toBeEnabled();
+  });
+
+  it("can route the full requested quantity to the Acquisition Queue", async () => {
+    requestRows = [reviewRequest];
+    renderPage("/transfer-approvals");
+
+    await userEvent.click(await screen.findByRole("button", { name: "Choose sources" }));
+    const acquisitionInput = await screen.findByLabelText("Copies to Acquisition Queue for Example Book");
+    expect(acquisitionInput).toHaveValue(3);
+    await userEvent.click(screen.getByRole("button", { name: "Approve allocations" }));
+
+    await waitFor(() => {
+      const call = vi.mocked(fetch).mock.calls.find(([url]) => String(url) === "/api/transfers/1/review");
+      expect(call).toBeDefined();
+      expect(JSON.parse(String(call?.[1]?.body))).toEqual({
+        action: "approve",
+        allocations: [],
+        acquisitions: [{ itemId: 11, quantity: 3 }],
+      });
+    });
   });
 
   it("collects a required rejection reason in the application dialog", async () => {
