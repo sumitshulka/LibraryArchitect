@@ -151,6 +151,7 @@ function AppRouter() {
       <Route path="/organizations">{() => <ProtectedRoute component={OrganizationsPage} staffOnly />}</Route>
       <Route path="/organizations/libraries/:libraryId">{() => <ProtectedRoute component={LibraryDashboardPage} staffOnly />}</Route>
       <Route path="/organizations/libraries/:libraryId/resources">{() => <ProtectedRoute component={LibraryResourcesPage} staffOnly />}</Route>
+      <Route path="/transfer-approvals">{() => <ProtectedRoute component={TransfersPage} localAdminOnly />}</Route>
       <Route path="/transfers/acquisitions">{() => <ProtectedRoute component={TransfersPage} localAdminOnly />}</Route>
       <Route path="/transfers">{() => <ProtectedRoute component={TransfersPage} staffOnly />}</Route>
       <Route path="/reports">{() => <ProtectedRoute component={ReportsPage} staffOnly />}</Route>

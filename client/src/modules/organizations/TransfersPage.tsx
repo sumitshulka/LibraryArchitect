@@ -35,6 +35,7 @@ function parseAllocations(value: string, itemId: number) {
 export default function TransfersPage() {
   const [pathname] = useLocation();
   const queueOnly = pathname === "/transfers/acquisitions";
+  const reviewOnly = pathname === "/transfer-approvals";
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const localAdmin = user?.role === "ADMIN" && user.isLocalUser;
@@ -82,6 +83,10 @@ export default function TransfersPage() {
     onError: (error: Error) => toast.error(error.message),
   });
   const mine = useMemo(() => requests, [requests]);
+  const reviewRequests = useMemo(
+    () => requests.filter((request: any) => ["PENDING_REVIEW", "NEEDS_REALLOCATION"].includes(request.status)),
+    [requests],
+  );
   const setBook = (bookId: number, patch: Partial<{ quantity: number; sourceId: number; sourceQuantity: number; preferredSources: { libraryId: number; quantity: number }[] }>) =>
     setSelected(current => {
       const previous = current[bookId] || { quantity: 1, sourceId: 0, sourceQuantity: 1, preferredSources: [] };
@@ -151,8 +156,12 @@ export default function TransfersPage() {
   return <MainLayout>
     <div className="flex-1 space-y-6 overflow-auto p-6 md:p-8">
       <header>
-        <div className="flex items-center gap-2"><ArrowRightLeft className="h-6 w-6 text-primary" /><h1 className="text-3xl font-bold">{queueOnly ? "Acquisition Queue" : "Library Transfers"}</h1></div>
-        <p className="mt-2 text-muted-foreground">Request books from other libraries, review allocations, and track each handover through receipt.</p>
+        <div className="flex items-center gap-2"><ArrowRightLeft className="h-6 w-6 text-primary" /><h1 className="text-3xl font-bold">{queueOnly ? "Acquisition Queue" : reviewOnly ? "Transfer Approvals" : "Library Transfers"}</h1></div>
+        <p className="mt-2 text-muted-foreground">{reviewOnly
+          ? "Review requests across libraries, set source quantities, reject with a reason, or route shortages to acquisition."
+          : queueOnly
+            ? "Track new-copy requests routed from transfer approvals."
+            : "Request books from other libraries and track source acceptance, handover, and receipt."}</p>
       </header>
       {!!notifications.length && <Card>
         <CardHeader><CardTitle>Transfer notifications</CardTitle></CardHeader>
@@ -161,7 +170,7 @@ export default function TransfersPage() {
         </div>)}</CardContent>
       </Card>}
 
-      {!queueOnly && <Card>
+      {!queueOnly && !reviewOnly && <Card>
         <CardHeader><CardTitle>Find books across libraries</CardTitle><CardDescription>Choose books, quantities, and an optional preferred source.</CardDescription></CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_2fr]">
@@ -193,7 +202,7 @@ export default function TransfersPage() {
         </CardContent>
       </Card>}
 
-      {localAdmin && <Card>
+      {queueOnly && localAdmin && <Card>
         <CardHeader><CardTitle>Acquisition Queue</CardTitle><CardDescription>Requests routed for new copies instead of a library transfer.</CardDescription></CardHeader>
         <CardContent className="space-y-3">
           {acquisitionRows.map((row: any) => <div key={row.item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3">
@@ -204,7 +213,7 @@ export default function TransfersPage() {
         </CardContent>
       </Card>}
 
-      {!queueOnly && <section className="space-y-4">
+      {!queueOnly && !reviewOnly && <section className="space-y-4">
         <h2 className="text-xl font-semibold">Requests and active transfers</h2>
         {isLoading && <p className="text-sm text-muted-foreground">Loading transfers…</p>}
         {mine.map((request: any) => <Card key={request.id}>
@@ -225,7 +234,7 @@ export default function TransfersPage() {
                     mutate.mutate({ path: `/transfers/legs/${leg.id}/accept`, body: { quantity: value, reason } });
                   }
                 }}>Accept</Button>}
-                {localAdmin && leg.status === "ACCEPTED" && <Button size="sm" onClick={() => {
+                {localAdmin && !reviewOnly && leg.status === "ACCEPTED" && <Button size="sm" onClick={() => {
                   const type = window.prompt("Handover type: EMPLOYEE or COURIER", "COURIER");
                   if (!type) return;
                   const details = type.toUpperCase() === "EMPLOYEE"
@@ -245,7 +254,7 @@ export default function TransfersPage() {
               </div>)}
               {item.acquisitions.map((acquisition: any) => <div key={acquisition.id} className="text-sm text-muted-foreground">Acquisition queue: {acquisition.quantity} · {acquisition.status}</div>)}
             </div>)}
-            {localAdmin && request.status === "PENDING_REVIEW" && <div className="flex gap-2">
+            {reviewOnly && localAdmin && request.status === "PENDING_REVIEW" && <div className="flex gap-2">
               <Button onClick={() => approve(request)}><PackageCheck className="mr-2 h-4 w-4" />Approve suggested sources</Button>
               <Button variant="outline" onClick={() => {
                 customApprove(request);
@@ -255,15 +264,44 @@ export default function TransfersPage() {
                 if (reason?.trim()) mutate.mutate({ path: `/transfers/${request.id}/review`, body: { action: "reject", reason } });
               }}>Reject</Button>
             </div>}
-            {localAdmin && request.status === "NEEDS_REALLOCATION" && <Button onClick={() => resolveShortfall(request)}>Resolve shortfall</Button>}
+            {reviewOnly && localAdmin && request.status === "NEEDS_REALLOCATION" && <Button onClick={() => resolveShortfall(request)}>Resolve shortfall</Button>}
             {request.rejectionReason && <p className="text-sm text-destructive">Reason: {request.rejectionReason}</p>}
             <Separator />
             <details><summary className="cursor-pointer text-sm font-medium">History ({request.events.length})</summary><div className="mt-2 space-y-1 text-xs text-muted-foreground">{request.events.map((entry: any) => <div key={entry.id}>{new Date(entry.createdAt).toLocaleString()} · {entry.action} · {JSON.stringify(entry.details)}</div>)}</div></details>
           </CardContent>
         </Card>)}
-        {!requests.length && !isLoading && <Card><CardContent className="py-10 text-center text-sm text-muted-foreground">No transfer requests yet.</CardContent></Card>}
       </section>}
-      <div className="flex gap-4 text-sm"><Link href="/libraries" className="text-primary underline">Libraries</Link><Link href="/transfers" className="text-primary underline">Refresh transfers</Link><Truck className="h-4 w-4 text-muted-foreground" /></div>
+      {reviewOnly && <section className="space-y-4">
+        <h2 className="text-xl font-semibold">Requests awaiting review</h2>
+        {isLoading && <p className="text-sm text-muted-foreground">Loading approval requests…</p>}
+        {reviewRequests.map((request: any) => <Card key={request.id}>
+          <CardHeader className="flex flex-row items-start justify-between gap-4">
+            <div><CardTitle>Request #{request.id} · {request.destination?.name}</CardTitle><CardDescription>{request.reason} · {new Date(request.createdAt).toLocaleString()}</CardDescription></div>
+            <Badge variant="secondary">{request.status}</Badge>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {request.items.map((item: any) => <div key={item.id} className="rounded-md border p-3">
+              <div className="font-medium">{item.book?.title}</div>
+              <div className="text-sm text-muted-foreground">Requested {item.requestedQuantity} · ISBN {item.book?.isbn}</div>
+              {item.legs.map((leg: any) => <div key={leg.id} className="mt-2 text-sm">{leg.source?.name} · {leg.requestedQuantity} requested from this source · {leg.status}</div>)}
+              {item.acquisitions.map((entry: any) => <div key={entry.id} className="mt-2 text-sm">Acquisition queue: {entry.quantity} · {entry.status}</div>)}
+            </div>)}
+            {request.status === "PENDING_REVIEW" && <div className="flex flex-wrap gap-2">
+              <Button onClick={() => approve(request)}><PackageCheck className="mr-2 h-4 w-4" />Approve suggested sources</Button>
+              <Button variant="outline" onClick={() => customApprove(request)}>Choose sources</Button>
+              <Button variant="outline" onClick={() => {
+                const reason = window.prompt("Reason for rejection");
+                if (reason?.trim()) mutate.mutate({ path: `/transfers/${request.id}/review`, body: { action: "reject", reason } });
+              }}>Reject</Button>
+            </div>}
+            {request.status === "NEEDS_REALLOCATION" && <Button onClick={() => resolveShortfall(request)}>Resolve shortfall</Button>}
+            <Separator />
+            <details><summary className="cursor-pointer text-sm font-medium">History ({request.events.length})</summary><div className="mt-2 space-y-1 text-xs text-muted-foreground">{request.events.map((entry: any) => <div key={entry.id}>{new Date(entry.createdAt).toLocaleString()} · {entry.actorName} · {entry.action} · {JSON.stringify(entry.details)}</div>)}</div></details>
+          </CardContent>
+        </Card>)}
+        {!reviewRequests.length && !isLoading && <Card><CardContent className="py-10 text-center text-sm text-muted-foreground">No requests are awaiting review.</CardContent></Card>}
+      </section>}
+      {(!reviewOnly && !queueOnly) && <div className="flex gap-4 text-sm"><Link href="/libraries" className="text-primary underline">Libraries</Link><Truck className="h-4 w-4 text-muted-foreground" /></div>}
     </div>
   </MainLayout>;
 }

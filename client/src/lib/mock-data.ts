@@ -1,4 +1,4 @@
-import { LucideIcon, LayoutDashboard, Book, Users, Repeat, AlertCircle, Settings, PieChart, Layers, Bell, Search, Menu, Building2, Package, ClipboardList, Tags, Coins, BookmarkCheck, Banknote, FolderOpen, AlertTriangle, Library, MessageSquare, BookOpenCheck, History, FileSpreadsheet, ArrowRightLeft, ShoppingCart } from "lucide-react";
+import { LucideIcon, LayoutDashboard, Book, Users, Repeat, AlertCircle, Settings, PieChart, Layers, Bell, Search, Menu, Building2, Package, ClipboardList, Tags, Coins, BookmarkCheck, Banknote, FolderOpen, AlertTriangle, Library, MessageSquare, BookOpenCheck, History, FileSpreadsheet, ArrowRightLeft, ShoppingCart, ClipboardCheck } from "lucide-react";
 
 export type UserRole = 'ADMIN' | 'LIBRARIAN' | 'STUDENT';
 
@@ -79,6 +79,7 @@ export const navItems = [
   { label: 'Digital Resources', icon: FolderOpen, href: '/digital-resources', localAdminOnly: false },
   { label: 'Inventory', icon: Layers, href: '/inventory', localAdminOnly: false },
   { label: 'Transfers', icon: ArrowRightLeft, href: '/transfers', localAdminOnly: false },
+  { label: 'Transfer Approvals', icon: ClipboardCheck, href: '/transfer-approvals', localAdminOnly: true },
   { label: 'Acquisition Queue', icon: ShoppingCart, href: '/transfers/acquisitions', localAdminOnly: true },
   { label: 'Search Attributes', icon: Tags, href: '/catalog/search-attributes', localAdminOnly: true },
   { label: 'Allocations', icon: Package, href: '/allocations', localAdminOnly: false, adminOnly: true },
@@ -103,7 +104,7 @@ export const navGroups: { title: string | null; items: string[] }[] = [
   { title: null, items: ['Dashboard', 'Libraries'] },
   { title: 'Collections', items: ['Catalog', 'Digital Resources', 'Inventory', 'Search Attributes'] },
   { title: 'My Library', items: ['My Loans', 'Reservations', 'My Fines', 'Reading History'] },
-  { title: 'Library Operations', items: ['Allocations', 'Transfers', 'Acquisition Queue', 'Circulation', 'Reservations', 'Lost & Damaged', 'Fines', 'Waiver Requests'] },
+  { title: 'Library Operations', items: ['Allocations', 'Transfers', 'Transfer Approvals', 'Acquisition Queue', 'Circulation', 'Reservations', 'Lost & Damaged', 'Fines', 'Waiver Requests'] },
   { title: 'Members', items: ['Patrons', 'Organizations'] },
   { title: 'Insights', items: ['Reports'] },
   { title: 'Administration', items: ['Messages', 'Audit Logs', 'Settings', 'Inventory Import'] },
