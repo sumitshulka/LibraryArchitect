@@ -154,6 +154,17 @@ describe("TransfersPage withdrawal confirmation", () => {
     });
   });
 
+  it.each([
+    ["/transfer-approvals", "Transfer Approvals"],
+    ["/transfers/acquisitions", "Acquisition Queue"],
+  ])("keeps transfer notifications off %s", async (path, heading) => {
+    renderPage(path);
+
+    await screen.findByRole("heading", { name: heading });
+    expect(screen.queryByText("Transfer request #1 needs review")).not.toBeInTheDocument();
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url) === "/api/transfers/notifications")).toBe(false);
+  });
+
   it("lets an admin choose available sources and queues the unallocated remainder", async () => {
     requestRows = [reviewRequest];
     renderPage("/transfer-approvals");

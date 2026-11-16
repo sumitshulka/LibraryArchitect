@@ -48,6 +48,7 @@ export default function TransfersPage() {
   const [pathname] = useLocation();
   const queueOnly = pathname === "/transfers/acquisitions";
   const reviewOnly = pathname === "/transfer-approvals";
+  const showTransferNotifications = !queueOnly && !reviewOnly;
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const localAdmin = user?.role === "ADMIN" && user.isLocalUser;
@@ -83,7 +84,11 @@ export default function TransfersPage() {
     queryFn: () => api<any[]>("/transfers/acquisitions"),
     enabled: !!localAdmin,
   });
-  const { data: notifications = [] } = useQuery({ queryKey: ["transfer-notifications"], queryFn: () => api<any[]>("/transfers/notifications") });
+  const { data: notifications = [] } = useQuery({
+    queryKey: ["transfer-notifications"],
+    queryFn: () => api<any[]>("/transfers/notifications"),
+    enabled: showTransferNotifications,
+  });
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ["transfers"] });
     queryClient.invalidateQueries({ queryKey: ["transfer-catalog"] });
@@ -245,7 +250,7 @@ export default function TransfersPage() {
             ? "Track new-copy requests routed from transfer approvals."
             : "Request books from other libraries and track source acceptance, handover, and receipt."}</p>
       </header>
-      {!!notifications.length && <Card className="border-orange-300 bg-orange-50 dark:border-orange-800 dark:bg-orange-950">
+      {showTransferNotifications && !!notifications.length && <Card className="border-orange-300 bg-orange-50 dark:border-orange-800 dark:bg-orange-950">
         <CardHeader><CardTitle className="text-orange-950 dark:text-orange-100">Transfer notifications</CardTitle></CardHeader>
         <CardContent className="space-y-2">{notifications.map((notification: any) => <div key={notification.id} className="flex items-center justify-between gap-3 rounded border border-orange-200 bg-white p-3 text-sm text-orange-950 dark:border-orange-800 dark:bg-orange-900 dark:text-orange-50">
           <span>{notification.message}</span><Button size="sm" variant="outline" onClick={() => mutate.mutate({ path: `/transfers/notifications/${notification.id}/read`, body: {} })}>Mark read</Button>
