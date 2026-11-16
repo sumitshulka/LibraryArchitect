@@ -10,6 +10,16 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { Search, Truck, ArrowRightLeft, PackageCheck } from "lucide-react";
 
@@ -46,6 +56,7 @@ export default function TransfersPage() {
   const canActForDestination = !!localAdmin || !!access?.libraries.some((library: any) => library.id === destinationId);
   const [search, setSearch] = useState("");
   const [reason, setReason] = useState("");
+  const [withdrawDialogRequestId, setWithdrawDialogRequestId] = useState<number | null>(null);
   const [selected, setSelected] = useState<Record<number, { quantity: number; sourceId: number; sourceQuantity: number; preferredSources: { libraryId: number; quantity: number }[] }>>({});
   const { data: catalog = [] } = useQuery({
     queryKey: ["transfer-catalog", destinationId, search],
@@ -266,11 +277,7 @@ export default function TransfersPage() {
               type="button"
               size="sm"
               variant="outline"
-              onClick={() => {
-                if (window.confirm("Withdraw this request before approval? Its audit history will be kept.")) {
-                  mutate.mutate({ path: `/transfers/${request.id}/withdraw`, body: {} });
-                }
-              }}
+              onClick={() => setWithdrawDialogRequestId(request.id)}
             >Withdraw request</Button>}
             {reviewOnly && localAdmin && request.status === "PENDING_REVIEW" && <div className="flex gap-2">
               <Button onClick={() => approve(request)}><PackageCheck className="mr-2 h-4 w-4" />Approve suggested sources</Button>
@@ -317,11 +324,7 @@ export default function TransfersPage() {
               type="button"
               size="sm"
               variant="outline"
-              onClick={() => {
-                if (window.confirm("Withdraw this request before approval? Its audit history will be kept.")) {
-                  mutate.mutate({ path: `/transfers/${request.id}/withdraw`, body: {} });
-                }
-              }}
+              onClick={() => setWithdrawDialogRequestId(request.id)}
             >Withdraw request</Button>}
             <Separator />
             <details><summary className="cursor-pointer text-sm font-medium">History ({request.events.length})</summary><div className="mt-2 space-y-1 text-xs text-muted-foreground">{request.events.map((entry: any) => <div key={entry.id}>{new Date(entry.createdAt).toLocaleString()} · {entry.actorName} · {entry.action} · {JSON.stringify(entry.details)}</div>)}</div></details>
@@ -343,5 +346,30 @@ export default function TransfersPage() {
       </details>}
       {(!reviewOnly && !queueOnly) && <div className="flex gap-4 text-sm"><Link href="/libraries" className="text-primary underline">Libraries</Link><Truck className="h-4 w-4 text-muted-foreground" /></div>}
     </div>
+    <AlertDialog
+      open={withdrawDialogRequestId !== null}
+      onOpenChange={open => { if (!open) setWithdrawDialogRequestId(null); }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Withdraw transfer request?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This request will be removed from active lists. Its audit history will be retained.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Keep request</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={mutate.isPending || withdrawDialogRequestId === null}
+            onClick={() => {
+              if (withdrawDialogRequestId !== null) {
+                mutate.mutate({ path: `/transfers/${withdrawDialogRequestId}/withdraw`, body: {} });
+                setWithdrawDialogRequestId(null);
+              }
+            }}
+          >Withdraw request</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </MainLayout>;
 }
